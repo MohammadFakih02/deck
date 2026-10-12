@@ -1,0 +1,80 @@
+// Screenshots the phone remote (src-tauri/phone/index.html) at phone and tablet sizes with a fake
+// WebSocket feeding it a realistic state, and checks that a tap survives a state push.
+//   node phone-shot.mjs <outdir> [phoneHtml]      (PORT env picks the debug port)
+import { spawn, spawnSync } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
+import { pathToFileURL, fileURLToPath } from "node:url";
+const here = path.dirname(fileURLToPath(import.meta.url));
+const [, , outDir = "phone-shots", src = path.resolve(here, "../../../src-tauri/phone/index.html")] = process.argv;
+const port = +(process.env.PORT || 9380);
+fs.mkdirSync(outDir, { recursive: true });
+setTimeout(() => { console.log("TIMEOUT"); process.exit(2); }, 120000).unref();
+
+const STATE = {
+  t: "state", pc: "DESKTOP-GAMING",
+  media: { current: { id: "spotify", title: "Nights", artist: "Frank Ocean", app: "Spotify", status: "playing", pos: 94, len: 307 } },
+  master: { vol: 0.62, muted: false },
+  apps: [{ key: "spotify", name: "Spotify", vol: 0.8, muted: false }, { key: "cs2", name: "Counter-Strike 2", vol: 0.55, muted: false }, { key: "discord", name: "Discord", vol: 1, muted: false }],
+  outputs: [{ id: "a", name: "Speakers (Realtek High Definition Audio)", default: false }, { id: "b", name: "Headphones (HyperX Cloud II Virtual Surround Sound)", default: true }],
+  power: { timers: [{ id: 1, label: "Pasta", end_ms: Date.now() + 340000, done: false }], now: Date.now(), awake_active: false, plan: null },
+  boost: { on: false, busy: false },
+  sys: { cpu: 23, ram: 58, gpu: { temp: 61 }, down: 920000 },
+  profiles: { cpu: [{ id: "eco", name: "Eco" }, { id: "mid", name: "Mid" }, { id: "max", name: "Max" }], gpu: [{ id: "ab5", name: "AB Profile 5" }, { id: "q", name: "Quiet" }], active_cpu: "mid", active_gpu: "ab5" },
+  shared: [{ id: 1, kind: "link", text: "https://youtu.be/dQw4w9WgXcQ", from: "phone" }, { id: 2, kind: "file", name: "IMG_2041.jpg", size: 2400000, from: "pc" }],
+  toasts: [],
+};
+const FAKE = `<script>
+window.__sent = [];
+class FakeWS { constructor() { this.readyState = 1; FakeWS.last = this; setTimeout(() => { this.onopen && this.onopen(); this.push(); }, 50); }
+  send(m) { window.__sent.push(JSON.parse(m)); } close() {}
+  push() { this.onmessage && this.onmessage({ data: JSON.stringify(window.__state) }); } }
+window.__state = ${JSON.stringify(STATE)};
+window.WebSocket = FakeWS;
+window.confirm = () => true;
+</script>`;
+const html = fs.readFileSync(src, "utf8").replace("<head>", "<head>" + FAKE);
+const file = path.join(here, `phone-harness-${port}.html`);
+fs.writeFileSync(file, html);
+
+const edge = spawn("C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe", ["--headless=new", `--remote-debugging-port=${port}`, "--allow-file-access-from-files", "--disable-gpu", "--hide-scrollbars", `--user-data-dir=${process.env.TEMP}\\deck-phone-edge-${process.pid}`, "about:blank"], { stdio: "ignore" });
+let list;
+for (let i = 0; i < 50; i++) { try { list = await (await fetch(`http://127.0.0.1:${port}/json`)).json(); if (list.find((t) => t.type === "page")) break; } catch {} await new Promise((r) => setTimeout(r, 200)); }
+const ws = new WebSocket(list.find((x) => x.type === "page").webSocketDebuggerUrl);
+let id = 0; const pend = new Map(); const logs = [];
+ws.onmessage = (m) => { const d = JSON.parse(m.data); if (d.id && pend.has(d.id)) { pend.get(d.id)(d); pend.delete(d.id); } if (d.method === "Runtime.exceptionThrown") logs.push("EXC " + (d.params.exceptionDetails.exception?.description || d.params.exceptionDetails.text)); };
+await new Promise((r) => (ws.onopen = r));
+const send = (method, params = {}) => new Promise((res) => { const i = ++id; pend.set(i, res); ws.send(JSON.stringify({ id: i, method, params })); });
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const ev = async (e) => { const r = await send("Runtime.evaluate", { expression: e, awaitPromise: true, returnByValue: true }); return r.result?.result?.value; };
+await send("Runtime.enable");
+const sizes = [["phone-320x568", 320, 568, 2], ["phone-375x812", 375, 812, 3], ["phone-430x932", 430, 932, 3], ["tablet-768x1024", 768, 1024, 2], ["tablet-landscape-1024x768", 1024, 768, 2]];
+for (const [name, w, h, dpr] of sizes) {
+  await send("Emulation.setDeviceMetricsOverride", { width: w, height: h, deviceScaleFactor: dpr, mobile: true });
+  await send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 5 });
+  await send("Page.navigate", { url: pathToFileURL(file).href + "#k=test" });
+  await sleep(900);
+  const m = await ev(`({ overflowX: document.documentElement.scrollWidth - innerWidth, height: document.documentElement.scrollHeight, unnamed: [...document.querySelectorAll("button, a[href]")].filter((b) => b.offsetParent && !(b.getAttribute("aria-label") || b.textContent.trim() || b.title)).length, small: [...document.querySelectorAll("button, a[href]")].filter((b) => { const r = b.getBoundingClientRect(); return b.offsetParent && (r.width < 24 || r.height < 24); }).length, zoomable: !/user-scalable=no/.test(document.querySelector("meta[name=viewport]").content) })`);
+  console.log(name.padEnd(28), JSON.stringify(m));
+  const full = await ev(`document.documentElement.scrollHeight`);
+  await send("Emulation.setDeviceMetricsOverride", { width: w, height: Math.min(full, 4000), deviceScaleFactor: 1, mobile: true });
+  await sleep(300);
+  const r = await send("Page.captureScreenshot", { format: "png" });
+  fs.writeFileSync(path.join(outDir, `remote-${name}.png`), Buffer.from(r.result.data, "base64"));
+}
+// a tap that spans a state push (the PC sends one every 1.5 s) must still count
+await send("Emulation.setDeviceMetricsOverride", { width: 375, height: 812, deviceScaleFactor: 1, mobile: true });
+await send("Page.navigate", { url: pathToFileURL(file).href + "#k=test" });
+await sleep(900);
+const at = await ev(`(() => { const b = document.querySelector("[data-a=awake]"); b.scrollIntoView({ block: "center" }); const r = b.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; })()`);
+await ev(`window.__sent.length = 0`);
+await send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: at[0], y: at[1] }] });
+await ev(`WebSocket.last.push()`);
+await sleep(60);
+await send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+await sleep(300);
+const sent = await ev(`window.__sent.filter((m) => m.a === "awake").length`);
+console.log(`${sent === 1 ? "PASS" : "FAIL"}  tap survives a state push (awake messages: ${sent})`);
+console.log(logs.length ? logs.join("\n") : "no script errors");
+try { ws.close(); spawnSync("taskkill", ["/pid", String(edge.pid), "/T", "/F"], { stdio: "ignore" }); } catch {}
+process.exit(0);

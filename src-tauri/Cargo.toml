@@ -1,0 +1,57 @@
+[package]
+name = "deck"
+version = "1.0.0"
+description = "Dashboard, launcher and Windows power tools in one tray app"
+authors = ["moudi"]
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+axum = { version = "0.8.9", features = ["ws", "multipart"] }
+futures-util = "0.3.34"
+getrandom = "0.4.3"
+jwalk = "0.9.0"
+nvml-wrapper = "0.13.0"
+parking_lot = "0.12.5"
+png = "0.18.1"
+qrcode = "0.14.1"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+sysinfo = "0.39.6"
+tauri = { version = "2.12", features = ["tray-icon", "image-png", "custom-protocol"] }
+tauri-plugin-dialog = "2"
+tauri-plugin-single-instance = "2"
+tokio = { version = "1.53.1", features = ["rt-multi-thread", "net", "sync", "time", "macros", "fs", "io-util"] }
+tokio-util = { version = "0.7.19", features = ["io"] }
+tungstenite = "0.30.0"
+ureq = { version = "2", default-features = false, features = ["tls", "json"] }
+windows = { version = "0.62", features = [
+  "Win32_Foundation", "Win32_Media_Audio", "Win32_Media_Audio_Endpoints", "Win32_System_Com", "Win32_System_Com_StructuredStorage",
+  "Win32_System_Variant", "Win32_UI_Shell", "Win32_UI_Shell_PropertiesSystem", "Win32_UI_Shell_Common", "Win32_UI_WindowsAndMessaging",
+  "Win32_Graphics_Gdi", "Win32_Graphics_Dwm", "Win32_System_Threading", "Win32_System_Power", "Win32_System_Shutdown",
+  "Win32_System_DataExchange", "Win32_System_Memory", "Win32_System_Ole", "Win32_System_RestartManager", "Win32_System_Registry",
+  "Win32_System_SystemInformation", "Win32_Devices_Display", "Win32_NetworkManagement_IpHelper", "Win32_Networking_WinSock",
+  "Win32_Storage_FileSystem", "Win32_System_ProcessStatus", "Win32_System_Diagnostics_ToolHelp", "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_System_LibraryLoader", "Win32_Security", "Win32_UI_HiDpi", "Win32_Devices_FunctionDiscovery", "Win32_System_Console",
+  "Win32_UI_Accessibility", "Win32_System_Time", "Win32_System_RemoteDesktop", "Win32_Storage_Packaging_Appx",
+  "Foundation", "Foundation_Collections", "Media_Control", "Media_Ocr", "Graphics_Imaging", "Storage_Streams", "Globalization",
+] }
+windows-core = "0.62"
+# MoboCtl's hardware engine (src/hw) is written against windows-sys
+windows-sys = { version = "0.61.2", features = [
+  "Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_Threading",
+  "Win32_System_Services", "Win32_System_Power", "Win32_System_LibraryLoader", "Win32_System_SystemInformation",
+  "Win32_Devices_HumanInterfaceDevice", "Win32_Devices_DeviceAndDriverInstallation", "Win32_UI_WindowsAndMessaging",
+  "Win32_Graphics_Dwm", "Win32_Graphics_Gdi", "Win32_System_Ioctl", "Win32_NetworkManagement_IpHelper",
+  "Win32_NetworkManagement_Ndis", "Win32_Networking_WinSock", "Win32_UI_Shell", "Win32_System_Performance",
+  "Win32_UI_HiDpi", "Win32_UI_Input_KeyboardAndMouse", "Win32_System_Memory", "Win32_System_Diagnostics_Debug", "Win32_System_Kernel", "Win32_System_Pipes",
+] }
+image = { version = "0.25", default-features = false, features = ["ico", "png"] }
+windows-future = "0.3"
+
+[profile.release]
+strip = true
+lto = "thin"
+codegen-units = 4

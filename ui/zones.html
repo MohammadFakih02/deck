@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Deck zones</title>
+  <style>
+    :root { --acc: #4f8cff; }
+    html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; font: 600 15px "Segoe UI Variable Display", "Segoe UI", sans-serif; color: #fff; }
+    .z {
+      position: absolute; box-sizing: border-box; margin: 6px;
+      border: 2px solid color-mix(in srgb, var(--acc) 55%, transparent);
+      background: color-mix(in srgb, var(--acc) 10%, rgba(10, 12, 18, .35));
+      border-radius: 14px; display: grid; place-items: center;
+      transition: background .08s, border-color .08s;
+    }
+    .z span { font-size: 40px; opacity: .5; }
+    .z.on { background: color-mix(in srgb, var(--acc) 38%, rgba(10, 12, 18, .25)); border-color: var(--acc); }
+    .z.on span { opacity: 1; }
+    .name { position: absolute; left: 50%; top: 18px; transform: translateX(-50%); background: #151923ee; border: 1px solid #2d3548; padding: 6px 14px; border-radius: 10px; font-size: 13px; white-space: nowrap; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script src="js/zones.js"></script>
+</body>
+</html>

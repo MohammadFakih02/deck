@@ -1,0 +1,25 @@
+# build output
+/src-tauri/target/
+target/
+*.pdb
+
+# local-only notes and screenshots (contain details of the developer's PC)
+/artifacts/
+/.superpowers/
+
+# generated test pages (absolute local paths)
+/tools/testing/ui-preview/harness*.html
+/tools/testing/ui-preview/out/
+*.log
+
+# editors / OS
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+node_modules/
+__pycache__/
+
+# private notes and untouched originals (local only)
+/private/
+/PRIVATE_NOTES.md

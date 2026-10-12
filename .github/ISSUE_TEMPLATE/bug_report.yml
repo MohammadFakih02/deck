@@ -1,0 +1,29 @@
+name: Bug report
+description: Something in Deck doesn't work
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Deck version
+      description: Settings → About
+      placeholder: "1.0.0"
+    validations:
+      required: true
+  - type: textarea
+    id: pc
+    attributes:
+      label: Your PC
+      description: Windows version, CPU, GPU and motherboard. This PC → Copy report gives all of it.
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: Screenshots, which page, whether a game was running.

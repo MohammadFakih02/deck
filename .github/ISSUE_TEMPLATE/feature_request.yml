@@ -1,0 +1,11 @@
+name: Feature request
+description: An idea for Deck
+labels: [enhancement]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like?
+      description: What should Deck do, and what would you use it for?
+    validations:
+      required: true

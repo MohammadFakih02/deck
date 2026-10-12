@@ -1,0 +1,314 @@
+# Deck — project state
+
+Handoff notes so work can resume later. Last updated: 2026-10-11 (hardware control merged).
+
+**Start with `DECK.md`** (full overview: features, hardware, files, build/test, status). This file is the dated history.
+
+> **RULE: before every commit, update the docs.** Add today's dated entry here, add user-visible changes to `CHANGELOG.md`, update `DECK.md` / `README.md` when facts change, and stage them in the same commit. The pre-commit hook enforces it; never bypass it. No personal data in these files (that goes in the git-ignored `PRIVATE_NOTES.md`).
+
+## 2026-10-11: hardware control (MoboCtl merged, Afterburner replaced)
+
+Spec `docs/superpowers/specs/2026-10-11-hardware-control-design.md`, plan + ledger with every ruling in
+`docs/superpowers/plans/` (`progress.md`).
+- **Runs elevated** through scheduled tasks `\Deck\Deck` (logon, `--minimized`) and `\Deck\Open` (Start menu via `run.vbs`);
+  installed to `C:\Program Files\Deck` by `install.ps1`; apps it opens still start as the normal user (`util::launch_as_user`).
+- **Hardware group**: CPU, GPU, Fans, Lighting, Cooler display, Sensors, This PC (pages hide when the PC has no such hardware).
+  Engine = MoboCtl's, in `src/hw/` (settings `%APPDATA%\Deck\hardware\settings.ini` + `curves.ini`, MoboCtl keys).
+- **CPU profiles** = Windows power plans + extras (RAPL limits, min-clock lock, turbo OC, Game Mode off while capped);
+  plan watcher (2 s), in-game clock check. `--cpu-probe` lists plans.
+- **GPU profiles** = Afterburner slots: power %, temp limit, core/mem offset or VF curve (NvAPI VF table deltas), voltage %, fan
+  auto/fixed/curve. Afterburner import (`profiles/afterburner.rs`, fixture = a real Afterburner cfg). Crash guard `%APPDATA%\Deck\gpu-applied.json`.
+  Stock VF curve cached in `gpu-stock-curve.json`. `--gpu-probe [--write] --out f`.
+- **Switching**: profile cards, tray submenus, RegisterHotKey keys, desktop/Start shortcuts (`\Deck\Profile <kind>-<id>` tasks),
+  phone chips, Game boost. 25 icons in `src-tauri/icons/profiles` (generator `tools/icons/make.py`).
+- **RTSS kept**: Deck writes its OSD slot + publishes `MAHMSharedMemory` (`rtss.rs`); items/key on the Sensors page.
+- Tests: `cargo test --bin deck` (39). UI previews: `--dump-state` + `--dump-hw` (read-only) → mock `__TAURI__` → headless Edge.
+- Debug: `--release-fans` (board + GPU fan + Game Mode back), `--quit` (graceful, used by `uninstall.ps1`), `--hw-selftest`.
+
+
+## What it is
+
+One tray app that combines a Raycast-style launcher, a live dashboard and the best
+PowerToys / small-utility tools. Opened by a **hot corner** (mouse in a screen corner),
+the tray icon, the Start menu or the phone. **No keyboard shortcuts** (user preference).
+
+Built from research of 2026 "best Windows utilities" lists (PowerToys' 30 tools,
+Raycast, EarTrumpet, WizTree, Ditto, LocalSend, Twinkle Tray, Stretchly, Auto Dark
+Mode, LockHunter, BCUninstaller...). What made it in:
+
+| Area | Features | Inspired by |
+|---|---|---|
+| Search box | Start-menu + Store apps (with icons), Deck actions, calculator, unit & currency conversion, number bases, games, files (own index), clipboard, web; commands `timer 10m`, `sleep in 30m`, `kill discord`, URLs | Raycast, PowerToys Run/Command Palette, Flow Launcher |
+| Home tiles | Clock + calendar, now playing (SMTC, artwork), PC vitals (CPU/RAM/GPU via NVML, drives, sparklines), sound (outputs + per-app), pinned & frequent apps, quick actions, clipboard, power & timers, MicDrop, quick note, network | Dashboards |
+| Clipboard | History of text/images/files, pins, search, click = paste into previous app, "paste as" (plain, case, trim, one line, clean link, pretty JSON); skips password-manager content | Ditto, Advanced Paste |
+| Sound | Default output switch (IPolicyConfig), master + per-app volume with meters, all media sessions | EarTrumpet |
+| Windows | Open windows list: pin on top, see-through, snap to zone, center, close; FancyZones-style drag snapping (tap right mouse button while dragging, or always); 6 layouts; workspaces (save window positions + apps to close + audio output + keep awake) | FancyZones, Always On Top, Workspaces |
+| Files & disk | Drive/folder scan → treemap + list + biggest files, recycle; cleanup of temp, shader caches, crash dumps, browser/Discord/Spotify/Steam caches, thumbnails, old installers (to Recycle Bin), dev caches, Recycle Bin; file-search index folders | WizTree/TreeSize, PC Manager, CCleaner |
+| Power | Keep awake (on / for N min / while app runs / until downloads finish), "do X when Y" (shutdown/sleep/restart/lock/screen off/notify when time, app closes, downloads finish, CPU idle, network quiet, media stops, away), 60 s cancel warning; timers, stopwatch, break reminders (never over fullscreen) | Awake, Shutdown timers, Stretchly |
+| System | Processes grouped by app (end, not-responding flag), startup apps on/off (StartupApproved, same as Task Manager), network (IPs, ping, Cloudflare speed test), displays (refresh rate, DDC/CI brightness, HDR), dark/light theme + schedule (times or sunrise/sunset) | Task Manager, Twinkle Tray, Auto Dark Mode |
+| Tools | Colour picker (loupe), copy text from screen (Windows OCR), pixel ruler, colour history, "what's locking this file" (Restart Manager), notes, shortcuts to Windows panels | Color Picker, Text Extractor, Screen Ruler, File Locksmith |
+| Phone | LAN web app (installable PWA): media, volume, outputs, power, plans, timers, PC vitals, send text/links/files both ways, get PC clipboard | LocalSend, remotes |
+
+## Preferences Deck follows
+
+Key points:
+- **No keyboard shortcuts** as the way in. Hot corner default top-left, 250 ms, off over fullscreen games.
+- Deck now runs **elevated** (hardware control); the user accepted that. Profile hotkeys are the one keyboard exception they asked for.
+- Picky about looks: check UI changes with offscreen renders before shipping.
+- Must be safe with kernel anti-cheat (Vanguard, EAC, BattlEye). Deck uses **no input hooks**:
+  hot corner polls the cursor, drag-snapping uses WinEvent hooks + GetAsyncKeyState.
+
+## Current status
+
+- Installed at `%LOCALAPPDATA%\Programs\Deck\Deck.exe` + Start Menu shortcut (`install.ps1`).
+- **Not launched yet** by me (user may be gaming). First launch registers autostart (`--minimized`).
+- Settings: `%APPDATA%\Deck\settings.json`; clipboard history in `%APPDATA%\Deck\clipboard\`.
+- Phone port 47830 (MicDrop uses 47823). Files from phone → `Downloads\From phone`.
+
+Verified: unit tests (calc, fuzzy search), read-only `--selftest` against the real PC
+(audio, media, apps, games, windows, monitors, startup, ping, recycle bin), phone server
+16/16 checks (`--selftest-remote` + node client), offscreen renders of every page and the phone page.
+
+Not verified yet (needs the real GUI): hot corner feel, toast window placement, zones overlay
+while dragging, colour picker / OCR overlay, paste-back into previous app, workspaces restore,
+refresh-rate/HDR switching, firewall prompt for the phone.
+
+## Code layout
+
+| Path | What |
+|---|---|
+| `src-tauri/src/main.rs` | Tauri setup, ~80 commands, tray, show/hide (dim overlay or window), toast + zones windows, icon:// protocol, debug modes |
+| `src-tauri/src/app.rs` | `App`: shared state, change events, toasts + toast actions, frecency |
+| `settings.rs` | Settings struct (+ layouts, workspaces, notes), atomic save, `DECK_PROFILE` |
+| `sys.rs` | sysinfo + NVML vitals, process groups, kill |
+| `audio.rs` | outputs, IPolicyConfig default output, master/per-app volume, friendly exe names |
+| `media.rs` | SMTC sessions, artwork, controls |
+| `apps.rs` | AppsFolder enumeration, icon extraction (STA thread) → PNG |
+| `calc.rs` | expression parser, units, currencies (open.er-api.com, cached), bases |
+| `files.rs` | file-name index + fuzzy `score()` |
+| `clipboard.rs` | message-only window listener, history, set text/image/files, `send_paste` |
+| `power.rs` | keep awake thread, plans, timers, stopwatch, breaks |
+| `winmgr.rs` | window list/actions, zones drag (WinEvent hook), workspaces |
+| `disk.rs` / `cleanup.rs` | jwalk scan tree, recycle; cleanup targets |
+| `startup.rs`, `display.rs`, `net.rs`, `locksmith.rs`, `games.rs` | as named (speed test can be cancelled mid-run) |
+| `gameping.rs` | game server ping. Valve games: ICMP to every relay of each SDR city, best relay's median. Fortnite / Rocket League / Dead by Daylight: UDP echo to Amazon GameLift ping beacons `gamelift-ping.<region>.api.aws:7770`, grouped into each game's regions. TCP connect is useless here (router/ISP answers port 443 in ~5 ms). Riot etc. not listed (not measurable) |
+| `picker.rs` | native fullscreen overlay: colour / OCR (Windows.Media.Ocr) / measure |
+| `hotcorner.rs` | cursor polling + `fullscreen_in_front()` |
+| `micdrop.rs` | WebSocket client to MicDrop's phone remote (only sends on clicks) |
+| `remote.rs` + `phone/index.html` | phone server (axum) and page |
+| `ui/` | `index.html`, `app.css`, `js/{icons,core,home,search,pages1-3,app}.js`, `toast.html`, `zones.html` |
+
+## Build / test
+
+```powershell
+cd src-tauri; cargo test; cargo build --release
+..\install.ps1          # refuses while Deck is running
+```
+Debug-only flags (`target\debug\deck.exe`), all use profile `%APPDATA%\Deck-test`
+and change nothing: `--selftest`, `--dump-state`, `--dump-icons`, `--selftest-remote` (port 47839, localhost only).
+UI previews: `--dump-state` + `--dump-icons` → mock `__TAURI__` → headless Edge (script lived in the
+session scratchpad; recreate from this description). Never capture the real screen.
+
+## Safety rules
+
+1. Don't launch the GUI or change audio/display/power without asking; the user may be in a match.
+2. Before tests check `Get-Process Deck`; test modes use the test profile and bind 127.0.0.1.
+3. Deck never changes the default **recording** device (MicDrop owns it).
+
+## Changes 2026-09-27 (second session)
+
+- Speed test: Cancel button (restores the previous result; upload body aborts mid-request).
+- System → Network → Game servers: only installed competitive games (CS2, Fortnite, Rocket League, Valorant, League).
+  Verified live: Valve 43 cities, AWS 24 regions. Old Riot IPs (104.160.x) no longer answer.
+- Phone upload fix: the file input lived inside the re-rendered `#app`, so after the picker returned the change event fired on a
+  detached element. Input + progress box (with cancel) now live outside `#app`. Verified: headless Edge + CDP uploaded 40 MB, identical.
+- Remote desktop from outside home: discussed, user declined for now (would need Cloudflare Tunnel or Tailscale; no admin).
+
+- Sidebar redesign (2026-09-28): no more tab bars inside pages. 23 items in groups
+  (top: Home/Apps/Games · Everyday · Power · Screen · PC · bottom: Phone/Settings), defined once in `NAV` in app.js
+  as [page, sub, label, icon]; titles in `HEADS` (pages1.js). Tools and Power pages split by sub. File search moved to
+  Settings. Sidebar badges show keep-awake On / plan Set / timer count. Panel height 900. One-click shutdown presets.
+
+- NetLimiter-style limits: discussed and declined by the user (needs admin service + WinDivert driver; WinDivert 2.2.2's driver is signed by a third-party Chinese company; anti-cheat risk). Don't propose again unless asked.
+
+## Backlog
+
+- Background-diet "modes" beyond workspaces (start/stop services needs admin setup).
+- Save guardian, death counter, backlog picker as Deck pages.
+- Tile drag-to-reorder, custom layouts editor, bulk rename, image resizer, text snippets.
+- Mouse side button trigger (needs a low-level hook; risky with anti-cheat).
+
+## 2026-09-28: Game boost
+
+New sidebar page **Game boost** (`ui/js/boost.js`, `src-tauri/src/boost.rs`), also in the tray
+("Full power for gaming", "Clean up background apps") and on the phone (PC card). Built to work on
+any PC (the user shares Deck with friends), unelevated.
+
+- **Full power**: closes the ticked apps (WM_CLOSE to windows; background-only apps are ended),
+  switches to the fastest power plan (picked by *personality*: Ultimate > High performance >
+  any high-perf-based plan; else "Best performance" power-mode overlay on Balanced, via
+  powrprof's undocumented overlay calls loaded with GetProcAddress), lowers background (no-window,
+  non-voice) apps to below-normal priority, trims working sets. Everything is put back when the
+  game closes (45 s with no game), from the Stop button, or on Deck quit. State is saved to
+  `%APPDATA%\Deck\boost.json`; on startup a leftover file is restored (power plan always, apps and
+  priorities only if the PC didn't reboot).
+- **Clean up**: closes the ticked apps and trims memory; changes nothing else, reopens nothing.
+- Game detection: game folders from Steam/Epic (games.rs), Riot (`ProgramData\Riot Games\Metadata\*.product_settings.yaml`),
+  GOG/Ubisoft (HKLM), `X:\XboxGames`, plus any fullscreen program that isn't a browser/player.
+- Never touched (no handle opened): NEVER list (launchers, anti-cheat, hardware/RGB/audio tools,
+  recording, security, VPNs, runtimes/terminals), anything in a game folder, under %WINDIR%, other
+  sessions, and **every console-subsystem exe** (read from the PE header). Voice/music apps are
+  listed but never pre-ticked or slowed.
+- Settings: `boost_close` (exe stem -> bool; missing = suggestion), `boost_power`,
+  `boost_priority`, `boost_trim`, `boost_auto_end`.
+- Tests: `cargo test --bin deck boost:: -- --include-ignored --nocapture` includes a read-only
+  dry run (prints the app list and the plan choice) and a close/reopen/priority/trim test on a
+  hidden throwaway `ping.exe`. The power-plan switch itself was not run live (it would change the
+  user's plan); the WM_CLOSE path for windowed apps wasn't run live either.
+- Checked with a Balanced-based custom plan active: Full power picks High performance and goes back to the custom plan afterwards.
+
+## 2026-09-29: "asset not found: index.html"
+
+Tauri's codegen caches brotli-compressed copies of `ui/` in
+`<target>/release/build/<crate>-*/out/tauri-codegen-assets/<hash>.<ext>` and never rewrites an
+existing file. The PC crashed mid-build on 2026-09-28, leaving broken copies, so the release exe
+couldn't decompress any page (debug builds don't compress, so they looked fine). `install.ps1` now
+deletes that folder before building, and `main.rs` has `asset_tests::pages_are_embedded`
+(`cargo test --release --bin <crate> asset_tests`) to check a release build's pages.
+
+## 2026-10-07: blank (white/black) window protection — v0.1.1
+
+WebView2 sometimes shows a window that paints nothing (white or black) when a window created hidden is first shown, after a long hide, or when it
+decides a window is covered. There is no official Microsoft fix, so `src-tauri/src/webview_guard.rs` (same file as FluxDM's) does four things:
+- `apply_env()` (first thing in `main`) sets `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` for every window: `CalculateNativeWinOcclusion` off, no background/renderer throttling, wry's default disable-features kept. An env var rather than per-window args because custom per-window args made other windows blank (tauri-apps/tauri #13092).
+- `repaint_nudge()` resizes a just-shown window by 1 px and back after 350 ms (called from the show function).
+- `ui/guard.js` (loaded first in index.html) calls `ui_heartbeat` every 4 s, but only while `requestAnimationFrame` is firing. `spawn_watchdog` nudges a visible window that has been quiet 15 s and reloads one that is quiet 90 s and focused.
+- Not applied: `--disable-gpu` (last resort; costs smoothness).
+Compiled, not run live. If a blank window still happens, check the command line of the app's `msedgewebview2.exe` for those flags first.
+- Deck-specific: `show_deck` calls the nudge after every show (hot corner / tray); the watchdog watches the `main` window only (toast and zones are short-lived).
+
+## 2026-10-12: cleanup + full hardware test pass
+Tested live against HWiNFO (shared memory) with Cinebench/Heaven running; every test under 2 min.
+- Passed: CPU profiles under all-core load (Full 4.6 GHz/125 W, Mid 3.67 GHz, Eco 2.7 GHz/37 W, Ultra 1.39 GHz/14 W),
+  power limits (PL2 55 W held), min-clock lock (lands ~8% under target: Windows maps the % a bit low), fans fixed/curve/BIOS
+  and release on `--quit`, GPU profiles under Heaven (P4 98 W power-limited, P1 259 W/2.05 GHz/mem +500), VF clock lock
+  (exactly 1605 MHz at 850 mV) and its release, fixed GPU fan, RTSS overlay slot, open hotkey (panel + app mode),
+  GPU profile hotkeys, Game boost on/off (plan Eco → High performance → Eco), phone remote (key check, WebSocket state, profile switch).
+- Fixed:
+  - WebView2 browser flags (anti-blank guard) never applied: wry's own args beat the env var. Now set on every window
+    builder (`webview_guard::browser_args`); the main window is built in `setup` (`"create": false` in tauri.conf).
+    Extra flags (a debug port) still come from WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS.
+  - A 65 °C GPU temperature target left by Afterburner's linked limits stayed forever (Deck's profiles say "card's own"):
+    stock throttled and the fans ran at 100%. The engine now learns the card default from Afterburner's `[Defaults]`.
+  - The page sat frozen (no live ticks) after a start-up show whose "shown" event fired before the page listened:
+    the page now asks `get_state.visible` at boot, on focus and on visibilitychange.
+  - "Afterburner is running" warning kept showing after Stop tuning: new `afterburner_tunes` (startup/hotkeys/fan control).
+  - Clean up showed 0 B for not-yet-measured items (size is now null until measured), RAM lighting toggle hidden on non-RGB
+    kits, idle fan headers dimmed, cooler-display status wording, dark scrollbar for the nav, wider "When" select.
+- Not changed: System Fan #1 runs flat out at any duty (3-pin fan on a PWM header?); EC channel 8 doesn't take writes
+  (no header on this board). Clean up not run for real (would delete ~25 GB of caches).
+- Testing tools: start Deck elevated with WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222, then drive
+  it over CDP; synthetic keys must come from an elevated process (UIPI blocks them into the admin window otherwise).
+- GPU default temperature target is now also saved to %APPDATA%\Deck\gpu-defaults.json (per PCI id), so Deck can still undo a leftover temp limit after MSI Afterburner is uninstalled (test default_temp_survives_uninstall).
+- Later 2026-10-12: GPU profile re-applied ~5 s after wake from sleep (`gpu::watch_resume`, PowerRegisterSuspendResumeNotification);
+  a CPU profile whose power plan was deleted gets a new "Deck · <name>" plan on apply/save (`cpu::ensure_plan`; `cpu_save`
+  keeps the stored plan GUID; verified live); hardware report says "Deck" (Save report file still said MoboCtl).
+  Afterburner + MoboCtl parity audit: nothing missing (details in DECK.md §4). DECK.md written.
+- 2026-10-12 UI pass: Network page redesigned to fit one screen. It has a connection strip with a 60 s graph and click-to-copy IPs. Speed test and ping sit on the left; ping runs automatically every 5 s while the page is open and keeps a latency history strip. Game servers sit on the right and auto-test the first time a game is picked. Sensors page split into tabs (Graphs / All readings / Overlay & alerts). All readings is a device list plus a detail pane: per-core and per-fan rows fold into a grid (now + highest), other rows are grouped by unit, with search across everything. Checked with a mock-backend preview in headless Edge, because a game was running; not yet built or installed.
+- 2026-10-12 UI pass over every page (checked with the fake-data preview, nothing built or installed yet because CS2 was running). Removed the Apps and Games pages (nav, code, styles). Home: new Performance tile (one-click CPU/GPU profile switch; `profiles` added to ALL_TILES in settings.rs, existing users get it once via a localStorage flag), shorter quick-action labels, two-line pinned labels. Game boost: one hero card (Full power + options + one-off Clean up), apps in a two-column grid with "Only suggested / None" and a memory total. Clipboard: kind icons, day groups, counts on filters, arrow keys/Enter/Delete. Sound: big master volume, device cards, two-column per-app mixer. Timers: progress bars. Keep awake: clear on/off state and one big button. Shut down when: quick picks first. CPU/GPU: 60 s sparklines in the live strip. Fans: fan rows on the left, curve editor on the right (rows linked to the curve, one "..." menu). This PC: identical memory modules grouped. Windows: column labels and "Not responding" chip. Display: hint when the monitor runs below its top refresh rate. Processes: usage bars. Startup: enabled first, summary line. Disk space: scanned drive highlighted. Clean up: sorted by size with bars. Workspaces: app icons and chips. Settings: tabs (General, Home, Clipboard & search, Profiles, About). Phone: allow switch on top, Android steps collapsed. Cooler display left as it was (this PC has none). Preview tool: tools/testing/ui-preview (shot.mjs, mock.js, mock-data.js, all.sh).
+
+## 2026-10-12 (later) — overlay rework
+- New `src-tauri/src/osd.rs`: overlay layout engine (grouped / list / one line, labels, units, columns, FPS figures on their own lines, warm/hot colours, per-part colours, clock 12/24 h). 47 items incl. per-thread and per-core rows (usage, clock, temperature), VRAM %, GPU limit, CPU VID, network, and this PC's own fans and board sensors (`fan:N`, `temp:N`).
+- `rtss.rs`: frame statistics (avg / min / max / 1% / 0.1% lows) come from each RTSS app entry's own frametime ring (`dwStatFrameTimeBuf[1024]` at 924, next-write `dwStatFrameTimeBufPos` at 5020, shared memory v2.5+), read every 50 ms (2026-10-13; replaced the RTSS_Frametime pipe, which never received frames). RivaTuner's look (position, size, font, shadow, box, frametime graph, colour bar, fit) written to `Profiles\Global` and game profiles, originals in `Profiles\Deck backup`, reload via APPFLAG_PROFILE_UPDATE_REQUESTED.
+- Sensors tabs: Graphs / All readings / Overlay / Alerts. `ui/js/overlay.js`: quick looks (incl. "Like MSI Afterburner"), reorderable items, colours/themes, preview.
+- Hotkeys: plain Page Up/Down, Home, End, Insert, Delete, Pause, Scroll Lock, F-keys now allowed (like Afterburner).
+- Not seen in a game yet: the tag rendering (<S0>, colours C3–C8, <APP>/<RES>/<API>) and the pipe stats.
+
+## 2026-10-12 (evening) — UI audit: accessibility, lost clicks, small/large windows, phone remote
+Full report with before/after numbers and screenshots: `docs/audits/2026-10-12-ui-audit.md`.
+- **Fixed (each shown failing first with `tools/testing/ui-preview/regress.mjs`, now 17/17 PASS):**
+  - Clicks were lost when a live page's 1-second redraw landed between mouse-down and mouse-up; redraws now wait while a button is held (`uiBusy`/`mouseHeld` in `app.js`, also Home tiles).
+  - Keyboard focus is now kept across redraws (`focusSpot`/`refocus`).
+  - Space no longer jumps to the search box.
+  - Dialogs got role, a focus trap, focus return, and Escape resolves their promises.
+  - Accessible names: switches, sliders, drop-downs and icon buttons (`nameControls` runs after each redraw), plus `aria-current`, `aria-pressed` and a live region for toasts.
+  - Every control has a visible focus ring; reduced motion is respected; `--faint` raised to 4.5:1 contrast.
+  - Clipboard toolbar: wraps, no twin Copy buttons. Fans list is wider. Settings is capped at 1120 px. The sidebar fades when it scrolls. Tall dialogs scroll.
+  - Phone remote: zoom allowed, buttons and sliders named, bigger "All apps" target, album-art URL escaped, 640 px column on tablets.
+- **New test tools:** `regress.mjs`, `a11y.mjs`, `harness.mjs`, `phone-shot.mjs`, `all-sizes.sh`. `shot.mjs` takes a `PORT` env. `mock.js` has Cooler display data.
+- `restart-normal.ps1` must run **elevated**, or it leaves the debug instance running (it had been, since the earlier session). Noted in DECK.md.
+- Builds this session used `-j 8`. `cargo test --release` gives 55 passed. Installed and checked live over CDP (all 28 pages, no errors), then restarted normally; port 9222 is closed.
+
+## 2026-10-12 (night): feature audit, MicDrop removed from Deck
+Full report: `docs/audits/2026-10-12-feature-audit.md` (screenshots kept locally).
+- **MicDrop removed from Deck** (user request): Home tile, setting, `micdrop.rs` client, `micdrop_send`. MicDrop stays on Game boost's never-close list; Deck still never touches the recording device.
+- **Fixed, with tests** (cargo 55 → 69, `regress.mjs` 17 → 26 checks, each new one failing on the old code):
+  - Lost clicks: the sidebar was rebuilt every tick, and backend events redrew pages without waiting for the mouse. `render`/`renderSide` now hold while a button is down.
+  - "Shut down when…": CPU and network readings froze while Deck was hidden (`sys` only sampled with the page open). Downloads and music conditions fired when nothing had started. Time plans missed during sleep ran on wake.
+  - Keep awake "until downloads finish" ended before any download.
+  - Crash guard disarmed by a hand quit. CPU plan-switch race. `rtss::stop` race. MAHM double writer when Afterburner starts after Deck.
+  - Search: Enter ran the previous query's result; typo tolerance; games sorted and de-duplicated; kill/close/end now ask first.
+  - Calculator: `200 + 10%` = 220.
+  - Clean up: Recycle Bin no longer pre-ticked as "safe".
+  - Network graph starts from backend history (`up_hist` added).
+  - Timers and Phone no longer scroll sideways at 900×600.
+- **Redesigned:** Keep awake and Shut down when… (two columns, live readings, Windows' own sleep times, plan sentence, status card with countdown).
+- **Tools:** `mock.js` keeps power state (`window.__power`); `elev-install.ps1` logs the quit time (measured 2.1 s).
+- **Installed and checked live over CDP; restarted normally; port 9222 closed.** Builds at `-j 8`.
+- **Next:** toast-stack lost clicks; persist plans across restarts; Clipboard/Workspaces/Disk feature pass; single NVML handle.
+
+- **Later the same night (installed at 19:20 once no game was open; toast hold and the all-users startup switch checked live over CDP; restarted normally, port 9222 closed):**
+  - Toast window: toasts under the mouse stay and don't move; held changes run when the mouse leaves; the shutdown warning never waits (`toast-test.mjs`, 6 checks).
+  - "Shut down when…" plans survive a restart (`plan.json`).
+  - Maximized windows no longer count as games (`hw::game::covers_like_fullscreen`).
+  - Paste-back only into the window it came from, never into a fullscreen game.
+  - Clipboard: no silently cut text over 1 MB; at most 150 unpinned images (this PC has 90, so nothing deleted).
+  - Workspaces: honest "partly ready" toast, no off-screen restore, apps asked to close before being ended.
+  - Phone uploads stop before the drive has under 2 GB free.
+  - Refresh rate is tested (`CDS_TEST`) before it's applied.
+  - Search: "awake 2h" and "cancel shutdown".
+  - Game boost crash recovery keeps `boost.json` until the restore is done.
+  - Startup apps: all-users entries get an on/off switch when Deck runs as administrator (HKLM StartupApproved, like Task Manager); read-only otherwise.
+  - Disk space: Windows' own folders and files (Windows tree, Program Files, Users, profile, drive roots, pagefile…) get a lock instead of a trash button, and the backend refuses them. Windows now warns before anything that can't go to the Recycle Bin is deleted for good (`FOF_WANTNUKEWARNING`).
+  - Sound: only a connected playback device can be made default (never a mic, even from the phone); name matching refuses ambiguous names.
+  - Screen tools: copy-text on very wide boxes no longer fails on the OCR size limit.
+  - Installed again at 19:40 (quit 1.5 s); guards checked live over CDP; restarted normally, port 9222 closed.
+  - Profile editors stay open when Deck hides (alt-tab), so a GPU "Try it" can be checked in a game; focus returns to the editor.
+  - Dark mode schedule only acts at its switch times, so a manual Dark/Light choice holds until the next one.
+  - Ending processes: anything Windows marks critical (`IsProcessCritical`) is never ended, from Processes, search or Game boost.
+  - Windows page: setting a window back to 100% removes the see-through layering Deck added.
+  - Installed again at 20:00 (no game open); see-through checked live on a Notepad window; restarted normally, port 9222 closed.
+  - Small UI: Phone card shows only "off" while the connection is off; media without art shows a music note, not a play triangle (Home and Sound).
+  - Final install 20:11 with every fix #1–#43 (no game open); restarted normally, port 9222 closed. One unplanned normal restart at about 20:09 (a restart chained after a build by mistake; no game was open).
+  - cargo 75 passed; `regress.mjs` 29/29; `toast-test.mjs` 6/6; `a11y.mjs` 0 problems.
+- **Mistake this session:** the second install ran while a game was open (the window list wasn't read first). It re-applied the same profiles and gave the fans to the BIOS for about 2 s. There have been no restarts since. A memory note now requires the game check as its own step.
+
+## 2026-10-12 (night) — sidebar merge, help tips, ping Start/Stop, overlay font list
+- **Notes removed** (page, Home tile, nav). `notes` dropped from ALL_TILES; the `notes` field stays in settings.json so saved notes aren't deleted. Settings' tile list skips tiles that no longer exist.
+- **Sidebar merged:** Windows = tabs Open windows / Snap zones / Workspaces; Tools (in the PC group) = tabs Screen tools / Locked files / Windows panels. The Misc group is gone. `tabsHead()` in pages1.js; old `go("windows","layouts")` style links still open the right tab.
+- **Network ping:** one round when the page opens, then live rounds only between Start and Stop (rounds run back to back, 4 pings each); leaving the page stops it. Strip keeps 60 rounds; row layout fixed so the values no longer overlap the strip.
+- **"?" help tips** on every CPU and GPU setting (editors, curve tools, page sections): what it does, why use it, what changing it does, and a warning where there's a catch. `helpTip()` in core.js, texts in new `ui/js/help.js`. 24 px targets; hover/focus shows, click pins.
+- **Overlay font:** was a text box with a suggestion list, which only offers entries matching what's typed, so it showed just "Unispace". Now a real dropdown: suggested fonts, then all fonts installed on this PC (new `fonts_list` command, GDI EnumFontFamiliesExW; 280 fonts here).
+- Checked: cargo 76 passed (+1 ignored live font test run: 280 fonts); `regress.mjs` 34/34 (5 new checks); `toast-test.mjs` 6/6; `a11y.mjs` 0 problems. Installed at about 21:00 (no game open, checked on its own first; quit 1.6 s); live over CDP: new sidebar, 280-font dropdown, ping Start/Stop. Restarted normally; port 9222 closed.
+- Version bumped to 0.2.0; the 0.2.0 setup built (NSIS, current-user install; admin mode is set up from inside Deck with "Set up"). 
+
+## 2026-10-13 — frame stats fixed, power + frametime graphs, Customize, overlay grouping, more "?" tips
+
+- Frame stats (avg, 1% / 0.1% lows, min, max) were never working: the pipe reader called DisconnectNamedPipe every 50 ms while waiting, kicking RivaTuner's hook off, and dropped frames whenever Deck itself was in front. Now read straight from RTSS's per-app frametime ring (see rtss.rs above); follows RTSS's foreground game while it draws, else the last app that drew. A "frame" over 1 s (game minimized / paused) starts the figures over. Checked live: DroidCam 30 fps, osu! ~985 fps.
+- Sensors → Graphs: Power (CPU package + GPU board W, `History.cpu_w/gpu_w`), Frametimes (last 600 frames + Now / Average / 1% / 0.1% / Lowest / Highest, from `rtss_state.ft_recent/stats`).
+- `layout.js`: Customize on Home and Sensors → Graphs: drag a panel by its bar, drag the corner to resize (twelfths of the width, height in 10 px), buttons for the same, hide / bring back, "Put everything back". Saved in `settings.panels[page]` (`layouts` was taken by snap zones); Home's order/visibility stays in `settings.tiles`. Sidebar width: drag its edge (`settings.nav_width`), double-click resets.
+- Overlay "What to show": tick several (Shift-click ranges), move them together (up / down / top / bottom / drag), "Put on one line" with your own label (`osd_style.groups`: item → label; grouped and one-line layouts), remove together. Game RAM now sits on the RAM line.
+- "?" tips added for Fans, Lighting, Cooler display, Sensors (alerts, CSV, power, frametimes), the overlay cards, Game boost and three Settings rows (86 entries in help.js).
+- In-game frametime graph: RivaTuner's own `EnableFrametimeHistory` graph never showed beside Deck's text. Deck now writes an embedded graph object (RTSS_EMBEDDED_OBJECT_GRAPH 'GR00', FLAG_FRAMETIME, no samples: RTSS fills it) at the start of its OSD slot's object buffer (offset 4608) and ends its text with `<OBJ=00000000>`; the profile key is now always 0 so there is never a second graph. Slot contents checked with `dump_deck_slot`; whether it draws in a game still needs a look in osu!.
+- Missing values ("–") were sent to RTSS as "?" (ANSI); now "-".
+- Graph v2 (same night): RTSS's FLAG_FRAMETIME graph took a point per frame (unreadable at 1000 fps). Deck now sends its own points: `osd::GraphFeed` makes 120 points over `graph_secs` (5 s – 1 min, default 10), each the average of its frames (`graph_smooth`) or the slowest; `frame_loop` writes the object into Deck's slot each step (`write_graph`), the text loop with each text. `graph_fit` (default on) sizes it to the overlay's longest line (`osd::text_width`). Live: ~12 points/s, slot object 120 points, w −43, autoscaled top.
+- Overlay on-delay (was 1–3 s: the loop slept `osd_ms` and took a fresh snapshot first): `rtss::refresh_now()` writes at once from the last snapshot and wakes the loop (`WAKE`); called by the toggle key and by set_setting for osd_on / osd_items / osd_style. Measured with `time_slot_appears`: slot written 4–7 ms after the switch. If RivaTuner itself isn't running, its own start still takes a few seconds.
+- Reset key: `osd_reset_hotkey` (hotkey action ResetStats) and `rtss_reset_stats` (buttons on Sensors → Graphs Frametimes and Overlay → Behaviour) clear the figures and the graph.
+- Installs: `Start-Process powershell -Verb RunAs -WindowStyle Hidden ... -WindowStyle Hidden -File elev-install.ps1` so no console appears.
+- Tests: cargo 83 (+8 ignored, incl. `live_ring_stats`, `dump_rtss_apps`, `dump_deck_slot`); regress 37.
+- Version 1.0.0 (2026-10-13): setup built with everything above.
+
+## 2026-10-13 — published on GitHub
+- Public repo https://github.com/MohammadFakih02/deck with README (screenshots from the fake-data preview, no real data), MIT `LICENSE`, `THIRD_PARTY_NOTICES.md` (PawnIO GPL-2.0 / modules LGPL-2.1, Fluent icons MIT), `CHANGELOG.md`, CI (`cargo test` + `node --check` on windows-latest), issue templates. Release v1.0.0 with the setup attached.
+- Docs cleaned of personal data; personal facts moved to git-ignored `PRIVATE_NOTES.md`, untouched originals in `private/originals/`. Audit reports moved to `docs/audits/` (screenshots stay local in `artifacts/`).
+- New rule, written into CLAUDE.md, DECK.md (§0, §9), this file and CONTRIBUTING.md: update the docs before every commit. Enforced by `.githooks/pre-commit` (`git config core.hooksPath .githooks`): code changes need `PROJECT_STATE.md` and `CHANGELOG.md` staged in the same commit.

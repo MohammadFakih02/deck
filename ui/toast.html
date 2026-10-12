@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Deck notifications</title>
+  <style>
+    :root { --acc: #4f8cff; color-scheme: dark; }
+    html, body { margin: 0; background: transparent; overflow: hidden; font: 13.5px/1.4 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; color: #e8ebf2; user-select: none; }
+    #stack { display: flex; flex-direction: column; gap: 10px; padding: 6px; }
+    .t {
+      background: #151923f2; border: 1px solid #2d3548; border-radius: 14px;
+      padding: 13px 14px 12px; box-shadow: 0 16px 40px -10px #000c;
+      animation: in .22s cubic-bezier(.2,.9,.3,1.2);
+      display: grid; grid-template-columns: 34px 1fr 22px; gap: 11px; align-items: start;
+    }
+    .t.out { animation: out .18s ease forwards; }
+    @keyframes in { from { opacity: 0; transform: translateY(14px) scale(.98); } }
+    @keyframes out { to { opacity: 0; transform: translateX(30px); } }
+    .ic { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; background: color-mix(in srgb, var(--acc) 18%, transparent); color: var(--acc); }
+    .ic svg, .x svg { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    .kind-plan .ic { background: #ffb54722; color: #ffb547; }
+    .kind-timer .ic { background: #3ddc9722; color: #3ddc97; }
+    .title { font-weight: 700; font-size: 14px; }
+    .body { color: #9aa2b4; margin-top: 2px; word-break: break-word; }
+    .acts { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+    button { font: inherit; color: inherit; cursor: pointer; }
+    .b { height: 30px; padding: 0 12px; border-radius: 9px; border: 1px solid #2d3548; background: #1f2534; font-weight: 600; font-size: 12.5px; }
+    .b:hover { background: #283043; }
+    .b.p { background: var(--acc); border-color: transparent; color: #fff; }
+    .x { width: 22px; height: 22px; border: 0; background: none; color: #636b7e; padding: 0; display: grid; place-items: center; border-radius: 6px; }
+    .x:hover { background: #ffffff12; color: #e8ebf2; }
+    .x svg { width: 14px; height: 14px; }
+    .bar { grid-column: 1 / -1; height: 3px; border-radius: 3px; background: #ffffff10; overflow: hidden; margin-top: -2px; }
+    .bar i { display: block; height: 100%; background: var(--acc); animation: shrink linear forwards; }
+    @keyframes shrink { from { width: 100%; } to { width: 0; } }
+  </style>
+</head>
+<body>
+  <div id="stack"></div>
+  <script src="js/icons.js"></script>
+  <script src="js/toast.js"></script>
+</body>
+</html>

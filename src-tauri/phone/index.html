@@ -1,0 +1,396 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0c0e14">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon.png">
+<title>Deck Remote</title>
+<style>
+  :root { --bg:#0c0e14; --bg2:#10131b; --tile:#151923; --tile2:#1b2030; --line:#252c3d; --text:#e8ebf2; --dim:#9aa2b4; --faint:#7d869c; --acc:#4f8cff; --good:#3ddc97; --warn:#ffb547; --bad:#ff5d6c; color-scheme: dark; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  body { padding: calc(env(safe-area-inset-top) + 10px) 14px calc(env(safe-area-inset-bottom) + 90px); }
+  button, input, textarea, select { font: inherit; color: inherit; }
+  button { cursor: pointer; touch-action: manipulation; }
+  :focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+  /* tablets: a readable column instead of controls stretched edge to edge */
+  .top, #app { max-width: 640px; margin-left: auto; margin-right: auto; }
+  a { color: inherit; }
+  svg { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+  .top { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+  .logo { width: 34px; height: 34px; border-radius: 10px; background: linear-gradient(140deg, var(--acc), #9b6bff); display: grid; place-items: center; color: #fff; }
+  .top b { font-size: 19px; }
+  .top .pc { color: var(--dim); font-size: 13px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--good); box-shadow: 0 0 10px var(--good); margin-left: auto; }
+  .card { background: var(--tile); border: 1px solid var(--line); border-radius: 18px; padding: 14px; margin-bottom: 12px; }
+  .h { display: flex; align-items: center; gap: 8px; color: var(--dim); font-size: 12px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; margin-bottom: 12px; }
+  .h svg { width: 15px; height: 15px; }
+  .h .r { margin-left: auto; text-transform: none; letter-spacing: 0; font-weight: 600; color: var(--acc); background: none; border: 0; padding: 8px 0; margin: -8px 0 -8px auto; font-size: 13px; }
+  .media { display: flex; gap: 14px; align-items: center; }
+  .art { width: 76px; height: 76px; border-radius: 14px; background: var(--tile2) center/cover; flex: none; }
+  .mt { font-weight: 700; font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ma { color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mf { color: var(--faint); font-size: 12px; }
+  .ctl { display: flex; justify-content: center; align-items: center; gap: 22px; margin-top: 12px; }
+  .ctl button { background: none; border: 0; width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center; }
+  .ctl button:active { background: #ffffff10; }
+  .ctl .pp { width: 62px; height: 62px; background: var(--text); color: var(--bg); }
+  .ctl .pp svg { fill: currentColor; stroke: none; width: 22px; height: 22px; }
+  .bar { height: 4px; border-radius: 4px; background: #2a3142; overflow: hidden; margin-top: 12px; }
+  .bar i { display: block; height: 100%; background: var(--acc); }
+  .vol { display: grid; grid-template-columns: 40px 1fr 40px; gap: 10px; align-items: center; margin: 12px 0 4px; }
+  .vol .ib { width: 36px; height: 36px; border-radius: 10px; background: var(--tile2); border: 0; display: grid; place-items: center; }
+  .vol .ib.m { color: var(--bad); }
+  .vol .n { font-size: 13px; font-weight: 600; margin-bottom: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .vol .v { text-align: right; color: var(--dim); font-variant-numeric: tabular-nums; font-size: 13px; }
+  input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; height: 30px; background: none; margin: 0; --p: 50%; touch-action: none; }
+  input[type=range]::-webkit-slider-runnable-track { height: 6px; border-radius: 6px; background: linear-gradient(90deg, var(--acc) 0 var(--p), #2a3142 var(--p) 100%); }
+  input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 22px; height: 22px; border-radius: 50%; background: #fff; margin-top: -8px; box-shadow: 0 1px 5px #0009; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip { height: 36px; padding: 0 14px; border-radius: 18px; background: var(--tile2); border: 1px solid var(--line); color: var(--dim); font-weight: 600; font-size: 13.5px; display: inline-flex; align-items: center; gap: 7px; }
+  .chip svg { width: 16px; height: 16px; }
+  .profs { margin-top: 10px; display: grid; gap: 6px; }
+  .pk { color: var(--dim); font-size: 11px; font-weight: 700; letter-spacing: .6px; margin-top: 2px; }
+  .chip.on { color: var(--text); background: color-mix(in srgb, var(--acc) 22%, transparent); border-color: color-mix(in srgb, var(--acc) 55%, transparent); }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .qa { height: 78px; border-radius: 16px; background: var(--tile2); border: 1px solid var(--line); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px; font-size: 12.5px; font-weight: 600; color: var(--text); }
+  .qa:active { transform: scale(.97); }
+  .qa.on { background: color-mix(in srgb, var(--acc) 22%, transparent); border-color: color-mix(in srgb, var(--acc) 55%, transparent); }
+  .qa.on svg { color: var(--acc); }
+  .qa.danger svg { color: var(--bad); }
+  .stat { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  .stat div { background: var(--tile2); border-radius: 12px; padding: 8px 10px; }
+  .stat small { color: var(--faint); font-size: 10.5px; font-weight: 700; text-transform: uppercase; }
+  .stat b { display: block; font-size: 16px; font-variant-numeric: tabular-nums; }
+  textarea { width: 100%; min-height: 76px; border-radius: 12px; border: 1px solid var(--line); background: var(--bg2); padding: 10px 12px; outline: none; resize: vertical; }
+  textarea:focus { border-color: var(--acc); }
+  .row { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
+  .btn { flex: 1; height: 44px; border-radius: 12px; border: 1px solid var(--line); background: var(--tile2); font-weight: 600; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+  .btn.p { background: var(--acc); border-color: transparent; color: #fff; }
+  .item { display: flex; gap: 10px; align-items: center; padding: 10px 0; border-top: 1px solid var(--line); }
+  .h + .item { border-top: 0; }
+  .item .ic { width: 36px; height: 36px; border-radius: 10px; background: var(--tile2); display: grid; place-items: center; color: var(--dim); flex: none; }
+  .item .t { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .item .s { color: var(--faint); font-size: 12px; }
+  .item .g { flex: 1; min-width: 0; }
+  .ib2 { width: 38px; height: 38px; border-radius: 10px; border: 0; background: var(--tile2); display: grid; place-items: center; color: var(--dim); flex: none; }
+  .tmr { display: flex; align-items: center; gap: 10px; background: var(--tile2); border-radius: 12px; padding: 10px 12px; margin-top: 8px; }
+  .tmr b { font-size: 22px; font-variant-numeric: tabular-nums; }
+  .tmr.done b { color: var(--warn); }
+  .plan { border-color: #ffb54766; background: linear-gradient(135deg, #ffb54714, transparent 70%), var(--tile); }
+  .alert { position: fixed; left: 12px; right: 12px; bottom: calc(env(safe-area-inset-bottom) + 12px); background: #1d2331; border: 1px solid #36405a; border-radius: 18px; padding: 14px; box-shadow: 0 20px 50px #000c; z-index: 20; }
+  .alert b { display: block; font-size: 16px; }
+  .toastmsg { position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom) + 20px); transform: translateX(-50%) translateY(20px); background: #1d2331; border: 1px solid #36405a; padding: 10px 16px; border-radius: 14px; font-weight: 600; opacity: 0; transition: .2s; pointer-events: none; z-index: 30; max-width: 90vw; text-align: center; }
+  .toastmsg.on { opacity: 1; transform: translateX(-50%); }
+  .over { position: fixed; inset: 0; background: #0c0e14f2; display: none; place-items: center; text-align: center; padding: 30px; z-index: 40; }
+  .over.on { display: grid; }
+  .over p { color: var(--dim); }
+  .upl { position: fixed; left: 12px; right: 12px; top: calc(env(safe-area-inset-top) + 10px); background: #1d2331; border: 1px solid #36405a; border-radius: 16px; padding: 12px 14px; box-shadow: 0 20px 50px #000c; z-index: 25; display: none; }
+  .upl.on { display: block; }
+  .upl .r1 { display: flex; align-items: center; gap: 10px; }
+  .upl .nm { flex: 1; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .upl .pc { color: var(--dim); font-size: 13px; font-variant-numeric: tabular-nums; }
+  .upbar { height: 6px; border-radius: 6px; background: #2a3142; overflow: hidden; margin-top: 10px; }
+  .upbar i { display: block; height: 100%; width: 0; background: var(--good); transition: width .15s; }
+  .muted { color: var(--faint); font-size: 13px; }
+</style>
+</head>
+<body>
+  <div class="top">
+    <div class="logo"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="2.5"/><rect x="13" y="3" width="8" height="8" rx="2.5"/><rect x="3" y="13" width="8" height="8" rx="2.5"/><path d="M17 13v8"/><path d="M13 17h8"/></svg></div>
+    <div><b>Deck</b><div class="pc" id="pc">connecting…</div></div>
+    <div class="dot" id="dot"></div>
+  </div>
+  <div id="app"></div>
+  <div class="toastmsg" id="msg" role="status" aria-live="polite"></div>
+  <!-- Outside #app: the app part is rebuilt on every update, which would
+       throw away the file picker's input (and the progress) mid-upload. -->
+  <input type="file" id="file" multiple style="display:none">
+  <div class="upl" id="upl"><div class="r1"><div class="nm" id="upName"></div><span class="pc" id="upPct"></span><button class="ib2" id="upCancel" aria-label="Cancel"></button></div><div class="upbar"><i id="upFill"></i></div></div>
+  <div class="over" id="over"><div><h2 id="overT">Connecting to your PC…</h2><p id="overP">Make sure Deck is running and your phone is on the same Wi-Fi.</p></div></div>
+  <textarea id="copybuf" style="position:fixed;left:-9999px;top:0;opacity:0"></textarea>
+<script>
+const P = {
+  play: '<path d="M7 4l13 8-13 8z"/>', pause: '<rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/>',
+  next: '<path d="M5 4l10 8-10 8z"/><path d="M19 5v14"/>', prev: '<path d="M19 20L9 12l10-8z"/><path d="M5 19V5"/>',
+  vol: '<path d="M11 5L6 9H2v6h4l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M19 5a10 10 0 0 1 0 14"/>', mute: '<path d="M11 5L6 9H2v6h4l5 4z"/><path d="M22 9l-6 6"/><path d="M16 9l6 6"/>',
+  head: '<path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1v-6h3z"/><path d="M3 19a2 2 0 0 0 2 2h1v-6H3z"/>', spk: '<rect x="5" y="2" width="14" height="20" rx="2"/><circle cx="12" cy="14" r="4"/>',
+  coffee: '<path d="M4 8h13v6a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5z"/><path d="M17 9h1.5a2.5 2.5 0 0 1 0 5H17"/><path d="M8 2v3"/><path d="M12 2v3"/>',
+  zap: '<path d="M13 2L3 14h9l-1 8 10-12h-9z"/>', broom: '<path d="M19 3l-7 7"/><path d="M12 10l-6 1-3 9 9-3 1-6z"/><path d="M6 15l3 3"/>',
+  lock: '<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>', moon: '<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>',
+  mon: '<rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/>', power: '<path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/>',
+  refresh: '<path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/>', timer: '<circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2"/><path d="M9 2h6"/>',
+  send: '<path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4z"/>', copy: '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
+  file: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/>', link: '<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>',
+  note: '<path d="M4 4h16v12l-4 4H4z"/><path d="M8 9h8"/><path d="M8 13h5"/>', x: '<path d="M18 6L6 18"/><path d="M6 6l12 12"/>',
+  dl: '<path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/>', ext: '<path d="M14 3h7v7"/><path d="M10 14L21 3"/><path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"/>',
+  up: '<path d="M12 21V9"/><path d="M7 14l5-5 5 5"/><path d="M5 3h14"/>', clip: '<rect x="6" y="4" width="12" height="17" rx="2"/><path d="M9 4V3h6v1"/>',
+};
+const ic = (n) => `<svg viewBox="0 0 24 24">${P[n] || ""}</svg>`;
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const $ = (id) => document.getElementById(id);
+
+// The key comes from the QR code (#k=...) and is remembered for the installed app.
+let key = new URLSearchParams(location.hash.slice(1)).get("k");
+try { if (key) localStorage.setItem("deck_k", key); else key = localStorage.getItem("deck_k"); } catch (e) {}
+if (location.hash) history.replaceState(null, "", location.pathname);
+
+let ws, st = null, dragging = 0, showAllVol = false, msgT, lastRender = 0;
+function msg(t) { const m = $("msg"); m.textContent = t; m.classList.add("on"); clearTimeout(msgT); msgT = setTimeout(() => m.classList.remove("on"), 2200); }
+function send(o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); else msg("Not connected"); }
+function fmtB(b) { const u = ["B", "KB", "MB", "GB"]; let i = 0; while (b >= 1024 && i < 3) { b /= 1024; i++; } return (i ? b.toFixed(b >= 100 ? 0 : 1) : b) + " " + u[i]; }
+function fmtT(s) { s = Math.max(0, Math.round(s)); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60; return (h ? h + ":" + String(m).padStart(2, "0") : m) + ":" + String(x).padStart(2, "0"); }
+function rate(b) { const x = b * 8; return x >= 1e6 ? (x / 1e6).toFixed(1) + " Mb/s" : (x / 1e3).toFixed(0) + " kb/s"; }
+function devName(n) { const m = n.match(/^(.*?)\s*\((.*)\)$/); if (!m) return n; return /^(speakers|headphones|headset earphone|headset)$/i.test(m[1]) ? m[2].replace(/\s*(virtual surround sound|high definition audio|\d+- )/gi, "").trim() : m[1]; }
+
+async function copyText(t) {
+  try { await navigator.clipboard.writeText(t); msg("Copied"); return; } catch (e) {}
+  const b = $("copybuf"); b.value = t; b.select();
+  try { document.execCommand("copy"); msg("Copied"); } catch (e) { msg("Couldn't copy"); }
+}
+
+function connect() {
+  if (!key) {
+    $("overT").textContent = "Scan the QR code";
+    $("overP").textContent = "On your PC open Deck → Phone, and scan the code with this phone's camera.";
+    $("over").classList.add("on");
+    return;
+  }
+  const proto = location.protocol === "https:" ? "wss" : "ws";
+  ws = new WebSocket(`${proto}://${location.host}/ws?k=${encodeURIComponent(key)}`);
+  ws.onopen = () => { $("over").classList.remove("on"); $("dot").style.background = ""; };
+  ws.onmessage = (e) => {
+    const v = JSON.parse(e.data);
+    if (v.t === "state") {
+      st = v;
+      const typing = document.activeElement && document.activeElement.tagName === "TEXTAREA";
+      if (!dragging && !typing) render();
+    } else if (v.t === "clip") {
+      if (v.text) copyText(v.text); else msg("The PC clipboard has no text");
+    } else if (v.t === "error") msg(v.msg);
+  };
+  ws.onclose = async () => {
+    $("dot").style.background = "var(--bad)";
+    try {
+      const r = await fetch(`/check?k=${encodeURIComponent(key)}`);
+      if (r.status === 401) {
+        $("overT").textContent = "This code is old";
+        $("overP").textContent = "Deck made a new code. Scan the QR code on the PC again.";
+        $("over").classList.add("on");
+        return;
+      }
+    } catch (e) {}
+    $("overT").textContent = "Connecting to your PC…";
+    $("overP").textContent = "Make sure Deck is running and your phone is on the same Wi-Fi.";
+    $("over").classList.add("on");
+    setTimeout(connect, 2000);
+  };
+}
+
+function volRow(label, v, muted, k) {
+  const p = Math.round(v * 100);
+  return `<div class="vol"><button class="ib ${muted ? "m" : ""}" data-mute="${esc(k)}" aria-label="${muted ? "Unmute" : "Mute"} ${esc(label)}" aria-pressed="${muted}">${ic(muted ? "mute" : "vol")}</button>
+    <div style="min-width:0"><div class="n">${esc(label)}</div><input type="range" min="0" max="100" value="${p}" style="--p:${p}%" data-key="${esc(k)}" aria-label="${esc(label)} volume"></div>
+    <div class="v" data-vv>${p}</div></div>`;
+}
+
+const ACT = { shutdown: "Shut down", restart: "Restart", sleep: "Sleep", hibernate: "Hibernate", lock: "Lock", screen_off: "Screen off", notify: "Notify", signout: "Sign out" };
+function planText(p) {
+  if (p.state === "countdown") return `${ACT[p.action]} in ${Math.max(0, p.countdown_until - Math.floor(Date.now() / 1000))} s`;
+  const c = {
+    time: "at " + new Date(p.at * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+    downloads: "when downloads finish", app_closes: `when ${p.app} closes`, media_stops: "when playback stops",
+    cpu_idle: "when the PC is idle", net_idle: "when the network is quiet", idle: "when you're away",
+  }[p.cond] || "";
+  return `${ACT[p.action] || p.action} ${c}`;
+}
+
+/** CPU / GPU profile chips on the PC card. */
+function profChips(p) {
+  if (!p) return "";
+  const row = (kind, list, active) => list.length ? `<div class="pk">${kind.toUpperCase()}</div><div class="chips">${list.map((x) => `<button class="chip ${x.id === active ? "on" : ""}" data-prof="${kind}:${esc(x.id)}">${esc(x.name)}</button>`).join("")}</div>` : "";
+  const out = row("cpu", p.cpu || [], p.active_cpu) + row("gpu", p.gpu || [], p.active_gpu);
+  return out ? `<div class="profs">${out}</div>` : "";
+}
+function render() {
+  if (!st) return;
+  lastRender = Date.now();
+  $("pc").textContent = st.pc || "Your PC";
+  const m = st.media && st.media.current, pw = st.power || {}, s = st.sys || {};
+  let h = "";
+  if (pw.plan) h += `<div class="card plan"><div class="h">${ic("power")}Plan<button class="r" data-a="plan_cancel">Cancel</button></div><b>${esc(planText(pw.plan))}</b><div class="muted">${esc(pw.plan.progress || "")}</div></div>`;
+  if (m && m.title) {
+    const pct = m.len > 0 ? Math.min(100, m.pos / m.len * 100) : 0;
+    h += `<div class="card"><div class="media"><div class="art" style="${m.art ? `background-image:url('${esc(m.art)}')` : ""}"></div>
+      <div style="min-width:0;flex:1"><div class="mt">${esc(m.title)}</div><div class="ma">${esc(m.artist || m.album)}</div><div class="mf">${esc(m.app)}</div></div></div>
+      ${m.len > 0 ? `<div class="bar"><i style="width:${pct}%"></i></div>` : ""}
+      <div class="ctl"><button data-media="prev" aria-label="Previous">${ic("prev")}</button><button class="pp" data-media="toggle" aria-label="${m.status === "playing" ? "Pause" : "Play"}">${ic(m.status === "playing" ? "pause" : "play")}</button><button data-media="next" aria-label="Next">${ic("next")}</button></div></div>`;
+  }
+  const apps = (st.apps || []).filter((a) => a.key !== "system");
+  h += `<div class="card"><div class="h">${ic("vol")}Sound${apps.length > 2 ? `<button class="r" data-a="morevol">${showAllVol ? "Fewer" : "All apps"}</button>` : ""}</div>`;
+  if ((st.outputs || []).length > 1) h += `<div class="chips">${st.outputs.map((o) => `<button class="chip ${o.default ? "on" : ""}" data-out="${esc(o.id)}">${ic(/head|hyperx|ear/i.test(o.name) ? "head" : "spk")}${esc(devName(o.name))}</button>`).join("")}</div>`;
+  if (st.master) h += volRow("Everything", st.master.vol, st.master.muted, "__master");
+  for (const a of apps.slice(0, showAllVol ? 30 : 2)) h += volRow(a.name, a.vol, a.muted, a.key);
+  h += `</div>`;
+  const aw = pw.awake_active;
+  const bo = st.boost || {};
+  h += `<div class="card"><div class="h">${ic("power")}PC</div>
+    <div class="grid" style="grid-template-columns:1fr 1fr;margin-bottom:8px">
+    <button class="qa ${bo.on ? "on" : ""}" data-a="boost" ${bo.busy ? "disabled" : ""}>${ic("zap")}${bo.busy ? "Working…" : bo.on ? (bo.game ? "Full power: " + esc(bo.game) : "Full power on") : "Full power for gaming"}</button>
+    <button class="qa" data-a="clean" ${bo.busy ? "disabled" : ""} data-confirm="Close the background apps ticked in Deck and free memory?">${ic("broom")}Clean up background</button></div>
+    <div class="grid">
+    <button class="qa ${aw ? "on" : ""}" data-a="awake">${ic("coffee")}${aw ? "Staying awake" : "Keep awake"}</button>
+    <button class="qa" data-power="lock">${ic("lock")}Lock</button>
+    <button class="qa" data-power="screen_off">${ic("mon")}Screen off</button>
+    <button class="qa" data-power="sleep" data-confirm="Put the PC to sleep?">${ic("moon")}Sleep</button>
+    <button class="qa danger" data-power="restart" data-confirm="Restart the PC now? Unsaved work may be lost.">${ic("refresh")}Restart</button>
+    <button class="qa danger" data-power="shutdown" data-confirm="Shut the PC down now? Unsaved work may be lost.">${ic("power")}Shut down</button></div>
+    ${profChips(st.profiles)}
+    ${pw.plan ? "" : `<div class="chips" style="margin-top:10px">
+      <button class="chip" data-plan="sleep:30">${ic("moon")}Sleep in 30 min</button>
+      <button class="chip" data-plan="sleep:60">${ic("moon")}Sleep in 1 h</button>
+      <button class="chip" data-plan="shutdown:downloads">${ic("dl")}Off when downloads finish</button>
+      <button class="chip" data-plan="sleep:media">${ic("moon")}Sleep when music stops</button></div>`}
+    <div class="stat" style="margin-top:12px"><div><small>CPU</small><b>${Math.round(s.cpu || 0)}%</b></div><div><small>RAM</small><b>${Math.round(s.ram || 0)}%</b></div><div><small>GPU</small><b>${s.gpu && s.gpu.temp != null ? s.gpu.temp + "°" : "–"}</b></div><div><small>Down</small><b style="font-size:13px">${rate(s.down || 0)}</b></div></div></div>`;
+  h += `<div class="card"><div class="h">${ic("timer")}Timers</div><div class="chips">${[5, 10, 15, 25, 60].map((x) => `<button class="chip" data-timer="${x}">${x} min</button>`).join("")}</div>`;
+  for (const t of pw.timers || []) {
+    const paused = t.paused_left != null;
+    const left = paused ? t.paused_left / 1000 : (t.end_ms - pw.now) / 1000;
+    h += `<div class="tmr ${t.done ? "done" : ""}" data-left="${left}" data-paused="${paused}"><div style="flex:1"><b>${t.done ? "Done" : fmtT(left)}</b><div class="muted">${esc(t.label)}</div></div><button class="ib2" data-tcmd="${t.id}:remove" aria-label="Remove timer">${ic("x")}</button></div>`;
+  }
+  h += `</div>`;
+  h += `<div class="card"><div class="h">${ic("send")}Send to PC</div><textarea id="txt" placeholder="Text or a link" aria-label="Text or a link to send"></textarea>
+    <div class="row"><button class="btn p" data-a="sendcopy">${ic("copy")}Copy on PC</button><button class="btn" data-a="sendopen">${ic("ext")}Open on PC</button></div>
+    <div class="row"><button class="btn" data-a="pickfile">${ic("up")}Send files</button><button class="btn" data-a="clipget">${ic("clip")}PC clipboard</button></div></div>`;
+  const shared = [...(st.shared || [])].reverse();
+  if (shared.length) {
+    h += `<div class="card"><div class="h">${ic("dl")}Between phone and PC</div>` + shared.map((x) => `<div class="item"><div class="ic">${ic(x.kind === "file" ? "file" : x.kind === "link" ? "link" : "note")}</div>
+      <div class="g"><div class="t">${esc(x.kind === "file" ? x.name : x.text)}</div><div class="s">${x.from === "pc" ? "From PC" : "From phone"}${x.kind === "file" ? " · " + fmtB(x.size) : ""}</div></div>
+      ${x.kind === "file" && x.from === "pc" ? `<a class="ib2" href="/file/${x.id}?k=${encodeURIComponent(key)}" download aria-label="Download">${ic("dl")}</a>` : ""}
+      ${x.kind === "link" ? `<a class="ib2" href="${esc(x.text)}" target="_blank" rel="noopener" aria-label="Open link">${ic("ext")}</a>` : ""}
+      ${x.kind !== "file" ? `<button class="ib2" data-copy="${x.id}" aria-label="Copy">${ic("copy")}</button>` : ""}</div>`).join("") + `</div>`;
+  }
+  $("app").innerHTML = h;
+  // Pop-ups from the PC that need an answer (shutdown countdown, timer done).
+  const alertT = (st.toasts || []).find((t) => t.sticky);
+  let al = document.querySelector(".alert");
+  if (alertT) {
+    if (!al) { al = document.createElement("div"); al.className = "alert"; document.body.append(al); }
+    al.innerHTML = `<b>${esc(alertT.title)}</b><div class="muted">${esc(alertT.body)}</div><div class="row">${alertT.actions.map(([id, l], i) => `<button class="btn ${i === alertT.actions.length - 1 ? "p" : ""}" data-toast="${esc(alertT.id)}" data-do="${esc(id)}">${esc(l)}</button>`).join("")}</div>`;
+  } else if (al) al.remove();
+}
+
+// Timers keep counting between updates from the PC.
+setInterval(() => {
+  const since = (Date.now() - lastRender) / 1000;
+  document.querySelectorAll(".tmr").forEach((el) => {
+    if (el.dataset.paused === "true" || el.classList.contains("done")) return;
+    el.querySelector("b").textContent = fmtT(+el.dataset.left - since);
+  });
+}, 1000);
+
+document.addEventListener("click", (e) => {
+  const b = e.target.closest("button");
+  if (!b || !st) return;
+  const d = b.dataset;
+  if (d.media) send({ a: "media", do: d.media, id: (st.media && st.media.current && st.media.current.id) || "" });
+  else if (d.out) send({ a: "output", id: d.out });
+  else if (d.mute) {
+    if (d.mute === "__master") send({ a: "master", muted: !st.master.muted });
+    else { const a = st.apps.find((x) => x.key === d.mute); send({ a: "appvol", key: d.mute, muted: !(a && a.muted) }); }
+  }
+  else if (d.power) { if (d.confirm && !confirm(d.confirm)) return; send({ a: "power", do: d.power }); }
+  else if (d.timer) { send({ a: "timer", secs: +d.timer * 60, label: "" }); msg(`Timer: ${d.timer} min`); }
+  else if (d.tcmd) { const [id, c] = d.tcmd.split(":"); send({ a: "timer_cmd", id: +id, do: c }); }
+  else if (d.toast) send({ a: "toast", id: d.toast, do: d.do });
+  else if (d.copy) { const x = st.shared.find((s) => s.id === +d.copy); if (x) copyText(x.text); }
+  else if (d.plan) {
+    const [action, what] = d.plan.split(":");
+    const plan = /^\d+$/.test(what)
+      ? { action, cond: "time", at: Math.floor(Date.now() / 1000) + what * 60 }
+      : { action, cond: what === "media" ? "media_stops" : "downloads", minutes: 2 };
+    send({ a: "plan", plan });
+    msg("Set. The PC warns you first.");
+  }
+  else if (d.a === "plan_cancel") send({ a: "plan_cancel" });
+  else if (d.a === "awake") send({ a: "awake", mode: st.power.awake_active ? "off" : "on" });
+  else if (d.prof) { const [kind, id] = d.prof.split(":"); send({ a: "profile", kind, id }); msg("Switching…"); }
+  else if (d.a === "boost") { send({ a: "boost" }); msg(st.boost?.on ? "Putting everything back…" : "Turning on Full power…"); }
+  else if (d.a === "clean") { if (d.confirm && !confirm(d.confirm)) return; send({ a: "clean" }); msg("Cleaning up…"); }
+  else if (d.a === "morevol") { showAllVol = !showAllVol; render(); }
+  else if (d.a === "clipget") send({ a: "clip_get" });
+  else if (d.a === "pickfile") $("file").click();
+  else if (d.a === "sendcopy" || d.a === "sendopen") {
+    const t = $("txt").value.trim();
+    if (!t) return msg("Type something first");
+    send({ a: "send_text", text: t, mode: d.a === "sendopen" ? "open" : "copy" });
+    $("txt").value = "";
+    $("txt").blur();
+    msg(d.a === "sendopen" ? "Opening on your PC" : "Copied on your PC");
+  }
+});
+
+document.addEventListener("input", (e) => {
+  const r = e.target;
+  if (r.type !== "range") return;
+  r.style.setProperty("--p", r.value + "%");
+  const v = r.closest(".vol") && r.closest(".vol").querySelector("[data-vv]");
+  if (v) v.textContent = r.value;
+  const k = r.dataset.key;
+  if (k === "__master") send({ a: "master", vol: r.value / 100 });
+  else if (k) send({ a: "appvol", key: k, vol: r.value / 100 });
+});
+document.addEventListener("pointerdown", (e) => { if (e.target.type === "range") dragging++; });
+document.addEventListener("pointerup", () => { if (dragging) { dragging = 0; setTimeout(render, 400); } });
+
+let upXhr = null, upStop = false;
+$("upCancel").innerHTML = ic("x");
+$("upCancel").onclick = () => { upStop = true; if (upXhr) upXhr.abort(); };
+
+function upload(f, i, n) {
+  return new Promise((res) => {
+    const x = new XMLHttpRequest();
+    upXhr = x;
+    $("upName").textContent = n > 1 ? `${f.name} (${i + 1} of ${n})` : f.name;
+    $("upPct").textContent = "0%";
+    $("upFill").style.width = "0";
+    x.open("POST", `/upload?k=${encodeURIComponent(key)}&name=${encodeURIComponent(f.name)}`);
+    x.upload.onprogress = (ev) => {
+      if (!ev.lengthComputable) return;
+      const p = ev.loaded / ev.total * 100;
+      $("upFill").style.width = p + "%";
+      $("upPct").textContent = `${Math.floor(p)}% · ${fmtB(ev.loaded)}`;
+    };
+    x.onload = () => res(x.status === 200 ? "ok" : x.status === 401 ? "This code is old. Scan the QR code again." : `Failed: ${x.responseText || x.status}`);
+    x.onerror = () => res("Upload failed. Is the phone still on the same Wi-Fi?");
+    x.onabort = () => res("cancelled");
+    x.send(f);
+  });
+}
+
+$("file").addEventListener("change", async (e) => {
+  const files = [...e.target.files];
+  e.target.value = "";
+  if (!files.length) return;
+  upStop = false;
+  $("upl").classList.add("on");
+  let sent = 0, err = "";
+  for (let i = 0; i < files.length && !upStop; i++) {
+    const r = await upload(files[i], i, files.length);
+    if (r === "ok") sent++;
+    else if (r !== "cancelled") { err = r; break; }
+  }
+  upXhr = null;
+  $("upl").classList.remove("on");
+  if (err) msg(err);
+  else if (upStop) msg(sent ? `Cancelled after ${sent} file${sent > 1 ? "s" : ""}` : "Cancelled");
+  else msg(sent === 1 ? `Sent ${files[0].name}` : `Sent ${sent} files`);
+});
+
+if ("serviceWorker" in navigator && window.isSecureContext) navigator.serviceWorker.register("/sw.js").catch(() => {});
+connect();
+</script>
+</body>
+</html>

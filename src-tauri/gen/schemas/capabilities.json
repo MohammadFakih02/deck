@@ -1,0 +1,1 @@
+{"default":{"identifier":"default","description":"Deck windows","local":true,"windows":["main","toast","zones","loupe"],"permissions":["core:default","core:window:allow-start-dragging","core:window:allow-hide","core:window:allow-set-size","core:window:allow-set-position"]}}
