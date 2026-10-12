@@ -19,7 +19,7 @@ jobs:
           node-version: 22
       - name: Check UI scripts
         shell: bash
-        run: for f in ui/js/*.js src-tauri/phone/*.js; do [ -f "$f" ] && node --check "$f"; done
+        run: for f in ui/js/*.js ui/guard.js; do node --check "$f" || exit 1; done
       - name: Rust tests
         working-directory: src-tauri
         run: cargo test --release --locked
