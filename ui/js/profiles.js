@@ -131,8 +131,8 @@ Pages.cpu = {
     const acc = accent();
     el.append(h("div", { class: "section" }, h("h2", null, "Right now", helpTip("cpu.vitals"))));
     el.append(h("div", { class: "live-strip" },
-      vital("Clock", () => (L().mhz ? L().mhz.toLocaleString() + " MHz" : "–"), "mhz", acc, st.limits?.turbo || 0),
-      vital("Temperature", () => (L().temp != null ? Math.round(L().temp) + " °C" : "–"), "temp", "#ff9f43", 100),
+      vital("Clock", () => (L().mhz ? fmtClock(L().mhz) : "–"), "mhz", acc, st.limits?.turbo || 0),
+      vital("Temperature", () => fmtTemp(L().temp), "temp", "#ff9f43", 100),
       vital("Load", () => (L().load != null ? Math.round(L().load) + "%" : "–"), "load", "#b98cff", 100),
       vital("Power", () => (L().power != null ? Math.round(L().power) + " W" : "–"), "power", "#3ddc97", 0, lv(() => (L().power_short ? "limits " + L().power_short : "")))));
     if (!st.admin) el.append(h("div", { class: "banner" }, I("info"), h("div", { class: "grow" }, "Plans and caps work now. Power limits, the clock lock and overclocking need Deck to run as admin."), h("button", { class: "btn sm", onclick: () => invoke("elevate_setup").catch((e) => note(String(e), true)) }, "Set up")));
@@ -154,7 +154,7 @@ Pages.cpu = {
     el.append(h("div", { class: "section" }, h("h2", null, "In-game clock check", helpTip("cpu.clockcheck"))));
     el.append(h("div", { class: "card row" }, I("gauge"),
       c ? h("div", { class: "grow" },
-        h("b", null, `${c.on ? "In game" : "Last game"}: average ${c.avg.toLocaleString()} MHz`, c.cap ? ` (cap ${c.cap.toLocaleString()})` : "", ` · peak ${c.max.toLocaleString()} MHz`),
+        h("b", null, `${c.on ? "In game" : "Last game"}: average ${fmtClock(c.avg)}`, c.cap ? ` (cap ${fmtClock(c.cap)})` : "", ` · peak ${fmtClock(c.max)}`),
         h("div", { class: "dim small" }, [c.game, c.profile ? "profile " + c.profile : null, c.on ? "now" : c.ago_s != null ? ago(Date.now() - c.ago_s * 1000) : null].filter(Boolean).join(" · "),
           c.cap && c.avg > c.cap * 1.05 ? h("span", { class: "chip warn sm-chip2", style: { marginLeft: "8px" } }, "Above the cap") : null))
         : h("div", { class: "grow dim" }, "Play something with a capped profile on: Deck records the real clock while the game is in front, so you can check the cap without alt-tabbing."),
@@ -228,7 +228,7 @@ function editCpu(x) {
 
 function cpuForm(p, st, lim, redraw) {
   const step = 100, lo = lim.min, hi = lim.turbo;
-  const mhz = (v) => v.toLocaleString() + " MHz";
+  const mhz = (v) => fmtClock(v);
   const set = (k) => (v) => { p[k] = v; redraw(); };
   const power = p.power?.mode || "none";
   return h("div", { class: "col", style: { gap: "14px" } },
@@ -340,10 +340,10 @@ function gpuLivePanel(caps) {
   return h("div", { class: "card col" },
     h("div", { class: "row" }, h("div", { class: "tile-head grow" }, I("gpu"), h("span", null, caps.name), helpTip("gpu.vitals")), h("span", { class: "dim small" }, "Driver " + caps.driver), lv(() => reason(), "chip")),
     h("div", { class: "live-strip in" },
-      box("Core", lv(() => (L().core_mhz != null ? L().core_mhz + " MHz" : "–")), null, "core", acc, caps.max_core || 0),
-      box("Memory", lv(() => (L().mem_mhz != null ? L().mem_mhz + " MHz" : "–"))),
+      box("Core", lv(() => fmtClock(L().core_mhz)), null, "core", acc, caps.max_core || 0),
+      box("Memory", lv(() => fmtClock(L().mem_mhz))),
       box("Power", lv(() => (L().power_w != null ? Math.round(L().power_w) + " W" : "–")), lv(pct, ""), "power", "#3ddc97", caps.power?.[2] || 0),
-      box("Temperature", lv(() => (L().temp_c != null ? L().temp_c + " °C" : "–")), null, "temp", "#ff9f43", 100),
+      box("Temperature", lv(() => fmtTemp(L().temp_c)), null, "temp", "#ff9f43", 100),
       box("Fan", lv(() => (L().fan_pct?.length ? Math.max(...L().fan_pct) + "%" : "–")), lv(() => (L().fan_manual ? "Deck" : "Driver"), "")),
       box("Voltage", lv(() => (L().voltage_mv ? Math.round(L().voltage_mv) + " mV" : "–"))),
       box("Load", lv(() => (L().util != null ? L().util + "%" : "–")), lv(() => (L().mem_used_mb != null ? `${(L().mem_used_mb / 1024).toFixed(1)} / ${(L().mem_total_mb / 1024).toFixed(0)} GB` : ""), ""), "load", "#b98cff", 100)));

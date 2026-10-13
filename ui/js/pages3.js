@@ -187,6 +187,16 @@ Pages.settings = {
     add(h("div", { class: "settings-card" }, row("Accent", null,
       h("div", { class: "row", style: { gap: "8px" } }, ACCENTS.map((c) => h("button", { title: c, onclick: () => set("accent")(c), style: { width: "26px", height: "26px", borderRadius: "50%", background: c, border: s.accent === c ? "2px solid #fff" : "2px solid transparent", boxShadow: s.accent === c ? `0 0 0 3px ${c}55` : "none" } }))))));
 
+    cur = "general";
+    add(h("div", { class: "section" }, h("h2", null, "Units")));
+    add(h("div", { class: "settings-card" },
+      row("Clock speeds", "CPU and GPU clocks on every page, the phone and the in-game overlay. Offsets you type stay in MHz.",
+        seg([["MHz", "MHz"], ["GHz", "GHz"]], s.unit_clock, set("unit_clock"))),
+      row("Network speed", "Mb/s counts bits (how internet plans are sold); MB/s counts bytes (what downloads show). 8 Mb/s = 1 MB/s.",
+        seg([["Mb/s", "Mb/s"], ["MB/s", "MB/s"]], s.unit_net, set("unit_net"))),
+      row("Temperature", "Readings convert; limits and fan curves you set stay in °C.",
+        seg([["C", "°C"], ["F", "°F"]], s.unit_temp, set("unit_temp")))));
+
     cur = "clip";
     add(h("div", { class: "section" }, h("h2", null, "Clipboard history")));
     add(h("div", { class: "settings-card" },

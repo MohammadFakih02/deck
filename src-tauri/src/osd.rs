@@ -213,6 +213,14 @@ pub struct OsdStyle {
     pub all_games: bool,
     /// items the user put on a line of their own: item id -> that line's label
     pub groups: std::collections::BTreeMap<String, String>,
+
+    // ---- the app-wide units (Settings > Units), copied in by `Settings::osd_render_style`
+    #[serde(skip)]
+    pub ghz: bool,
+    #[serde(skip)]
+    pub fahrenheit: bool,
+    #[serde(skip)]
+    pub net_bytes: bool,
 }
 
 impl Default for OsdStyle {
@@ -267,6 +275,9 @@ impl Default for OsdStyle {
             int_fps: true,
             all_games: true,
             groups: Default::default(),
+            ghz: false,
+            fahrenheit: false,
+            net_bytes: false,
         }
     }
 }
@@ -306,6 +317,26 @@ fn part(text: String, unit: &str) -> Part {
     Part { text, unit: unit.into(), ..Default::default() }
 }
 
+/// A clock speed (MHz in) in the chosen unit; `w` pads it to that width (tables), 0 = no padding.
+fn clk(v: f32, st: &OsdStyle, w: usize) -> Part {
+    if st.ghz { part(format!("{:>w$.2}", v / 1000.0), "GHz") } else { part(format!("{:>w$.0}", v), "MHz") }
+}
+
+/// A temperature (°C in) in the chosen unit. Warning limits stay in °C: only the text changes.
+fn deg(v: f32, st: &OsdStyle, w: usize) -> Part {
+    if st.fahrenheit { part(format!("{:>w$.0}", v * 9.0 / 5.0 + 32.0), "°F") } else { part(format!("{:>w$.0}", v), "°C") }
+}
+
+/// A network speed (MB/s in, 1 MB = 1024 KB) in the chosen unit: bytes or bits per second.
+fn net(v: f32, st: &OsdStyle) -> Part {
+    if st.net_bytes {
+        if v >= 1.0 { part(num(v, 1), "MB/s") } else { part(num(v * 1024.0, 0), "KB/s") }
+    } else {
+        let mbit = v * 1_048_576.0 * 8.0 / 1e6;
+        if mbit >= 1.0 { part(num(mbit, 1), "Mb/s") } else { part(num(mbit * 1000.0, 0), "kb/s") }
+    }
+}
+
 /// How worried to be about a reading. `limit` is the temperature limit for temperatures.
 fn tone(kind: &str, v: f32, limit: u32, st: &OsdStyle) -> u8 {
     let hot = |lim: f32, warm: f32| if v >= lim { 2 } else if st.heat && v >= warm { 1 } else { 0 };
@@ -331,16 +362,18 @@ fn value(id: &str, s: &Snap, st: &OsdStyle, app: &str) -> Option<Part> {
     let mem = |v: Option<f32>| f(v).map(|v| if st.mem_unit == "GB" { part(num(v / 1024.0, 1), "GB") } else { part(num(v, 0), "MB") });
     let fps_dec = if st.int_fps { 0 } else { 1 };
     let rate = |v: Option<f32>| f(v).map(|v| part(num(v, fps_dec), "FPS")).or_else(|| Some(part("–".into(), "FPS")));
-    let speed = |v: Option<f32>| f(v).map(|v| if v >= 1.0 { part(num(v, 1), "MB/s") } else { part(num(v * 1024.0, 0), "KB/s") });
+    let speed = |v: Option<f32>| f(v).map(|v| net(v, st));
+    let temp = |v: Option<f32>| f(v).map(|v| deg(v, st, 0));
+    let mhz = |v: Option<f32>| f(v).map(|v| clk(v, st, 0));
     if let Some(k) = id.strip_prefix("fan:").and_then(|k| k.parse::<usize>().ok()) {
         return s.fans.get(k).map(|(_, v)| part(num(*v, 0), "RPM"));
     }
     if let Some(k) = id.strip_prefix("temp:").and_then(|k| k.parse::<usize>().ok()) {
-        return s.board_temps.get(k).map(|(_, v)| with(part(num(*v, 0), "°C"), tone("temp", *v, st.warn_cpu_temp, st)));
+        return s.board_temps.get(k).map(|(_, v)| with(deg(*v, st, 0), tone("temp", *v, st.warn_cpu_temp, st)));
     }
     Some(match id {
         "gpu_temp" => {
-            let p = one(s.gpu_temp, "°C")?;
+            let p = temp(s.gpu_temp)?;
             let t = tone("temp", s.gpu_temp?, st.warn_gpu_temp, st);
             with(p, t)
         }
@@ -350,8 +383,8 @@ fn value(id: &str, s: &Snap, st: &OsdStyle, app: &str) -> Option<Part> {
             let pct = s.gpu_mem_mb? / s.gpu_mem_total_mb.filter(|t| *t > 0.0)? * 100.0;
             with(part(num(pct, 0), "%"), tone("mem", pct, 0, st))
         }
-        "gpu_clock" => one(s.gpu_clock, "MHz")?,
-        "gpu_memclock" => one(s.gpu_memclock, "MHz")?,
+        "gpu_clock" => mhz(s.gpu_clock)?,
+        "gpu_memclock" => mhz(s.gpu_memclock)?,
         "gpu_power" => one(s.gpu_power_w, "W")?,
         "gpu_power_pct" => one(s.gpu_power_pct, "%")?,
         "gpu_fan" => one(s.gpu_fan, "%")?,
@@ -360,9 +393,9 @@ fn value(id: &str, s: &Snap, st: &OsdStyle, app: &str) -> Option<Part> {
             let l = s.gpu_limit.as_str();
             with(part(if l.is_empty() { "none".into() } else { l.to_string() }, ""), if l.is_empty() { 0 } else { 1 })
         }
-        "cpu_temp" => with(one(s.cpu_temp, "°C")?, tone("temp", s.cpu_temp?, st.warn_cpu_temp, st)),
+        "cpu_temp" => with(temp(s.cpu_temp)?, tone("temp", s.cpu_temp?, st.warn_cpu_temp, st)),
         "cpu_usage" => with(one(s.cpu_usage, "%")?, tone("load", s.cpu_usage?, 0, st)),
-        "cpu_clock" => one(s.cpu_clock, "MHz")?,
+        "cpu_clock" => mhz(s.cpu_clock)?,
         "cpu_power" => one(s.cpu_power, "W")?,
         "cpu_volt" => f(s.cpu_volt).map(|v| part(num(v, 3), "V"))?,
         "ram" => mem(s.ram_mb)?,
@@ -467,7 +500,7 @@ fn multi(id: &str, label: &str, s: &Snap, st: &OsdStyle) -> Vec<Line> {
                     parts.push(p);
                 }
                 if let Some(v) = c.clock {
-                    parts.push(part(format!("{:>4.0}", v), "MHz"));
+                    parts.push(clk(v, st, 4));
                 }
                 Line { label: c.name.clone(), group: "threadtab", parts }
             })
@@ -484,10 +517,10 @@ fn multi(id: &str, label: &str, s: &Snap, st: &OsdStyle) -> Vec<Line> {
                     parts.push(p);
                 }
                 if let Some(v) = c.clock {
-                    parts.push(part(format!("{:>4.0}", v), "MHz"));
+                    parts.push(clk(v, st, 4));
                 }
                 if let Some(v) = c.temp {
-                    let mut p = part(format!("{:>3.0}", v), "°C");
+                    let mut p = deg(v, st, 3);
                     p.tone = tone("temp", v, st.warn_cpu_temp, st);
                     parts.push(p);
                 }
@@ -505,7 +538,11 @@ fn is_multi(id: &str) -> bool {
 
 /// The lines for `items` (in the order the user put them) under `st`.
 pub fn lines(items: &[String], st: &OsdStyle, s: &Snap, app: &str) -> Vec<Line> {
-    let label_of = |g: &str| GROUPS.iter().find(|x| x.0 == g).map(|x| x.1).unwrap_or("");
+    let label_of = |g: &str| match g {
+        "coreclk" if st.ghz => "GHz",
+        "coretmp" if st.fahrenheit => "°F",
+        _ => GROUPS.iter().find(|x| x.0 == g).map(|x| x.1).unwrap_or(""),
+    };
     let mut seen: Vec<(&String, String, &'static str)> = vec![];
     for id in items {
         if let Some((short, group)) = info(id, s) {
@@ -1091,6 +1128,22 @@ mod tests {
         assert_eq!(ls[0].label.trim_end(), "P-core 1");
         assert_eq!(ls[0].parts.iter().map(|p| p.unit.as_str()).collect::<Vec<_>>(), ["%", "MHz", "°C"]);
         assert_eq!(ls[1].parts.len(), 2, "no temperature on the E-core");
+    }
+
+    #[test]
+    fn app_units_ghz_fahrenheit_and_network_bits() {
+        let s = Snap { cpu_clock: Some(4800.0), cpu_temp: Some(50.0), net_down: Some(1.0), ..snap() };
+        let st = OsdStyle { layout: "list".into(), ghz: true, fahrenheit: true, ..Default::default() };
+        let ls = lines(&items(&["cpu_clock", "cpu_temp", "net_down", "core_table"]), &st, &s, "");
+        let part = |id: usize| (ls[id].parts[0].text.trim().to_string(), ls[id].parts[0].unit.clone());
+        assert_eq!(part(0), ("4.80".into(), "GHz".into()));
+        assert_eq!(part(1), ("122".into(), "°F".into()));
+        assert_eq!(part(2), ("8.4".into(), "Mb/s".into()), "1 MB/s (1024 KB) = 8.4 megabits");
+        assert!(ls[3..].iter().flat_map(|l| &l.parts).all(|p| p.unit != "MHz" && p.unit != "°C"));
+        let st = OsdStyle { net_bytes: true, ..st };
+        assert_eq!(lines(&items(&["net_down"]), &st, &s, "")[0].parts[0].unit, "MB/s");
+        // warnings still compare in °C: 50 °C is under a 90 °C limit
+        assert_eq!(lines(&items(&["cpu_temp"]), &st, &s, "")[0].parts[0].tone, 0);
     }
 
     #[test]

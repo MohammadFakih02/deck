@@ -690,7 +690,7 @@ function connectionCard(n) {
   const g = h("canvas", { class: "net-graph" });
   requestAnimationFrame(() => {
     const hist = netHist();
-    const mb = (v) => (v * 8) / 1e6;
+    const mb = (v) => (netBytes() ? v / 1024 ** 2 : (v * 8) / 1e6); // graph in the chosen unit
     const top = Math.max(5, mb(s.down || 0), mb(s.up || 0), ...hist.map((x) => Math.max(mb(x.down), mb(x.up))));
     const step = top <= 5 ? 1 : top <= 20 ? 5 : top <= 100 ? 25 : top <= 500 ? 100 : 250;
     const acc = getComputedStyle(document.documentElement).getPropertyValue("--acc").trim();
@@ -701,7 +701,7 @@ function connectionCard(n) {
     h("div", { class: "net-rates" },
       h("div", null, h("div", { class: "net-k" }, h("i", { class: "net-key", style: { background: "var(--acc)" } }), "Download"), h("div", { class: "net-v num" }, fmtRate(s.down))),
       h("div", null, h("div", { class: "net-k" }, h("i", { class: "net-key", style: { background: NET_UP } }), "Upload"), h("div", { class: "net-v num" }, fmtRate(s.up)))),
-    h("div", { class: "net-graph-wrap" }, g, h("span", { class: "net-graph-cap faint" }, "Mb/s · last minute")),
+    h("div", { class: "net-graph-wrap" }, g, h("span", { class: "net-graph-cap faint" }, (netBytes() ? "MB/s" : "Mb/s") + " · last minute")),
     h("div", { class: "net-addrs" },
       copyChip("This PC", n.lan),
       copyChip("Internet", S.cache.publicIp),
@@ -713,7 +713,7 @@ function speedCard(sp) {
   const running = ["latency", "download", "upload"].includes(phase);
   const metric = (key, label, val, unit, extra) => h("div", { class: "net-m" + (running && phase === key ? " live" : "") },
     h("div", { class: "net-k" }, label),
-    h("div", { class: "net-big num" }, val != null ? val.toFixed(0) : "–", h("span", { class: "dim" }, " " + unit), extra ? h("span", { class: "faint net-extra" }, extra) : null),
+    h("div", { class: "net-big num" }, ...(unit === "Mb/s" ? ((p) => [p[0], h("span", { class: "dim" }, " " + p[1])])(mbpsParts(val)) : [val != null ? val.toFixed(0) : "–", h("span", { class: "dim" }, " " + unit)]), extra ? h("span", { class: "faint net-extra" }, extra) : null),
     running && phase === key ? h("div", { class: "bar" }, h("i", { style: { width: (sp.progress || 0) * 100 + "%" } })) : null);
   const when = running ? `Measuring ${phase === "latency" ? "ping" : phase}…` : sp.at ? `Tested ${ago(sp.at)} · Cloudflare` : "About 100 MB of data · Cloudflare";
   return h("div", { class: "card col" },

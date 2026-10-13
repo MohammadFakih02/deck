@@ -319,7 +319,11 @@ fn phone_state(app: &App) -> Value {
     let power = app.power.state();
     let shared: Vec<Shared> = app.shared.lock().clone();
     let snap = app.sys.snapshot();
-    let sys = json!({ "cpu": snap["cpu"], "ram": snap["ram_pct"], "gpu": snap["gpu"], "down": snap["down"], "up": snap["up"] });
+    let units = {
+        let s = app.settings.lock();
+        json!({ "clock": s.unit_clock, "net": s.unit_net, "temp": s.unit_temp })
+    };
+    let sys = json!({ "cpu": snap["cpu"], "ram": snap["ram_pct"], "gpu": snap["gpu"], "down": snap["down"], "up": snap["up"], "units": units });
     let profiles = {
         let s = app.settings.lock();
         json!({

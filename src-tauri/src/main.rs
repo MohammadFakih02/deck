@@ -411,7 +411,7 @@ fn set_setting(handle: AppHandle, app: A, remote: State<Arc<Remote>>, key: Strin
             }
             rtss::refresh_now();
         }
-        "osd_items" => rtss::refresh_now(),
+        "osd_items" | "unit_clock" | "unit_net" | "unit_temp" => rtss::refresh_now(),
         _ => {}
     }
     app.save_settings();

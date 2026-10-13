@@ -58,17 +58,21 @@ pub struct EffectParams {
     pub game_sound: String,  // Game mode: how the lights react to the game's sound
     pub game_audio_only: bool, // react only to the game's own sound, not everything playing
     pub auto_game: bool,     // switch to Game lighting while a game is in front
+    pub comet_colors: String, // Comet: "My colour", "Cycle" (the comet changes colour) or "Rainbow" (a rainbow tail)
 }
 
 impl Default for EffectParams {
     fn default() -> Self {
-        EffectParams { mode: "Rainbow".into(), color: Rgb::new(255, 0, 0), bright: 100, speed: 40, ram: true, music_style: "Level meter".into(), music_rainbow: true, music_gain: 1.0, game_sound: "Pulse".into(), game_audio_only: true, auto_game: false }
+        EffectParams { mode: "Rainbow".into(), color: Rgb::new(255, 0, 0), bright: 100, speed: 40, ram: true, music_style: "Level meter".into(), music_rainbow: true, music_gain: 1.0, game_sound: "Pulse".into(), game_audio_only: true, auto_game: false, comet_colors: "My colour".into() }
     }
 }
 
 /// Music styles for the RGB lights.
 /// Game mode sound reactions.
 pub const GAME_SOUNDS: [&str; 5] = ["Off", "Pulse", "Impact", "Shockwave", "Bass glow"];
+
+/// How the Comet effect is coloured.
+pub const COMET_COLORS: [&str; 3] = ["My colour", "Cycle", "Rainbow"];
 
 pub const MUSIC_STYLES: [&str; 6] = ["Level meter", "Pulse", "Beat flash", "Bass & treble", "Spectrum", "Centre burst"];
 
@@ -200,7 +204,14 @@ pub fn pixel_in(p: &EffectParams, t: f64, i: usize, n: usize, inp: &FxIn) -> Rgb
             let head = (t * sp * 0.8).fract();
             let d = (head - pos).rem_euclid(1.0); // distance behind the head
             let k = if d < 0.25 { 1.0 - d / 0.25 } else { 0.0 };
-            scale(p.color, br * k * k)
+            let c = match p.comet_colors.as_str() {
+                // the whole comet slowly runs through the colours
+                "Cycle" => hsv(t * sp * 60.0, 1.0, 1.0),
+                // head to tail spans most of the colour wheel, and the wheel turns as it flies
+                "Rainbow" => hsv(t * sp * 60.0 + d / 0.25 * 270.0, 1.0, 1.0),
+                _ => p.color,
+            };
+            scale(c, br * k * k)
         }
         "Temperature" => scale(temp_color(inp.temp), br),
         "Music" => music_pixel(p, t, pos, n, inp, br),
@@ -244,5 +255,24 @@ pub fn pixel_in(p: &EffectParams, t: f64, i: usize, n: usize, inp: &FxIn) -> Rgb
             }
         }
         _ => Rgb::BLACK,
+    }
+}
+
+#[cfg(test)]
+mod comet_tests {
+    use super::*;
+
+    fn comet(colors: &str, t: f64, i: usize) -> Rgb {
+        let p = EffectParams { mode: "Comet".into(), color: Rgb::new(0, 0, 255), speed: 50, comet_colors: colors.into(), ..Default::default() };
+        pixel(&p, t, i, 100)
+    }
+
+    #[test]
+    fn comet_colours() {
+        // speed 50: the head is at 0.4 * t along the strip; LED 40 is the head at t = 1
+        assert_eq!(comet("My colour", 1.0, 40), Rgb::new(0, 0, 255));
+        assert_ne!(comet("Cycle", 1.0, 40), comet("Cycle", 3.0, 80), "the whole comet changes colour over time");
+        assert_ne!(comet("Rainbow", 1.0, 40), comet("Rainbow", 1.0, 30), "head and tail differ");
+        assert_eq!(comet("Rainbow", 1.0, 70), Rgb::new(0, 0, 0), "ahead of the head is dark");
     }
 }

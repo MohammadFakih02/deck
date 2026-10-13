@@ -31,11 +31,12 @@ pub struct Lighting {
     pub game_sound: String,
     pub game_only: bool,
     pub auto_game: bool,
+    pub comet_colors: String,
 }
 
 impl Default for Lighting {
     fn default() -> Self {
-        Self { mode: "Rainbow".into(), bright: 100, speed: 40, n1: 60, n2: 60, zones: [true; 4], color: "#009BDE".into(), music_style: "Level meter".into(), music_rainbow: true, music_gain: 100, game_sound: "Pulse".into(), game_only: true, auto_game: false }
+        Self { mode: "Rainbow".into(), bright: 100, speed: 40, n1: 60, n2: 60, zones: [true; 4], color: "#009BDE".into(), music_style: "Level meter".into(), music_rainbow: true, music_gain: 100, game_sound: "Pulse".into(), game_only: true, auto_game: false, comet_colors: "My colour".into() }
     }
 }
 
@@ -178,6 +179,7 @@ pub fn load(sh: &Shared) -> HwCfg {
         game_sound: pick(&fx::GAME_SOUNDS, &s.get("G_Sound", "Pulse"), "Pulse"),
         game_only: s.bool("G_AudioOnly", true),
         auto_game: s.bool("L_AutoGame", false),
+        comet_colors: pick(&fx::COMET_COLORS, &s.get("L_CometColors", "My colour"), "My colour"),
     };
     let design = lcd::design_from_string(&s.get("D_Design", ""));
     let display = Display {
@@ -250,6 +252,7 @@ pub fn effect_params(l: &Lighting) -> fx::EffectParams {
         game_sound: l.game_sound.clone(),
         game_audio_only: l.game_only,
         auto_game: l.auto_game,
+        comet_colors: l.comet_colors.clone(),
     }
 }
 
@@ -305,6 +308,7 @@ pub fn apply(sh: &Shared, c: &HwCfg) {
     s.set("G_Sound", &l.game_sound);
     s.set_bool("G_AudioOnly", l.game_only);
     s.set_bool("L_AutoGame", l.auto_game);
+    s.set("L_CometColors", &l.comet_colors);
 
     let d = &c.display;
     s.set_bool("D_CpuT", d.show[0]);
@@ -425,7 +429,7 @@ pub fn set_display_off(sh: &Shared, off: bool) {
 /// Option lists the pages show.
 pub fn lists() -> serde_json::Value {
     serde_json::json!({
-        "modes": fx::MODES, "music_styles": fx::MUSIC_STYLES, "game_sounds": fx::GAME_SOUNDS,
+        "modes": fx::MODES, "music_styles": fx::MUSIC_STYLES, "comet_colors": fx::COMET_COLORS, "game_sounds": fx::GAME_SOUNDS,
         "contents": lcd::CONTENTS, "anims": lcd::ANIMS, "music_disp": lcd::MUSIC_DISP,
         "clock_bottom": CLOCK_BOTTOM, "dmodes": DMODES, "fixed": FIXED,
         "default_curves": Curve::defaults().into_iter().map(|c| (c.name, c.pts)).collect::<Vec<_>>(),

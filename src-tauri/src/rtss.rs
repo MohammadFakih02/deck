@@ -470,7 +470,7 @@ pub fn refresh_now() {
     let Some(app) = APP.get() else { return };
     let (on, items, style) = {
         let s = app.settings.lock();
-        (s.osd_on, s.osd_items.clone(), s.osd_style.clone())
+        (s.osd_on, s.osd_items.clone(), s.osd_render_style())
     };
     let Some((snap, name)) = LAST.lock().clone() else { return };
     let Some(v) = open_rtss() else { return };
@@ -495,7 +495,7 @@ pub fn status() -> Value {
         .get()
         .map(|a| {
             let s = a.settings.lock();
-            (s.osd_items.clone(), s.osd_style.clone())
+            (s.osd_items.clone(), s.osd_render_style())
         })
         .unwrap_or_default();
     let (snap, name) = last.clone().unwrap_or_default();
@@ -929,7 +929,7 @@ pub fn start(app: Arc<App>) {
             while !STOP.load(Ordering::SeqCst) {
                 let (on, items, ms, mahm, style) = {
                     let s = app.settings.lock();
-                    (s.osd_on, s.osd_items.clone(), s.osd_ms.clamp(250, 2000), s.mahm_on, s.osd_style.clone())
+                    (s.osd_on, s.osd_items.clone(), s.osd_ms.clamp(250, 2000), s.mahm_on, s.osd_render_style())
                 };
                 let rt = open_rtss();
                 let (mut snap, name) = snapshot(&app, &mut sys, rt.as_ref());

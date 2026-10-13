@@ -142,7 +142,13 @@ function msg(t) { const m = $("msg"); m.textContent = t; m.classList.add("on"); 
 function send(o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); else msg("Not connected"); }
 function fmtB(b) { const u = ["B", "KB", "MB", "GB"]; let i = 0; while (b >= 1024 && i < 3) { b /= 1024; i++; } return (i ? b.toFixed(b >= 100 ? 0 : 1) : b) + " " + u[i]; }
 function fmtT(s) { s = Math.max(0, Math.round(s)); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60; return (h ? h + ":" + String(m).padStart(2, "0") : m) + ":" + String(x).padStart(2, "0"); }
-function rate(b) { const x = b * 8; return x >= 1e6 ? (x / 1e6).toFixed(1) + " Mb/s" : (x / 1e3).toFixed(0) + " kb/s"; }
+// units chosen in Deck's Settings (sent with the state)
+let units = {};
+function rate(b) {
+  if (units.net === "MB/s") return b >= 1048576 ? (b / 1048576).toFixed(1) + " MB/s" : (b / 1024).toFixed(0) + " KB/s";
+  const x = b * 8; return x >= 1e6 ? (x / 1e6).toFixed(1) + " Mb/s" : (x / 1e3).toFixed(0) + " kb/s";
+}
+function deg(c) { return Math.round(units.temp === "F" ? c * 9 / 5 + 32 : c) + "°"; }
 function devName(n) { const m = n.match(/^(.*?)\s*\((.*)\)$/); if (!m) return n; return /^(speakers|headphones|headset earphone|headset)$/i.test(m[1]) ? m[2].replace(/\s*(virtual surround sound|high definition audio|\d+- )/gi, "").trim() : m[1]; }
 
 async function copyText(t) {
@@ -219,6 +225,7 @@ function render() {
   lastRender = Date.now();
   $("pc").textContent = st.pc || "Your PC";
   const m = st.media && st.media.current, pw = st.power || {}, s = st.sys || {};
+  units = s.units || {};
   let h = "";
   if (pw.plan) h += `<div class="card plan"><div class="h">${ic("power")}Plan<button class="r" data-a="plan_cancel">Cancel</button></div><b>${esc(planText(pw.plan))}</b><div class="muted">${esc(pw.plan.progress || "")}</div></div>`;
   if (m && m.title) {
@@ -253,7 +260,7 @@ function render() {
       <button class="chip" data-plan="sleep:60">${ic("moon")}Sleep in 1 h</button>
       <button class="chip" data-plan="shutdown:downloads">${ic("dl")}Off when downloads finish</button>
       <button class="chip" data-plan="sleep:media">${ic("moon")}Sleep when music stops</button></div>`}
-    <div class="stat" style="margin-top:12px"><div><small>CPU</small><b>${Math.round(s.cpu || 0)}%</b></div><div><small>RAM</small><b>${Math.round(s.ram || 0)}%</b></div><div><small>GPU</small><b>${s.gpu && s.gpu.temp != null ? s.gpu.temp + "°" : "–"}</b></div><div><small>Down</small><b style="font-size:13px">${rate(s.down || 0)}</b></div></div></div>`;
+    <div class="stat" style="margin-top:12px"><div><small>CPU</small><b>${Math.round(s.cpu || 0)}%</b></div><div><small>RAM</small><b>${Math.round(s.ram || 0)}%</b></div><div><small>GPU</small><b>${s.gpu && s.gpu.temp != null ? deg(s.gpu.temp) : "–"}</b></div><div><small>Down</small><b style="font-size:13px">${rate(s.down || 0)}</b></div></div></div>`;
   h += `<div class="card"><div class="h">${ic("timer")}Timers</div><div class="chips">${[5, 10, 15, 25, 60].map((x) => `<button class="chip" data-timer="${x}">${x} min</button>`).join("")}</div>`;
   for (const t of pw.timers || []) {
     const paused = t.paused_left != null;

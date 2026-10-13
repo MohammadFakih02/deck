@@ -63,13 +63,44 @@ function fmtBytes(b) {
   return i === 0 ? `${b} B` : `${v >= 100 ? v.toFixed(0) : v.toFixed(1)} ${u[i]}`;
 }
 
+// ---- units chosen in Settings > General > Units. Only shown readings convert; sliders,
+// curves and offsets you set stay in MHz and °C (what the hardware and other tools use).
+const units = () => S.state?.settings || {};
+const useGhz = () => units().unit_clock === "GHz";
+const useF = () => units().unit_temp === "F";
+const netBytes = () => units().unit_net === "MB/s";
+
+/** A clock speed given in MHz, in the chosen unit. */
+function fmtClock(mhz) {
+  if (mhz == null || !Number.isFinite(+mhz)) return "–";
+  return useGhz() ? (mhz / 1000).toFixed(2) + " GHz" : Math.round(mhz).toLocaleString() + " MHz";
+}
+/** A temperature given in °C, as a number in the chosen unit. */
+const tempNum = (c) => (c == null ? null : useF() ? c * 9 / 5 + 32 : c);
+const tempUnit = () => (useF() ? "°F" : "°C");
+/** A temperature given in °C, in the chosen unit ("64 °C"; `short` gives "64°"). */
+function fmtTemp(c, short) {
+  if (c == null || !Number.isFinite(+c)) return "–";
+  return Math.round(tempNum(c)) + (short ? "°" : " " + tempUnit());
+}
+
+/** A network speed given in bytes per second: bits (Mb/s) or bytes (MB/s), as chosen. */
 function fmtRate(bps) {
+  if (netBytes()) {
+    const b = bps || 0;
+    if (b >= 1024 ** 3) return (b / 1024 ** 3).toFixed(1) + " GB/s";
+    if (b >= 1024 ** 2) return (b / 1024 ** 2).toFixed(1) + " MB/s";
+    if (b >= 1024) return (b / 1024).toFixed(0) + " KB/s";
+    return b.toFixed(0) + " B/s";
+  }
   const bits = (bps || 0) * 8;
   if (bits >= 1e9) return (bits / 1e9).toFixed(1) + " Gb/s";
   if (bits >= 1e6) return (bits / 1e6).toFixed(1) + " Mb/s";
   if (bits >= 1e3) return (bits / 1e3).toFixed(0) + " kb/s";
   return bits.toFixed(0) + " b/s";
 }
+/** A speed already in megabits per second (speed tests), in the chosen unit: [number text, unit]. */
+const mbpsParts = (mbps) => (mbps == null ? ["–", netBytes() ? "MB/s" : "Mb/s"] : netBytes() ? [(mbps / 8).toFixed(1), "MB/s"] : [(+mbps).toFixed(mbps >= 100 ? 0 : 1), "Mb/s"]);
 
 function fmtDur(s) {
   s = Math.max(0, Math.round(s));

@@ -212,6 +212,12 @@ pub struct Settings {
     pub mahm_on: bool,
     /// how the overlay is laid out and drawn
     pub osd_style: crate::osd::OsdStyle,
+    /// units shown everywhere (pages, phone, overlay): "MHz" / "GHz"
+    pub unit_clock: String,
+    /// "Mb/s" (bits) / "MB/s" (bytes)
+    pub unit_net: String,
+    /// "C" / "F"
+    pub unit_temp: String,
 }
 
 pub const ALL_TILES: &[&str] =
@@ -288,7 +294,21 @@ impl Default for Settings {
             rtss_autostart: false,
             mahm_on: true,
             osd_style: crate::osd::OsdStyle::default(),
+            unit_clock: "MHz".into(),
+            unit_net: "Mb/s".into(),
+            unit_temp: "C".into(),
         }
+    }
+}
+
+impl Settings {
+    /// The overlay's look with the app-wide units filled in.
+    pub fn osd_render_style(&self) -> crate::osd::OsdStyle {
+        let mut st = self.osd_style.clone();
+        st.ghz = self.unit_clock == "GHz";
+        st.fahrenheit = self.unit_temp == "F";
+        st.net_bytes = self.unit_net == "MB/s";
+        st
     }
 }
 

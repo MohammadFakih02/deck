@@ -6,6 +6,29 @@ Handoff notes so work can resume later. Last updated: 2026-10-11 (hardware contr
 
 > **RULE: before every commit, update the docs.** Add today's dated entry here, add user-visible changes to `CHANGELOG.md`, update `DECK.md` / `README.md` when facts change, and stage them in the same commit. The pre-commit hook enforces it; never bypass it. No personal data in these files (that goes in the git-ignored `PRIVATE_NOTES.md`).
 
+## 2026-10-13: v1.1.0 — performance pass, units, Comet colours
+
+- **Idle cost measured** (10 s samples, Deck hidden in the tray): ~19 % of one core, most of it the hidden WebView
+  (renderer + GPU process ~7 % each). Cause: `ui/guard.js` ran a `requestAnimationFrame` loop forever, and the
+  WebView2 flags (`--disable-renderer-backgrounding` etc., kept: they fix blank windows) stop Chromium from pausing it,
+  so a hidden window ticked at the monitor's refresh rate. `guard.js` now requests one frame per 4 s heartbeat.
+  The same guard is shared with the maintainer's other Tauri apps and was fixed there too.
+- **Screen / Game lighting** (`hw/screen.rs`): DXGI desktop duplication with a GPU mip chain, reading back ~60x34 px.
+  Measured 0.34 ms per sample vs 23 ms for the GDI `StretchBlt` (the GDI cost is a fixed DWM readback, not the size).
+  No new frame = the last colours, free. GDI is the fallback (access lost, non-BGRA desktop such as HDR); retries
+  duplication after 1-3 s. The session is dropped while no screen mode is on. Live check: `cargo test --release dxgi_live -- --ignored --nocapture`.
+- Looked at and left alone: hot-corner 30 ms cursor poll, cooler-display loop (sends only on change), game audio meter
+  (one peak read per poll), RTSS overlay (1 s). Board RGB at 30 Hz / RAM RGB over SMBus every 50-120 ms are the cost
+  of animated effects; the user chose to keep them.
+- **Units** setting: `unit_clock` (MHz/GHz), `unit_net` (Mb/s / MB/s), `unit_temp` (C/F) in `Settings`. JS helpers
+  `fmtClock`, `fmtTemp`, `tempNum`, `fmtRate`, `mbpsParts` in `core.js`; the sensor table converts rows in
+  `srUnits` (network rows only for transfer rates; tones still judged in °C). The overlay gets them through
+  `Settings::osd_render_style()` (OsdStyle fields `ghz`, `fahrenheit`, `net_bytes`, not saved). The phone gets
+  `sys.units`. Inputs (offsets, curves, limits) deliberately stay in MHz / °C.
+- **Comet colours** (`L_CometColors`: My colour / Cycle / Rainbow) in `fx.rs`; the colour picker hides when the comet cycles.
+- Sidebar badge (active CPU/GPU profile) now truncates with "…" instead of squeezing the page name.
+- Tests: 86 pass (+3: overlay units, Comet colours, screen column reduce), 10 ignored live tests.
+
 ## 2026-10-11: hardware control (MoboCtl merged, Afterburner replaced)
 
 Spec `docs/superpowers/specs/2026-10-11-hardware-control-design.md`, plan + ledger with every ruling in

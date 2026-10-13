@@ -2,7 +2,7 @@
 
 Deck is a single Windows tray app that brings together a launcher, a live dashboard, PowerToys-style tools, full hardware control, and a phone remote. It replaces **MoboCtl** (fans, RGB, cooler display, sensors) and **MSI Afterburner** (GPU tuning). **RivaTuner (RTSS)** stays installed because it draws the in-game overlay.
 
-- **Version:** 1.0.0. Setup: `cargo tauri build --bundles nsis`, attached to each [GitHub release](https://github.com/MohammadFakih02/deck/releases).
+- **Version:** 1.1.0. Setup: `cargo tauri build --bundles nsis`, attached to each [GitHub release](https://github.com/MohammadFakih02/deck/releases).
 - **Stack:** Tauri 2, Rust backend, vanilla JS UI. No frameworks, no build step for the UI.
 - **Source:** https://github.com/MohammadFakih02/deck (public). Machine-specific notes (the maintainer's PC, local paths, personal profiles) live in `PRIVATE_NOTES.md`, which is git-ignored; read it first if it exists.
 - **Detailed history:** session-by-session handoff notes are in `PROJECT_STATE.md`.
@@ -38,7 +38,7 @@ Read this section first. `CLAUDE.md` in this folder points here, so it loads aut
 
 ### Workflow
 - **Build:** `cargo build --release` in `src-tauri`. Set `CARGO_TARGET_DIR` to build elsewhere (the maintainer's value is in `PRIVATE_NOTES.md`). A build takes about 2 minutes. **The UI is embedded in the exe, so UI changes also need a rebuild and reinstall.**
-- **Tests:** `cargo test --release`, run in `src-tauri`; 83 should pass (9 ignored live tests). Check the JS with `node --check ui/js/*.js`.
+- **Tests:** `cargo test --release`, run in `src-tauri`; 86 should pass (10 ignored live tests). Check the JS with `node --check ui/js/*.js`.
 - **Install and run:** Deck runs elevated, so installing needs admin. `Start-Process powershell -Verb RunAs -WindowStyle Hidden -File tools\testing\elev-install.ps1` (one UAC prompt unless UAC is off). That script quits Deck, runs `install.ps1 -NoBuild`, and starts Deck **with the CDP debug port 9222**. Always finish with `tools\testing\restart-normal.ps1`, **run elevated as well** (`Start-Process powershell -Verb RunAs -File ...`; from a normal shell its `--quit` can't reach the elevated Deck, so the debug instance silently keeps running). It quits Deck and runs the `\Deck\Open` task. Then check that port 9222 is no longer listening.
   - In Git Bash, run `powercfg` and `schtasks` with `MSYS_NO_PATHCONV=1`, because Git Bash rewrites `/flags` and `\paths`.
 - **Live testing** (`tools\testing\`):
@@ -61,6 +61,7 @@ Read this section first. `CLAUDE.md` in this folder points here, so it loads aut
 - **Notes (mandatory before every commit):** add a dated entry to `PROJECT_STATE.md` for each session, add user-facing changes to `CHANGELOG.md`, and update this file and `README.md` when facts change. See §9.
 
 ### Gotchas already learned
+- **Never loop `requestAnimationFrame`.** The WebView2 flags keep hidden windows awake, so a frame loop renders at the monitor's refresh rate in the tray (it cost ~15 % of a core). `guard.js` requests a single frame per heartbeat.
 - **WebView2 browser flags** must go on each window builder (`webview_guard::browser_args()`); the environment variable alone is overridden by wry. The main window is created in `setup` (`"create": false` in `tauri.conf.json`).
 - **Tauri caches compressed UI assets** and never rewrites them. A crash mid-build leaves broken pages; `install.ps1` clears the cache.
 - **The page can miss the "shown" event at startup.** `app.js` `catchUp()` asks `get_state.visible` at boot, on focus and on visibility change, so the page still starts ticking.
@@ -154,7 +155,8 @@ Every way of switching runs the same code:
   - Shared options: hysteresis, delay, and "stop system fans below".
   - The tray has **All fans** Silent / Balanced / Performance.
   - **Fans always go back to the BIOS** on quit, panic, log-off, `--release-fans`, and in the uninstaller.
-- **Lighting:** MSI Mystic Light board RGB and Kingston Fury RAM RGB. Effects include music and screen-colour reactions and an auto "Game" preset (which can react only to the game's sound).
+- **Lighting:** MSI Mystic Light board RGB and Kingston Fury RAM RGB. Effects include music and screen-colour reactions and an auto "Game" preset (which can react only to the game's sound; off by default). Comet can use your colour, cycle through colours, or draw a rainbow tail. Screen colours come from DXGI desktop duplication (GDI fallback), so Screen/Game lighting costs well under 1 % CPU.
+- **Units:** Settings → General → Units picks MHz/GHz, Mb/s / MB/s and °C/°F for everything shown (pages, sensor table, phone, overlay). Typed-in values stay in MHz and °C.
 - **Cooler display:** LCD coolers with USB id 0416:8001. Content options are sensors, clock, text, paint design, animation, music meter and rotate. This PC has none.
 - **Sensors:** three tabs. *Graphs*: 5-minute graphs. *All readings*: the HWiNFO-style table, one device at a time (list on the left with each device's temperature and load). Per-core and per-fan rows are folded into one grid showing the current and highest values. Other rows are grouped by unit. Search covers every device. *Overlay & alerts*: the RTSS overlay items and key, heat alerts as toasts, and CSV logging to `monitor.csv`.
 - **This PC:** a hardware report (Copy, or Save) and Test lights.
@@ -202,7 +204,7 @@ Every way of switching runs the same code:
 
 ```powershell
 cd src-tauri
-cargo test --release      # 83 tests (+9 ignored live tests)
+cargo test --release      # 86 tests (+10 ignored live tests)
 cargo build --release     # set CARGO_TARGET_DIR to build elsewhere
 ..\install.ps1 -NoBuild   # elevates itself, quits Deck, copies to Program Files, (re)creates the tasks
 ..\uninstall.ps1 [-Purge] # quits Deck (fans back to the BIOS), removes tasks, shortcuts, files and the PawnIO driver if Deck installed it

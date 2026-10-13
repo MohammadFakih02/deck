@@ -255,12 +255,15 @@ Pages.lighting = {
     el.append(h("div", { class: "card col" },
       h("div", { class: "mode-grid" }, lists.modes.map((m) => h("button", { class: "chip" + (m === l.mode ? " on" : ""), onclick: () => edit(() => (l.mode = m)) }, m))),
       h("div", { class: "dim small" }, MODE_HELP[l.mode] || ""),
-      ["Static", "Breathing", "Wave", "Comet", "Music", "Game"].includes(l.mode) || !["Rainbow", "Color Cycle", "Temperature", "Screen", "Off"].includes(l.mode)
+      (l.mode === "Comet" ? (l.comet_colors || "My colour") === "My colour" // a cycling comet has no colour to pick
+        : ["Static", "Breathing", "Wave", "Music", "Game"].includes(l.mode) || !["Rainbow", "Color Cycle", "Temperature", "Screen", "Off"].includes(l.mode))
         ? h("div", { class: "row wrap color-row" },
           h("input", { type: "color", "aria-label": "Pick any colour", title: "Pick any colour", value: l.color, onchange: (e) => edit(() => (l.color = e.target.value.toUpperCase())) }),
           SWATCHES.map((c) => h("button", { class: "sw" + (c.toLowerCase() === l.color.toLowerCase() ? " on" : ""), style: { background: c }, title: c, onclick: () => edit(() => (l.color = c.toUpperCase())) })))
         : null,
       sliderRow("Brightness", l.bright, 0, 100, 1, "%", (v) => edit(() => (l.bright = v)), "light.bright"),
+      l.mode === "Comet" ? h("div", { class: "row wrap" }, h("span", { class: "dim small" }, "Comet colours"),
+        seg((lists.comet_colors || ["My colour", "Cycle", "Rainbow"]).map((c) => [c, c]), l.comet_colors || "My colour", (v) => edit(() => (l.comet_colors = v)))) : null,
       l.mode !== "Static" && l.mode !== "Off" ? sliderRow("Speed", l.speed, 1, 100, 1, "", (v) => edit(() => (l.speed = v)), "light.speed") : null));
 
     if (l.mode === "Music") {
@@ -517,7 +520,7 @@ function sensGraphs() {
     { id: "temp", name: "Temperature", w: 6, build: () => {
       const card = graphCard("thermo", "Temperature · 5 min", null,
         [legend("CPU", () => fmtT(l().cpu_t), CPU), legend("GPU", () => fmtT(l().gpu_t), GPU)],
-        (cv) => { const x = HW.hist || {}; lineGraph(cv, [{ values: x.cpu_t, color: CPU }, { values: x.gpu_t, color: GPU }, ...boardIdx.map(([, i], k) => ({ values: x.board?.[i], color: PAL[k] }))], { min: 20, max: 100, unit: "°" }); });
+        (cv) => { const x = HW.hist || {}; const T = (a) => (a || []).map((v) => (v == null ? v : tempNum(v))); lineGraph(cv, [{ values: T(x.cpu_t), color: CPU }, { values: T(x.gpu_t), color: GPU }, ...boardIdx.map(([, i], k) => ({ values: T(x.board?.[i]), color: PAL[k] }))], { min: Math.round(tempNum(20)), max: Math.round(tempNum(100)), unit: "°" }); });
       if (boardIdx.length) card.append(h("div", { class: "row wrap legends" }, boardIdx.map(([n, i], k) => legend(n, () => fmtT(l().board_t?.[i]), PAL[k]))));
       return card;
     } },
@@ -591,10 +594,32 @@ function alertsCard() {
 // ("P-core 3 temperature", "Pump duty") fold into one grid; the rest group by what they measure.
 
 const SR_KINDS = [
-  ["°C", "Temperatures"], ["W", "Power"], ["MHz", "Clocks"], ["%", "Load"], ["V", "Voltages"],
-  ["RPM", "Fan speed"], ["GB", "Memory"], ["MB", "Memory"], ["MB/s", "Transfer"], ["KB/s", "Transfer"],
+  ["°C", "Temperatures"], ["°F", "Temperatures"], ["W", "Power"], ["MHz", "Clocks"], ["GHz", "Clocks"], ["%", "Load"], ["V", "Voltages"],
+  ["RPM", "Fan speed"], ["GB", "Memory"], ["MB", "Memory"], ["MB/s", "Transfer"], ["KB/s", "Transfer"], ["Mb/s", "Transfer"],
 ];
 const SR_METRICS = [["temperature", "Temp", "°C"], ["clock", "Clock", "MHz"], ["load", "Load", "%"], ["speed", "Speed", "RPM"], ["duty", "Duty", "%"]];
+/** The grid column units, in the chosen units. */
+const srMetricUnit = (u) => (u === "°C" ? tempUnit() : u === "MHz" && useGhz() ? "GHz" : u);
+
+/** Rows as the engine sends them ("64.0 °C", "4800 MHz", "512.0 KB/s"), turned into the chosen units.
+ * Warning colours convert back to °C (srTone). */
+function srUnits(rows) {
+  const conv = (r) => {
+    const net = r.group.startsWith("Network") && r.unit === "KB/s";
+    if (r.unit === "°C" && useF()) return ["°F", (v) => v * 9 / 5 + 32, 0];
+    if (r.unit === "MHz" && useGhz()) return ["GHz", (v) => v / 1000, 2];
+    if (net && !netBytes()) return ["Mb/s", (v) => (v * 1024 * 8) / 1e6, 1];
+    if (net && netBytes()) return ["MB/s", (v) => v / 1024, 2];
+    return null;
+  };
+  return rows.map((r) => {
+    const c = conv(r);
+    if (!c) return r;
+    const [unit, f, dec] = c;
+    const one = (s) => { const v = srNum(s); return v == null ? s : f(v).toFixed(dec) + " " + unit; };
+    return { ...r, unit, cur: one(r.cur), min: one(r.min), max: one(r.max), avg: one(r.avg) };
+  });
+}
 const SR_ICON = { CPU: "chip", GPU: "gpu", Motherboard: "fan", Memory: "gauge", Drive: "disk", Network: "wifi" };
 
 const srNum = (s) => { const v = parseFloat(s); return Number.isFinite(v) ? v : null; };
@@ -615,7 +640,7 @@ function srGroups(rows) {
 
 /** The two numbers a device shows in the list: how hot, and how busy. */
 function srHeadline(g) {
-  const temps = g.rows.filter((r) => r.unit === "°C" && srNum(r.cur) != null);
+  const temps = g.rows.filter((r) => (r.unit === "°C" || r.unit === "°F") && srNum(r.cur) != null);
   const hot = g.kind === "Motherboard" ? temps.sort((a, b) => srNum(b.cur) - srNum(a.cur))[0] : temps[0];
   const busy = g.rows.find((r) => /^(Total load|Core load|Physical memory load|Total activity|Download rate)$/.test(r.name));
   const fans = g.rows.filter((r) => r.unit === "RPM" && srNum(r.cur) > 0).length;
@@ -656,7 +681,8 @@ function srLayout(rows) {
 }
 
 function srTone(r, v) {
-  if (r?.unit !== "°C" || v == null) return "";
+  if ((r?.unit !== "°C" && r?.unit !== "°F") || v == null) return "";
+  if (r.unit === "°F") v = (v - 32) * 5 / 9; // limits are in °C
   return v >= 95 ? " tone-bad" : v >= 85 ? " tone-warn" : "";
 }
 
@@ -666,7 +692,7 @@ function srGrid(g) {
   return h("div", { class: "sr-block sr-wide" },
     h("div", { class: "sr-h" }, h("b", null, title), h("span", { class: "faint" }, "now  ·  highest")),
     h("table", { class: "sr-t sr-grid" },
-      h("thead", null, h("tr", null, h("th", null, ""), meta.map(([, label, unit]) => h("th", { class: "r" }, label, h("span", { class: "faint" }, " " + unit))))),
+      h("thead", null, h("tr", null, h("th", null, ""), meta.map(([, label, unit]) => h("th", { class: "r" }, label, h("span", { class: "faint" }, " " + srMetricUnit(unit)))))),
       h("tbody", null, g.items.map(([name, ms]) => h("tr", null,
         h("td", { class: "nm" }, name),
         meta.map(([k]) => {
@@ -700,7 +726,7 @@ function sensReadings() {
     return `Collecting for ${Math.floor(m / 60)} h ${String(m % 60).padStart(2, "0")} min`;
   };
   const fill = () => {
-    const gs = srGroups(HW.table?.rows || []);
+    const gs = srGroups(srUnits(HW.table?.rows || []));
     if (!gs.some((g) => g.name === HW.sensDev)) HW.sensDev = gs[0]?.name;
     const q = (HW.sensQ || "").trim().toLowerCase();
     rail.replaceChildren(...gs.map((g) => {
@@ -740,7 +766,7 @@ function sensReadings() {
   return h("div", { class: "sr" }, h("div", { class: "sr-side" }, search, rail), detail);
 }
 
-const fmtT = (v) => (v == null ? "–" : Math.round(v) + "°");
+const fmtT = (v) => fmtTemp(v, true);
 const fmtP = (v) => (v == null ? "–" : Math.round(v) + "%");
 
 // ------------------------------------------------------------------- This PC

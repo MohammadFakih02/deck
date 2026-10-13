@@ -1,12 +1,12 @@
 // Tells the app this page is really drawing frames, so a window that silently stops painting can be
-// nudged back to life (see webview_guard.rs). Beats stop on their own while the page is hidden.
+// nudged back to life (see webview_guard.rs). One frame is requested per check instead of a
+// requestAnimationFrame loop: a loop keeps the renderer ticking at the monitor's refresh rate, even
+// while the window is hidden (the app turns WebView2's background throttling off).
 (() => {
   const T = window.__TAURI__;
   if (!T || !T.core) return;
-  let lastFrame = performance.now();
-  const frame = () => { lastFrame = performance.now(); requestAnimationFrame(frame); };
-  requestAnimationFrame(frame);
   setInterval(() => {
-    if (!document.hidden && performance.now() - lastFrame < 3000) T.core.invoke("ui_heartbeat").catch(() => {});
+    if (document.hidden) return;
+    requestAnimationFrame(() => T.core.invoke("ui_heartbeat").catch(() => {}));
   }, 4000);
 })();

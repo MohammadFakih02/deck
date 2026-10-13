@@ -79,7 +79,7 @@ const Tiles = {
       h("div", { class: "vital" }, h("div", { class: "k" }, "CPU"), h("div", { class: "v" }, Math.round(s.cpu) + "%"), h("div", { class: "s" }, `${s.cores} threads`), v1),
       h("div", { class: "vital" }, h("div", { class: "k" }, "Memory"), h("div", { class: "v" }, Math.round(s.ram_pct) + "%"), h("div", { class: "s" }, `${fmtBytes(s.ram_used)} of ${fmtBytes(s.ram_total)}`), v2),
       gpu
-        ? h("div", { class: "vital" }, h("div", { class: "k" }, "GPU"), h("div", { class: "v" }, (gpu.temp ?? "–") + "°"), h("div", { class: "s" }, `${gpu.util ?? 0}% · ${gpu.power_w ?? 0} W`), v3)
+        ? h("div", { class: "vital" }, h("div", { class: "k" }, "GPU"), h("div", { class: "v" }, fmtTemp(gpu.temp, true)), h("div", { class: "s" }, `${gpu.util ?? 0}% · ${gpu.power_w ?? 0} W`), v3)
         : h("div", { class: "vital" }, h("div", { class: "k" }, "Network"), h("div", { class: "v", style: { fontSize: "15px" } }, fmtRate(s.down)), h("div", { class: "s" }, "down"), v3)));
     const drives = (s.disks || []).filter((d) => !d.removable && d.total > 0).sort((a, b) => a.mount.localeCompare(b.mount));
     el.append(h("div", { class: "drives" }, drives.map((d) => {

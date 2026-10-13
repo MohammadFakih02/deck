@@ -585,10 +585,12 @@ pub fn spawn_all(sh: &Arc<Shared>) -> Workers {
     // screen colours (only captured while the Screen lighting mode is on)
     let s = sh.clone();
     others.push(spawn(move || {
+        // held only while a screen mode is on (a duplication session costs the compositor a little)
+        let mut grab: Option<crate::hw::screen::Grabber> = None;
         while s.up() {
             let mode = s.effect().mode;
             if mode == "Screen" || mode == "Game" {
-                if let Some((cols, avg)) = crate::hw::screen::sample() {
+                if let Some((cols, avg)) = grab.get_or_insert_with(crate::hw::screen::Grabber::new).sample() {
                     let mut l = s.live.lock().unwrap();
                     if mode == "Game" && l.screen.len() == cols.len() {
                         // smooth the scene colours so the lights do not flicker; big scene cuts follow faster
@@ -608,6 +610,7 @@ pub fn spawn_all(sh: &Arc<Shared>) -> Workers {
                 }
                 sleep(Duration::from_millis(50));
             } else {
+                grab = None;
                 sleep(Duration::from_millis(250));
             }
         }

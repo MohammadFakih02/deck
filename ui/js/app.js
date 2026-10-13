@@ -24,7 +24,7 @@ function navBadge(page, sub) {
   if (page === "power" && sub === "plan" && p?.plan) return h("span", { class: "badge warn" }, "Set");
   if (page === "phone" && S.state?.remote?.clients) return h("span", { class: "badge" }, S.state.remote.clients);
   if (page === "boost" && S.live?.boost?.on) return h("span", { class: "badge" }, "On");
-  if ((page === "cpu" || page === "gpu") && S.live?.profiles?.[page]) return h("span", { class: "badge" }, S.live.profiles[page]);
+  if ((page === "cpu" || page === "gpu") && S.live?.profiles?.[page]) return h("span", { class: "badge", title: S.live.profiles[page] }, S.live.profiles[page]);
   return null;
 }
 

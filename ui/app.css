@@ -93,11 +93,13 @@ body.style-window .panel { width: 100vw; height: 100vh; border-radius: 0; border
   font-weight: 600; font-size: 13px; position: relative;
 }
 .nav svg.i { width: 17px; height: 17px; }
-.nav span:not(.badge) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav span:not(.badge) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: none; max-width: 100%; }
 .nav:hover { background: #ffffff08; color: var(--text); }
 .nav.on { background: var(--acc-soft); color: var(--text); }
 .nav.on svg.i { color: var(--acc); }
-.nav .badge { margin-left: auto; font-size: 10.5px; font-weight: 700; color: var(--acc); background: var(--acc-soft); padding: 1px 7px; border-radius: 20px; }
+/* a long profile name shrinks and ends in "…" (one line); the page name itself always shows in full */
+.nav .badge { margin-left: auto; font-size: 10.5px; font-weight: 700; color: var(--acc); background: var(--acc-soft); padding: 1px 7px; border-radius: 20px;
+  min-width: 0; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nav .badge.warn { color: var(--warn); background: #ffb5471f; }
 .nav-scroll { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 1px; margin: 0 -4px; padding: 0 4px; scrollbar-width: thin; scrollbar-color: #262d3d transparent; }
 /* more pages below (short window): fade the bottom edge so it reads as scrollable */
