@@ -636,7 +636,20 @@ pub fn spawn_all(sh: &Arc<Shared>) -> Workers {
         let mut last_key: Option<(Rgb, Rgb, Rgb, String)> = None;
         let mut last_send = Instant::now() - Duration::from_secs(10);
         let mut retry = Instant::now() - Duration::from_secs(10);
+        crate::gpu::watch_resume();
+        let mut wakes = crate::gpu::WAKES.load(Relaxed);
+        let mut wake_at: Option<Instant> = None;
         while s.up() {
+            // after sleep the controller can lose its config packet: reconnect a few seconds after wake
+            let w = crate::gpu::WAKES.load(Relaxed);
+            if w != wakes {
+                wakes = w;
+                wake_at = Some(Instant::now());
+            }
+            if wake_at.is_some_and(|t| t.elapsed().as_secs() >= 4) {
+                wake_at = None;
+                s.reconnect.store(true, Relaxed);
+            }
             if s.rgb_hold.load(Relaxed) {
                 last_key = None;
                 sleep(Duration::from_millis(100));
@@ -684,7 +697,22 @@ pub fn spawn_all(sh: &Arc<Shared>) -> Workers {
         let mut ram = FuryRam::new();
         ram.scan();
         s.status.lock().unwrap().ram = ram.status.clone() + if !ram.sticks.is_empty() { "  (close Fury CTRL / MSI Center if colours flicker)" } else { "" };
+        crate::gpu::watch_resume();
+        let mut wakes = crate::gpu::WAKES.load(Relaxed);
+        let mut wake_at: Option<Instant> = None;
         while s.up() {
+            // the sticks power-cycle in sleep and fall back to their onboard effect: rescan (re-enters direct mode)
+            let w = crate::gpu::WAKES.load(Relaxed);
+            if w != wakes {
+                wakes = w;
+                wake_at = Some(Instant::now());
+            }
+            if wake_at.is_some_and(|t| t.elapsed().as_secs() >= 4) {
+                wake_at = None;
+                ram = FuryRam::new();
+                ram.scan();
+                s.status.lock().unwrap().ram = ram.status.clone() + if !ram.sticks.is_empty() { "  (close Fury CTRL / MSI Center if colours flicker)" } else { "" };
+            }
             let p = s.effect();
             let inp = s.fx_in();
             ram.frame(&p, s.t(), &inp);

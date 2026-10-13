@@ -6,6 +6,16 @@ Handoff notes so work can resume later. Last updated: 2026-10-11 (hardware contr
 
 > **RULE: before every commit, update the docs.** Add today's dated entry here, add user-visible changes to `CHANGELOG.md`, update `DECK.md` / `README.md` when facts change, and stage them in the same commit. The pre-commit hook enforces it; never bypass it. No personal data in these files (that goes in the git-ignored `PRIVATE_NOTES.md`).
 
+## 2026-10-13: v1.1.1 — lighting survives sleep
+
+- Bug: after sleep the Kingston Fury sticks fell back to their onboard effect. `FuryRam` keeps `per_led`/`sent`
+  caches, so it never re-sent the direct-mode handshake (`set_direct`) and static colours weren't re-sent at all.
+  Only `gpu/` listened for resume.
+- Fix: `gpu::WAKES` (AtomicU64) counts `PBT_APMRESUMEAUTOMATIC`; `watch_resume` is now `Once`-guarded so several threads
+  can call it. The board RGB thread sets `reconnect` and the RAM thread rebuilds + rescans `FuryRam` 4 s after a wake.
+  Hardware-agnostic: on machines without these devices the rescan finds nothing, same as at startup.
+- Tested: real S3 sleep/wake, RAM lights came back; no errors or crashes in the event logs. Not tested: hibernate, Modern Standby laptops.
+
 ## 2026-10-13: v1.1.0 — performance pass, units, Comet colours
 
 - **Idle cost measured** (10 s samples, Deck hidden in the tray): ~19 % of one core, most of it the hidden WebView

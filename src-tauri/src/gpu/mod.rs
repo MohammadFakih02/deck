@@ -100,6 +100,8 @@ pub static FAN_GATE: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
 pub static CLOCK_LOCKED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 /// Set when Windows wakes from sleep; the GPU loop re-applies the profile (a limit can be lost).
 pub static RESUMED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// Counts wakes from sleep; the lighting threads compare it to re-init controllers that lost power.
+pub static WAKES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// Sets `RESUMED` on every wake from sleep or hibernate (no window needed).
 pub fn watch_resume() {
@@ -108,8 +110,16 @@ pub fn watch_resume() {
     unsafe extern "system" fn on_power(_ctx: *const core::ffi::c_void, kind: u32, _setting: *const core::ffi::c_void) -> u32 {
         if kind == PBT_APMRESUMEAUTOMATIC {
             RESUMED.store(true, std::sync::atomic::Ordering::SeqCst);
+            WAKES.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         }
         0
+    }
+    // called from several threads; register only once
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    let mut first = false;
+    ONCE.call_once(|| first = true);
+    if !first {
+        return;
     }
     // registered for the life of the process: the parameters must stay alive, so they are leaked
     let params = Box::leak(Box::new(DEVICE_NOTIFY_SUBSCRIBE_PARAMETERS { Callback: Some(on_power), Context: std::ptr::null_mut() }));
