@@ -3,11 +3,11 @@
 // Sidebar: every item is its own page, grouped. [page, sub, label, icon]
 const NAV = [
   [null, [["home", null, "Home", "home"], ["boost", null, "Game boost", "zap"]]],
-  ["Everyday", [["clipboard", null, "Clipboard", "clipboard"], ["audio", null, "Sound", "volume"], ["power", "timers", "Timers & breaks", "timer"]]],
-  ["Power", [["power", "awake", "Keep awake", "coffee"], ["power", "plan", "Shut down when…", "power"]]],
-  ["Hardware", [["cpu", null, "CPU", "chip"], ["gpu", null, "GPU", "gpu"], ["fans", null, "Fans", "fan"], ["lighting", null, "Lighting", "bulb"], ["lcd", null, "Cooler display", "monitor"], ["sensors", null, "Sensors", "gauge"], ["thispc", null, "This PC", "info"]]],
-  ["Screen", [["windows", null, "Windows", "windows"], ["system", "display", "Display", "monitor"]]],
-  ["PC", [["system", "processes", "Processes", "cpu"], ["system", "startup", "Startup apps", "rocket"], ["system", "network", "Network", "wifi"], ["files", "space", "Disk space", "disk"], ["files", "cleanup", "Clean up", "broom"], ["tools", null, "Tools", "tools"]]],
+  ["Hardware", [["cpu", null, "CPU", "chip"], ["gpu", null, "GPU", "gpu"], ["fans", null, "Fans", "fan"], ["lighting", null, "Lighting", "bulb"], ["lcd", null, "Cooler display", "monitor"]]],
+  ["Monitor", [["sensors", null, "Sensors", "gauge"], ["system", "processes", "Processes", "cpu"], ["system", "network", "Network", "wifi"], ["thispc", null, "This PC", "info"]]],
+  ["Desktop", [["windows", null, "Windows", "windows"], ["system", "display", "Display", "monitor"], ["clipboard", null, "Clipboard", "clipboard"], ["audio", null, "Sound", "volume"]]],
+  ["Power & time", [["power", "awake", "Keep awake", "coffee"], ["power", "timers", "Timers & breaks", "timer"], ["power", "plan", "Shut down when…", "power"]]],
+  ["Maintenance", [["files", "space", "Disk space", "disk"], ["files", "cleanup", "Clean up", "broom"], ["system", "startup", "Startup apps", "rocket"], ["tools", null, "Tools", "tools"]]],
 ];
 /** Hardware pages only show when this PC has something for them (the backend says which). */
 const HW_PAGES = ["cpu", "gpu", "fans", "lighting", "lcd", "sensors", "thispc"];

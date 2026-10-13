@@ -13,7 +13,6 @@ const HEADS = {
   "windows/workspaces": ["Workspaces", "Save where your windows are, then put everything back in one click."],
   "files/space": ["Disk space", "See what fills your drives and send big things to the Recycle Bin."],
   "files/cleanup": ["Clean up", "Safe junk: caches, temp files, crash dumps and old installers."],
-  "files/index": ["File search", "Which folders the search box looks in."],
   "system/processes": ["Processes", "Running programs, grouped by app. End the ones that are stuck."],
   "system/startup": ["Startup apps", "What starts with Windows."],
   "system/network": ["Network", "Speed test, ping to game servers and your addresses."],

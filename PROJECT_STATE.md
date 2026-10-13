@@ -6,6 +6,16 @@ Handoff notes so work can resume later. Last updated: 2026-10-11 (hardware contr
 
 > **RULE: before every commit, update the docs.** Add today's dated entry here, add user-visible changes to `CHANGELOG.md`, update `DECK.md` / `README.md` when facts change, and stage them in the same commit. The pre-commit hook enforces it; never bypass it. No personal data in these files (that goes in the git-ignored `PRIVATE_NOTES.md`).
 
+## 2026-10-14: sidebar regrouped
+
+- `NAV` in `ui/js/app.js`: Everyday / Power / Hardware / Screen / PC became Hardware (controls only) / Monitor
+  (Sensors, Processes, Network, This PC) / Desktop (Windows, Display, Clipboard, Sound) / Power & time (all three
+  Power subpages together) / Maintenance (Disk space, Clean up, Startup apps, Tools). `navShown` still hides hardware
+  pages per PC, so Monitor just loses Sensors / This PC where there is no hardware. `nav_folded` holds old group
+  names; they are ignored (folded groups reopen once).
+- Removed the orphaned `files/index` route (nothing linked to it; `indexView` stays, used by Settings).
+- Tests: `regress.mjs` 37 pass (run with Chrome; the harness hard-codes Edge's path). Installed and checked by the user.
+
 ## 2026-10-13: v1.1.1 — lighting survives sleep
 
 - Bug: after sleep the Kingston Fury sticks fell back to their onboard effect. `FuryRam` keeps `per_led`/`sent`

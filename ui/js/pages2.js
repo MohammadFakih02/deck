@@ -47,7 +47,6 @@ Pages.files = {
       S.cache.cleanup = await invoke("cleanup_state");
       if (!S.cache.cleanup.targets.length && !S.cache.cleanup.busy) { invoke("cleanup_scan"); }
     }
-    if (S.sub === "index") S.cache.indexInfo = await invoke("index_info");
     if (S.cache.diskStatus.root && !S.cache.diskStatus.running) {
       S.cache.diskView = await invoke("disk_children", { id: S.cache.diskNode || 0 });
       S.cache.diskBig = await invoke("disk_big");
@@ -57,7 +56,6 @@ Pages.files = {
     const sub = S.sub || "space";
     const el = h("div", null, pageHead("files", sub));
     if (sub === "cleanup") el.append(cleanupView());
-    else if (sub === "index") el.append(indexView());
     else el.append(diskView());
     return el;
   },
