@@ -2,6 +2,67 @@
 
 All notable changes to Deck. Setups for each version are on the [Releases](https://github.com/MohammadFakih02/deck/releases) page.
 
+## 2.0.0 — 2026-10-14
+
+The big update. It installs over Deck 1.x and keeps all your settings, profiles and layouts.
+
+### New
+- **Make Deck yours**: on first start (and once after this update) Deck asks for your theme, accent colour, opacity, opening animation and low-spec mode. All of it can be changed later in Settings → General.
+- **8 themes** (Settings → General → Colour): Midnight (the default), Graphite, OLED black, Pure black, Nord, Forest, Plum and Ember. Your accent colour stays the same.
+- **Opacity**: how see-through Deck is, set separately for pinned and not pinned (30–100 %).
+- **Opening animations**: Zoom (the default), Fade, Pop, Rise, Drop, Flip, Swirl, Blur in, or None, with a Preview button.
+- **Low-spec mode** (Settings → General → Performance, off by default): for older or slower PCs. No animations or soft shadows, and live readings and graphs update every 3 seconds instead of every second. Everything still works.
+- **The pin works in both modes.**
+  - Quick panel: Deck becomes a small floating window on top of everything, with nothing dimmed around it, so you can use other apps while it stays open.
+  - App window: Deck stays on top of other windows.
+- **Home, arranged your way**:
+  - Drag any tile anywhere, including under each other.
+  - Resize tiles both wider and taller from the corner.
+  - A guide line shows where a tile will snap to line up with its neighbours.
+  - Tiles never overlap: the ones in the way move down.
+  - When a tile is made small, its less important parts fold away neatly instead of overflowing.
+- **New default Home layout** for new installs and for anyone who never arranged Home.
+- **PC tile cards** (Home): CPU, Memory, GPU and VRAM cards, all in the same style: usage, then clock and power (for example "5.3 GHz · 33 W"), then temperature, and a graph. Their rows line up across cards. The new button in the tile's corner turns cards on or off, reorders them, adds a Network card, and hides the drives list.
+- **Drives** (Monitor → Drives): the health of every HDD and SSD (S.M.A.R.T.).
+  - Shows health, temperature, power-on hours, data written, wear and the warning signs (reallocated, pending and uncorrectable sectors, media errors).
+  - It remembers past readings, so a problem that came and went still shows.
+  - Optional notifications when a drive's health gets worse (off by default).
+- **Disk space, much faster**:
+  - On NTFS drives Deck reads the drive's file table directly (the way WizTree does), so a full drive scans in seconds.
+  - The treemap is laid out like WizTree's, with **File types** and **Folders** views and a back button.
+  - The drive picker switches drives instantly.
+- **Overlay has its own page** (Monitor → Overlay).
+  - It can install RivaTuner for you.
+  - The overlay key now also flips RivaTuner's own "Show on-screen display" switch, so the overlay turns on and off reliably.
+- **Sidebar categories can be reordered**: drag a group or a page to move it. Settings → General has a Reset to put the sidebar back. Every group starts folded on a new install, for a short menu.
+- **Support report** (This PC) now includes:
+  - drive health and past drive problems;
+  - the PC's maker, model and type (laptop, desktop…);
+  - a quick lights test.
+
+### Changed
+- **Power & time** is now the last sidebar group, after Maintenance.
+- **Sensors** opens on All readings.
+- **Game boost**:
+  - "Free memory" now only works when memory is actually short (85 % or more in use). With room to spare it does nothing, since trimming would only make background apps slow to come back.
+  - "Turn off by itself" also ends Full power after 3 hours if no game ever showed up.
+  - Deck now also spots games it doesn't know, when the program in front keeps the graphics card busy.
+  - Picking a CPU profile under "Switch profiles while it's on" turns off "Fastest power plan", because the CPU profile brings its own power plan. The page now says so, instead of the switch just going off.
+- **Overlay settings fit narrow windows**: button groups, sliders and the font list move under their label instead of spilling past the card.
+- The default sidebar is narrower (180 px).
+
+### Fixed
+- **Network speeds were wrong (often double).** Windows lists some adapters twice: packet-capture tools such as Npcap and Wireshark add a filter layer that repeats the same traffic. Deck now counts only real network adapters, each once, using Windows' own counters. With Ethernet and Wi-Fi both connected their traffic adds up. An adapter you plug in starts counting from its next reading, with no false spike. One you remove simply stops counting.
+- **RAM lighting ignored Deck after a cold boot**, for example staying lit when lights were set to off. Right after Windows starts, the memory's RGB controllers can be too slow to answer, and Deck never looked for them again. Deck now keeps looking for 10 minutes after startup or wake, and never disturbs sticks it already found.
+- **Resizing a Home tile sometimes jumped back** and had to be done twice. A settings refresh in the middle of a drag overwrote the new size.
+- **A resized tile went back to full size** after you let go.
+- Tiles flickered while dragging.
+- Numbers overlapped labels in small tiles.
+- Long app names, like "Microsoft Edge WebView2", pushed the volume number out of the Sound tile.
+- **The pin did nothing**: its button crashed when clicked.
+- The overlay key (Page Up) didn't toggle RivaTuner's on-screen display.
+- Deck no longer forces an extra full-window repaint every time it opens, unless the window actually comes up blank.
+
 ## 1.1.2 — 2026-10-14
 
 ### Changed

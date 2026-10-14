@@ -430,3 +430,9 @@ pub fn rtss_reset_stats() {
 pub fn rtss_start() -> R<()> {
     crate::rtss::start_rtss()
 }
+
+/// Downloads and installs RivaTuner (winget, from Guru3D): takes up to a minute.
+#[tauri::command]
+pub async fn rtss_install() -> R<()> {
+    tauri::async_runtime::spawn_blocking(crate::rtss::install_rtss).await.map_err(|e| e.to_string())?
+}

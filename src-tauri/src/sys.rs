@@ -1,16 +1,17 @@
 //! PC vitals (CPU, RAM, GPU, disks, network) and the process list.
 
-use nvml_wrapper::enum_wrappers::device::TemperatureSensor;
+use nvml_wrapper::enum_wrappers::device::{Clock, TemperatureSensor};
 use nvml_wrapper::Nvml;
 use parking_lot::Mutex;
 use serde_json::{json, Value};
 use std::collections::{HashMap, VecDeque};
 use std::time::Instant;
-use sysinfo::{Disks, Networks, Pid, ProcessesToUpdate, System};
+use sysinfo::{Disks, Pid, ProcessesToUpdate, System};
 
 struct Inner {
     sys: System,
-    nets: Networks,
+    /// per-adapter network counters: the rates are what moved since the last reading
+    net: crate::util::NetCounter,
     disks: Disks,
     disks_at: Instant,
     net_at: Instant,
@@ -21,6 +22,7 @@ struct Inner {
     down_hist: VecDeque<f64>,
     up_hist: VecDeque<f64>,
     gpu_hist: VecDeque<f32>,
+    vram_hist: VecDeque<f32>,
     procs_at: Option<Instant>,
 }
 
@@ -79,7 +81,7 @@ impl Sys {
         Self {
             inner: Mutex::new(Inner {
                 sys,
-                nets: Networks::new_with_refreshed_list(),
+                net: crate::util::NetCounter::new(),
                 disks: Disks::new_with_refreshed_list(),
                 disks_at: Instant::now(),
                 net_at: Instant::now(),
@@ -90,6 +92,7 @@ impl Sys {
                 down_hist: VecDeque::new(),
                 up_hist: VecDeque::new(),
                 gpu_hist: VecDeque::new(),
+                vram_hist: VecDeque::new(),
                 procs_at: None,
             }),
         }
@@ -109,16 +112,7 @@ impl Sys {
 
         let dt = i.net_at.elapsed().as_secs_f64().max(0.2);
         i.net_at = Instant::now();
-        i.nets.refresh(true);
-        let (mut rx, mut tx) = (0u64, 0u64);
-        for (name, n) in i.nets.iter() {
-            let lname = name.to_ascii_lowercase();
-            if lname.contains("loopback") || lname.contains("vethernet") || lname.contains("wsl") {
-                continue;
-            }
-            rx += n.received();
-            tx += n.transmitted();
-        }
+        let (rx, tx) = i.net.sample();
         let down = rx as f64 / dt;
         let up = tx as f64 / dt;
 
@@ -153,6 +147,7 @@ impl Sys {
                 "vram_used": mem.as_ref().map(|m| m.used),
                 "vram_total": mem.as_ref().map(|m| m.total),
                 "power_w": d.power_usage().ok().map(|mw| mw / 1000),
+                "clock": d.clock_info(Clock::Graphics).ok(),
                 "fan": d.fan_speed(0).ok(),
             })
         });
@@ -163,6 +158,9 @@ impl Sys {
         push(&mut i.up_hist, up);
         if let Some(u) = gpu.as_ref().and_then(|g| g["util"].as_f64()) {
             push(&mut i.gpu_hist, u as f32);
+        }
+        if let Some((u, t)) = gpu.as_ref().and_then(|g| Some((g["vram_used"].as_f64()?, g["vram_total"].as_f64()?))) {
+            push(&mut i.vram_hist, if t > 0.0 { (u * 100.0 / t) as f32 } else { 0.0 });
         }
         json!({
             "cpu": cpu,
@@ -180,6 +178,7 @@ impl Sys {
             "down_hist": i.down_hist,
             "up_hist": i.up_hist,
             "gpu_hist": i.gpu_hist,
+            "vram_hist": i.vram_hist,
         })
     }
 
@@ -322,15 +321,7 @@ impl Sys {
         let cpu = i.sys.global_cpu_usage();
         let dt = i.net_at.elapsed().as_secs_f64();
         i.net_at = Instant::now();
-        i.nets.refresh(true);
-        let (mut rx, mut tx) = (0u64, 0u64);
-        for (name, n) in i.nets.iter() {
-            let l = name.to_ascii_lowercase();
-            if !(l.contains("loopback") || l.contains("vethernet") || l.contains("wsl")) {
-                rx += n.received();
-                tx += n.transmitted();
-            }
-        }
+        let (rx, tx) = i.net.sample();
         push(&mut i.cpu_hist, cpu);
         push(&mut i.down_hist, rx as f64 / dt);
         push(&mut i.up_hist, tx as f64 / dt);
@@ -366,5 +357,18 @@ mod tests {
         if let Some(pid) = csrss {
             assert_ne!(is_critical(pid), Some(false), "csrss must never look safe to end");
         }
+    }
+}
+
+#[cfg(test)]
+mod net_live {
+    /// Live: Deck's reading over 3 s next to Windows' own adapter totals (the real adapters only).
+    #[test]
+    #[ignore]
+    fn net_matches_windows() {
+        let mut c = crate::util::NetCounter::new();
+        std::thread::sleep(std::time::Duration::from_secs(3));
+        let (rx, tx) = c.sample();
+        println!("NET deck: {:.2} MB/s down, {:.3} MB/s up", rx as f64 / 3e6, tx as f64 / 3e6);
     }
 }

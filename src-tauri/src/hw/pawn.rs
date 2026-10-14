@@ -46,7 +46,7 @@ fn open_device() -> HANDLE {
     }
 }
 
-fn device_present() -> bool {
+pub(crate) fn device_present() -> bool {
     let h = open_device();
     if h == INVALID_HANDLE_VALUE {
         return false;

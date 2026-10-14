@@ -30,6 +30,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 
 static ON: AtomicBool = AtomicBool::new(false);
+/// Full power with "turn off by itself" ends after this long (s) when no game ever showed up.
+const NO_GAME_LIMIT: u64 = 3 * 3600;
 
 /// Is Full power on? (Deck pauses its own background jobs meanwhile.)
 pub fn is_on() -> bool {
@@ -829,7 +831,9 @@ pub fn start(app: &App) -> Result<Value, String> {
         let pids: Vec<u32> = rest.iter().filter(|g| !g.window && !g.voice).flat_map(|g| g.pids.clone()).collect();
         a.lowered = lower_priority(&p.sys, &pids);
     }
-    if s.boost_trim {
+    // trimming only helps when memory is short: with room to spare Windows already gives the game
+    // what it needs, and trimmed apps would page their memory back in later (small hitches)
+    if s.boost_trim && memory_short() {
         let pids: Vec<u32> = rest.iter().flat_map(|g| g.pids.clone()).collect();
         a.freed = trim(&mut p.sys, &pids);
     }
@@ -850,6 +854,13 @@ pub fn start(app: &App) -> Result<Value, String> {
     app.boost.busy.store(false, Ordering::SeqCst);
     app.changed("boost");
     Ok(report)
+}
+
+/// Memory use at or over 85 %: then moving background apps' idle memory aside makes real room.
+fn memory_short() -> bool {
+    let mut m = System::new();
+    m.refresh_memory();
+    m.total_memory() > 0 && m.used_memory() * 100 / m.total_memory() >= 85
 }
 
 /// Full power off: everything back the way it was.
@@ -883,7 +894,7 @@ pub fn summary(what: &str, v: &Value) -> (String, String) {
     let freed = v["freed"].as_u64().unwrap_or(0);
     let mut parts = vec![closed];
     if freed > 50 << 20 {
-        parts.push(format!("freed {}", crate::util::fmt_bytes(freed)));
+        parts.push(format!("moved {} of background apps' idle memory aside", crate::util::fmt_bytes(freed)));
     }
     if what == "boost" {
         if let Some(p) = v["plan_to"].as_str().filter(|p| !p.is_empty()) {
@@ -977,7 +988,8 @@ fn find_game(app: &App, sys: &mut System) -> Option<(u32, String)> {
     // Games Deck doesn't know about: remember fullscreen programs.
     let mut fs = app.boost.fs_games.lock();
     fs.retain(|pid, _| sys.process(Pid::from_u32(*pid)).is_some());
-    if crate::hotcorner::fullscreen_in_front() {
+    let gpu_busy = app.gpu_engine().and_then(|g| g.nvml.live().util).is_some_and(|u| u >= 60);
+    if crate::hotcorner::fullscreen_in_front() || gpu_busy {
         use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
         let mut pid = 0u32;
         unsafe {
@@ -986,7 +998,7 @@ fn find_game(app: &App, sys: &mut System) -> Option<(u32, String)> {
         if let Some(path) = process_path(pid) {
             let stem = stem_of(&path);
             let windir = std::env::var("WINDIR").unwrap_or_default().to_lowercase();
-            if !NOT_GAMES.contains(&stem.as_str()) && !(!windir.is_empty() && path.to_lowercase().starts_with(&windir)) {
+            if pid != std::process::id() && !NOT_GAMES.contains(&stem.as_str()) && !(!windir.is_empty() && path.to_lowercase().starts_with(&windir)) {
                 fs.insert(pid, friendly_name(&path));
             }
         }
@@ -1031,6 +1043,7 @@ pub fn start_watch(app: Arc<App>) {
                 let found = find_game(&app, &mut sys);
                 let auto_end = app.settings.lock().boost_auto_end;
                 let mut end = false;
+                let mut no_game = false;
                 {
                     let mut g = app.boost.active.lock();
                     let Some(a) = g.as_mut() else { continue };
@@ -1049,6 +1062,11 @@ pub fn start_watch(app: Arc<App>) {
                             if auto_end && a.seen_game && now_s().saturating_sub(a.last_game) > 45 {
                                 end = true;
                             }
+                            // no game ever spotted: it doesn't stay on forever
+                            if auto_end && !a.seen_game && now_s().saturating_sub(a.since) > NO_GAME_LIMIT {
+                                end = true;
+                                no_game = true;
+                            }
                         }
                     }
                     if (a.game.clone(), a.seen_game) != before {
@@ -1058,7 +1076,7 @@ pub fn start_watch(app: Arc<App>) {
                     }
                 }
                 if end {
-                    let _ = stop(&app, "your game closed");
+                    let _ = stop(&app, if no_game { "no game was found for 3 hours" } else { "your game closed" });
                 }
             }
         })

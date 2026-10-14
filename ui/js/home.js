@@ -13,10 +13,71 @@ const TILE_INFO = {
   network: { name: "Network", w: "" },
 };
 
-function tileHead(ic, title, link, onlink) {
+function tileHead(ic, title, link, onlink, onset) {
   return h("div", { class: "tile-head" }, I(ic), h("span", null, title), h("span", { class: "grow" }),
-    link ? h("button", { class: "link", onclick: onlink }, link) : null);
+    link ? h("button", { class: "link", onclick: onlink }, link) : null,
+    onset ? h("button", { class: "link tile-set", title: "Choose what this shows", "aria-label": "Choose what this shows", onclick: onset }, I("sliders")) : null);
 }
+
+const ghz = (mhz) => (mhz ? (mhz / 1000).toFixed(1) + " GHz" : null);
+const watts = (w) => (w != null ? Math.round(w) + " W" : null);
+/** "0.9 / 10.0 GB": both numbers in the unit of the total, so they read together. */
+const ofBytes = (a, b) => {
+  const y = fmtBytes(b), u = y.split(" ")[1], k = ["B", "KB", "MB", "GB", "TB"].indexOf(u);
+  if (k <= 0) return `${fmtBytes(a)} / ${y}`;
+  const v = a / 1024 ** k;
+  return `${v >= 100 ? v.toFixed(0) : v.toFixed(1)} / ${y}`;
+};
+const pctOf = (v) => (v != null ? Math.round(v) + "%" : "–");
+
+/** The PC tile's cards: label, big value (usage), details (clock, power), temperature, graph. */
+const PC_CARDS = {
+  cpu: (s) => {
+    const c = S.live?.cpu_now || {};
+    return { k: "CPU", v: pctOf(s.cpu), l1: c.mhz || c.w != null ? [ghz(c.mhz), watts(c.w)] : [`${s.cores} threads`], l2: c.t != null ? fmtTemp(c.t) : null, hist: s.cpu_hist, color: accent() };
+  },
+  ram: (s) => ({ k: "Memory", v: pctOf(s.ram_pct), l1: [ofBytes(s.ram_used, s.ram_total)], l2: `${fmtBytes(s.ram_total - s.ram_used)} free`, hist: s.ram_hist, color: "#b98cff" }),
+  gpu: (s) => {
+    const g = s.gpu, c = S.live?.cpu_now || {};
+    if (!g && c.gpu_t == null && c.gpu_l == null) return null; // no graphics card Deck can read
+    const t = g?.temp ?? c.gpu_t;
+    return { k: "GPU", v: pctOf(g?.util ?? c.gpu_l), l1: [ghz(g?.clock), watts(g?.power_w)], l2: t != null ? fmtTemp(t) : null, hist: s.gpu_hist, color: "#3ddc97" };
+  },
+  vram: (s) => {
+    const g = s.gpu;
+    if (!g || !g.vram_total) return null;
+    return { k: "VRAM", v: pctOf(g.vram_used * 100 / g.vram_total), l1: [ofBytes(g.vram_used, g.vram_total)], l2: `${fmtBytes(g.vram_total - g.vram_used)} free`, hist: s.vram_hist, color: "#ffb547" };
+  },
+  net: (s) => ({ k: "Network", v: fmtRate(s.down), small: true, l1: ["down"], l2: `up ${fmtRate(s.up)}`, hist: s.down_hist, max: 0, color: "#4fd1ff" }),
+};
+const PC_NAMES = { cpu: "CPU", ram: "Memory", gpu: "Graphics card", vram: "Graphics memory", net: "Network" };
+
+/** Which cards the PC tile shows and in what order, and whether the drives show. */
+function pcCustomize() {
+  const st = S.state.settings;
+  let on = [...(st.pc_cards || ["cpu", "ram", "gpu", "vram"])];
+  let drives = st.pc_drives !== false;
+  const body = h("div", { class: "pc-set" });
+  const draw = () => {
+    const all = [...on, ...Object.keys(PC_NAMES).filter((id) => !on.includes(id))];
+    body.replaceChildren(
+      h("div", { class: "dim", style: { marginBottom: "8px" } }, "Pick the cards and their order. Each shows the usage, then clock and power, then the temperature."),
+      ...all.map((id) => {
+        const i = on.indexOf(id);
+        return h("div", { class: "pc-set-row" },
+          toggle(i >= 0, (v) => { on = v ? [...on, id] : on.filter((x) => x !== id); draw(); }),
+          h("span", { class: "grow" }, PC_NAMES[id]),
+          h("button", { class: "icon-btn", title: "Move up", "aria-label": "Move up", disabled: i <= 0, onclick: () => { [on[i - 1], on[i]] = [on[i], on[i - 1]]; draw(); } }, "↑"),
+          h("button", { class: "icon-btn", title: "Move down", "aria-label": "Move down", disabled: i < 0 || i >= on.length - 1, onclick: () => { [on[i + 1], on[i]] = [on[i], on[i + 1]]; draw(); } }, "↓"));
+      }),
+      h("div", { class: "pc-set-row", style: { marginTop: "6px" } }, toggle(drives, (v) => { drives = v; }), h("span", { class: "grow" }, "Drives and free space")));
+  };
+  draw();
+  modal("PC tile", body, (close) => [
+    h("button", { class: "btn ghost", onclick: close }, "Cancel"),
+    h("button", { class: "btn primary", onclick: async () => { close(); await setSetting("pc_cards", on); await setSetting("pc_drives", drives); render(); } }, "Save")]);
+}
+
 
 function greeting() {
   const hr = new Date().getHours();
@@ -38,8 +99,8 @@ const Tiles = {
       h("div", null,
         h("div", { class: "time" }, now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })),
         h("div", { class: "date" }, now.toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" }))),
-      chips.length ? h("div", { class: "chips" }, chips) : h("div", { class: "dim" }, `${greeting()}${S.state?.user ? ", " + S.state.user : ""}.`),
-      calendar(now));
+      chips.length ? h("div", { class: "chips", "data-drop": "1" }, chips) : h("div", { class: "dim", "data-drop": "1" }, `${greeting()}${S.state?.user ? ", " + S.state.user : ""}.`),
+      foldsAt(calendar(now), 2));
   },
 
   media() {
@@ -70,30 +131,30 @@ const Tiles = {
 
   system() {
     const s = S.live?.sys;
-    const el = h("div", { class: "tile" }, tileHead("activity", "PC", "Processes", () => go("system")));
+    const el = h("div", { class: "tile" }, tileHead("activity", "PC", "Processes", () => go("system"), () => pcCustomize()));
     if (!s) return el;
-    const gpu = s.gpu;
-    const acc = accent();
-    const v1 = h("canvas"), v2 = h("canvas"), v3 = h("canvas");
-    el.append(h("div", { class: "vitals" },
-      h("div", { class: "vital" }, h("div", { class: "k" }, "CPU"), h("div", { class: "v" }, Math.round(s.cpu) + "%"), h("div", { class: "s" }, `${s.cores} threads`), v1),
-      h("div", { class: "vital" }, h("div", { class: "k" }, "Memory"), h("div", { class: "v" }, Math.round(s.ram_pct) + "%"), h("div", { class: "s" }, `${fmtBytes(s.ram_used)} of ${fmtBytes(s.ram_total)}`), v2),
-      gpu
-        ? h("div", { class: "vital" }, h("div", { class: "k" }, "GPU"), h("div", { class: "v" }, fmtTemp(gpu.temp, true)), h("div", { class: "s" }, `${gpu.util ?? 0}% · ${gpu.power_w ?? 0} W`), v3)
-        : h("div", { class: "vital" }, h("div", { class: "k" }, "Network"), h("div", { class: "v", style: { fontSize: "15px" } }, fmtRate(s.down)), h("div", { class: "s" }, "down"), v3)));
-    const drives = (s.disks || []).filter((d) => !d.removable && d.total > 0).sort((a, b) => a.mount.localeCompare(b.mount));
-    el.append(h("div", { class: "drives" }, drives.map((d) => {
-      const used = 1 - d.free / d.total;
-      return h("div", { class: "drive" + (used > 0.95 ? " crit" : used > 0.9 ? " full" : "") },
-        h("b", null, d.mount),
-        h("div", { class: "bar" }, h("i", { style: { width: used * 100 + "%" } })),
-        h("span", { class: "dim num" }, `${fmtBytes(d.free)} free`));
-    })));
-    requestAnimationFrame(() => {
-      spark(v1, s.cpu_hist, 100, acc);
-      spark(v2, s.ram_hist, 100, "#b98cff");
-      spark(v3, gpu ? s.gpu_hist : s.down_hist, gpu ? 100 : 0, "#3ddc97");
-    });
+    const st = S.state.settings;
+    const cards = (st.pc_cards || ["cpu", "ram", "gpu", "vram"]).map((id) => PC_CARDS[id]?.(s)).filter(Boolean);
+    if (cards.length) {
+      el.append(h("div", { class: "vitals" }, cards.map((c) => {
+        const cv = h("canvas", { "data-drop": "2" });
+        requestAnimationFrame(() => spark(cv, c.hist || [], c.max ?? 100, c.color));
+        // the same lines on every card: what, how much, the details, then the temperature
+        return h("div", { class: "vital" }, h("div", { class: "k" }, c.k), h("div", { class: "v", style: c.small ? { fontSize: "15px" } : null }, c.v),
+          h("div", { class: "s" }, c.l1.filter(Boolean).map((t, i) => h("span", { style: { whiteSpace: "nowrap" } }, (i ? " · " : "") + t))),
+          h("div", { class: "s" }, c.l2 || " "), cv);
+      })));
+    }
+    if (st.pc_drives !== false) {
+      const drives = (s.disks || []).filter((d) => !d.removable && d.total > 0).sort((a, b) => a.mount.localeCompare(b.mount));
+      el.append(h("div", { class: "drives", "data-drop": "1" }, drives.map((d) => {
+        const used = 1 - d.free / d.total;
+        return h("div", { class: "drive" + (used > 0.95 ? " crit" : used > 0.9 ? " full" : "") },
+          h("b", null, d.mount),
+          h("div", { class: "bar" }, h("i", { style: { width: used * 100 + "%" } })),
+          h("span", { class: "dim num" }, `${fmtBytes(d.free)} free`));
+      })));
+    }
     return el;
   },
 
@@ -103,13 +164,13 @@ const Tiles = {
     if (!m) return el;
     const outs = S.cache.outputs || [];
     if (outs.length > 1) {
-      el.append(h("div", { class: "outputs" }, outs.map((o) =>
+      el.append(h("div", { class: "outputs", "data-drop": "1" }, outs.map((o) =>
         h("button", { class: "chip" + (o.default ? " on" : ""), title: o.name, onclick: () => setOutput(o.id) }, I(deviceIcon(o.name)), shortDevice(o.name)))));
     }
     el.append(volRow(null, "Everything", m.vol, m.muted, m.peak, (v) => invoke("set_master", { vol: v }), () => invoke("set_master", { muted: !m.muted })));
     const apps = (S.live.apps || []).filter((a) => a.key !== "system").slice(0, 3);
     for (const a of apps) {
-      el.append(volRow(a, a.name, a.vol, a.muted, a.peak, (v) => invoke("set_app_volume", { key: a.key, vol: v }), () => invoke("set_app_volume", { key: a.key, muted: !a.muted })));
+      el.append(foldsAt(volRow(a, a.name, a.vol, a.muted, a.peak, (v) => invoke("set_app_volume", { key: a.key, vol: v }), () => invoke("set_app_volume", { key: a.key, muted: !a.muted })), 2));
     }
     return el;
   },
@@ -128,10 +189,13 @@ const Tiles = {
       const active = live[kind] ?? st.profiles.find((x) => x.p.id === st.active)?.p.name;
       el.append(h("div", { class: "prof-pick" },
         h("div", { class: "k" }, label),
-        h("div", { class: "prof-chips" }, st.profiles.map((x) =>
+        h("select", { class: "prof-select", hidden: true, "data-alt": "2", "aria-label": label + " profile", onchange: (e) => homeSwitch(kind, e.target.value) },
+          active && !st.profiles.some((x) => x.p.name === active) ? h("option", { value: "", selected: true, disabled: true }, active) : null,
+          st.profiles.map((x) => h("option", { value: x.p.id, selected: x.p.name === active }, x.p.name))),
+        h("div", { class: "prof-chips", "data-drop": "2" }, st.profiles.map((x) =>
           h("button", { class: "pchip" + (x.p.name === active ? " on" : ""), title: [x.summary, x.p.hotkey ? "Key: " + x.p.hotkey.replaceAll("+", " + ") : null].filter(Boolean).join(" · "), onclick: () => homeSwitch(kind, x.p.id) },
             x.icon_url ? h("img", { src: x.icon_url, alt: "" }) : null, x.p.name))),
-        h("div", { class: "faint small ell" }, st.profiles.find((x) => x.p.name === active)?.summary || "Not one of your profiles right now")));
+        h("div", { class: "faint small ell", "data-drop": "1" }, st.profiles.find((x) => x.p.name === active)?.summary || "Not one of your profiles right now")));
     }
     return el;
   },
@@ -215,12 +279,12 @@ const Tiles = {
     if (timers.length) {
       el.append(h("div", { class: "timers" }, timers.slice(0, 2).map((t) => timerRow(t, p.now))));
     }
-    el.append(h("div", { class: "presets" },
+    el.append(h("div", { class: "presets", "data-drop": "1" },
       [5, 10, 15, 25, 60].map((m) => h("button", { class: "chip", onclick: () => invoke("timer_add", { secs: m * 60, label: "" }) }, I("timer"), `${m} min`))));
-    el.append(h("div", { class: "row", style: { marginTop: "auto" } },
+    el.append(h("div", { class: "row", style: { marginTop: "auto" }, "data-drop": "2" },
       h("div", { class: "grow" }, h("div", { style: { fontWeight: 600 } }, "Keep awake"), h("div", { class: "dim", style: { fontSize: "12px" } }, p.awake_active ? awakeText(p.awake) : "PC sleeps normally")),
       toggle(!!p.awake_active, (v) => invoke("set_awake", { mode: v ? "on" : "off" }))));
-    if (!p.plan) el.append(h("button", { class: "btn sm", onclick: () => go("power", "plan") }, I("power", "sm"), "Shut down or sleep when…"));
+    if (!p.plan) el.append(h("button", { class: "btn sm", "data-drop": "1", onclick: () => go("power", "plan") }, I("power", "sm"), "Shut down or sleep when…"));
     return el;
   },
 
@@ -271,6 +335,12 @@ function awakeText(a) {
   if (a.mode === "app") return `While ${a.app.replace(/\.exe$/i, "")} runs`;
   if (a.mode === "downloads") return "Until downloads finish";
   return "Until you turn it off";
+}
+
+/** Marks a part a short tile folds away at step `n` (layout.js pgFit). */
+function foldsAt(el, n) {
+  el.dataset.drop = n;
+  return el;
 }
 
 function volRow(app, name, vol, muted, peak, onvol, onmute) {

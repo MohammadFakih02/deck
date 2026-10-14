@@ -195,7 +195,7 @@ check("clean up: Recycle Bin is not ticked or called safe by default", rb.ticked
 // 13. Disk space offers no Recycle Bin button on Windows' own folders and files.
 await d.ev(`go("files", "space")`);
 await d.sleep(800);
-const dk = await d.ev(`(() => { const row = (n) => [...document.querySelectorAll(".item")].find((x) => x.querySelector(".t")?.textContent === n); const has = (n) => { const r = row(n); return r ? (r.querySelector("button[title='Move to Recycle Bin']") ? "trash" : r.querySelector("[aria-label=Protected]") ? "lock" : "none") : "missing"; }; return [has("Windows"), has("Users"), has("Intel"), has("render_final.mp4"), has("pagefile.sys")].join(","); })()`);
+const dk = await d.ev(`(() => { const row = (n) => [...document.querySelectorAll(".dt-row"), ...document.querySelectorAll(".item")].find((x) => (x.querySelector(".dt-name .ell") || x.querySelector(".t"))?.textContent === n); const has = (n) => { const r = row(n); return r ? (r.querySelector("button[title='Move to Recycle Bin']") ? "trash" : r.querySelector("[aria-label=Protected]") ? "lock" : "none") : "missing"; }; return [has("Windows"), has("Users"), has("Intel"), has("render_final.mp4"), has("pagefile.sys")].join(","); })()`);
 check("disk space: system folders get a lock, not a trash button", dk === "lock,lock,trash,trash,lock", dk);
 
 // 14. Alt-tab away from a profile editor (Deck hides): the editor and its "Try it" stay; a plain
@@ -268,7 +268,7 @@ await d.ev(`document.querySelectorAll(".modal-back").forEach((m) => m.remove())`
 check("CPU and GPU editors explain each setting", cpuTips >= 14 && gpuTips >= 10 && !!card && gone, `cpu ${cpuTips}, gpu ${gpuTips}, card "${card}"`);
 
 // 18. The overlay font is a real list (a text box with suggestions only offered the font already typed).
-await d.ev(`(async () => { await go("sensors"); S.cache.sensTab = "overlay"; render(); })()`);
+await d.ev(`(async () => { await go("overlay"); })()`);
 await d.sleep(700);
 const fonts = await d.ev(`(() => { const s = document.querySelector("select.ov-font"); return s ? s.options.length : 0; })()`);
 check("overlay font offers every font, not just the one chosen", fonts > 10, `${fonts} options`);
@@ -281,20 +281,21 @@ const home = await d.ev(`(async () => {
   const hidden = document.querySelectorAll(".tiles > .pg-panel").length;
   const tray = [...document.querySelectorAll(".pg-tray .chip")].map((c) => c.textContent).join(",");
   const tilesSaved = !S.state.settings.tiles.includes("clock");
+  const span0 = document.querySelector('[data-panel="media"]').style.getPropertyValue("--span");
   document.querySelector('[aria-label="Make Now playing wider"]').click(); await new Promise((r) => setTimeout(r, 300));
   const span = document.querySelector('[data-panel="media"]').style.getPropertyValue("--span");
   [...document.querySelectorAll(".pg-tray .chip")].find((c) => c.textContent.includes("Clock")).click(); await new Promise((r) => setTimeout(r, 300));
   const back = S.state.settings.tiles.includes("clock");
   S.cache.layoutEdit = null; render();
-  return { before, hidden, tray, tilesSaved, span, back };
+  return { before, hidden, tray, tilesSaved, span0, span, back };
 })()`);
-check("Home panels hide, come back and resize", home.hidden === home.before - 1 && home.tray.includes("Clock") && home.tilesSaved && home.span === "6" && home.back, JSON.stringify(home));
+check("Home panels hide, come back and resize", home.hidden === home.before - 1 && home.tray.includes("Clock") && home.tilesSaved && +home.span > +home.span0 && home.back, JSON.stringify(home));
 
 const graphs = await d.ev(`(async () => { await go("sensors"); S.cache.sensTab = "graphs"; render(); await new Promise((r) => setTimeout(r, 500));
   return { panels: [...document.querySelectorAll(".pgrid > .pg-panel")].map((p) => p.dataset.panel).join(","), low: document.querySelector(".ft-fig.lo .num")?.textContent }; })()`);
 check("Sensors graphs include power and frametimes with the lows", graphs.panels.includes("power") && graphs.panels.includes("frames") && graphs.low === "88", JSON.stringify(graphs));
 
-const grp = await d.ev(`(async () => { await go("sensors"); S.cache.sensTab = "overlay"; S.cache.ovSel = new Set(); render(); await new Promise((r) => setTimeout(r, 300));
+const grp = await d.ev(`(async () => { await go("overlay"); S.cache.ovSel = new Set(); render(); await new Promise((r) => setTimeout(r, 300));
   for (const n of ["GPU temp", "CPU temp"]) { document.querySelector('[aria-label="Select ' + n + '"]').click(); await new Promise((r) => setTimeout(r, 150)); }
   const bar = document.querySelector(".ov-selbar b")?.textContent;
   await setSetting("osd_style", { ...ovStyleNow(), groups: { gpu_temp: "TEMP", cpu_temp: "TEMP" } }); await ovRefresh(); render(); await new Promise((r) => setTimeout(r, 300));

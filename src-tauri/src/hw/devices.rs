@@ -155,7 +155,12 @@ impl FuryRam {
     }
 
     fn system_has_fury() -> bool {
-        crate::hw::smbios::read().dimms.iter().any(|(m, pn)| m.to_ascii_lowercase().starts_with("kingston") && (pn.starts_with("KF") || pn.starts_with("HP") || pn.starts_with("HX")))
+        Self::fury_modules() > 0
+    }
+
+    /// How many Kingston Fury / HyperX modules Windows reports (each may carry an RGB controller).
+    pub fn fury_modules() -> usize {
+        crate::hw::smbios::read().dimms.iter().filter(|(m, pn)| m.to_ascii_lowercase().starts_with("kingston") && (pn.starts_with("KF") || pn.starts_with("HP") || pn.starts_with("HX"))).count()
     }
 
     pub fn scan(&mut self) {
@@ -189,6 +194,35 @@ impl FuryRam {
         self.smb = Some(smb);
         for a in self.sticks.clone() {
             self.set_direct(a);
+        }
+    }
+
+    /// Looks again for sticks that didn't answer before (just after a cold boot they can be late),
+    /// without touching the ones already found: those keep showing what they show.
+    pub fn scan_missing(&mut self) {
+        if self.smb.is_none() {
+            self.scan();
+            return;
+        }
+        let mut found = vec![];
+        if let Some(smb) = &self.smb {
+            for a in [0x60u8, 0x61, 0x62, 0x63, 0x58, 0x59, 0x5a, 0x5b] {
+                if self.sticks.contains(&a) || !smb.write_quick(a) {
+                    continue;
+                }
+                sleep(Duration::from_millis(30));
+                if Self::is_fury(smb, a) {
+                    found.push(a);
+                }
+            }
+        }
+        for a in found {
+            self.sticks.push(a);
+            self.set_direct(a);
+            self.last_single = None; // the new stick gets the current colour on the next frame
+        }
+        if !self.sticks.is_empty() {
+            self.status = format!("RAM: {} RGB stick(s) at {}", self.sticks.len(), self.sticks.iter().map(|a| format!("0x{:02X}", a)).collect::<Vec<_>>().join(", "));
         }
     }
 

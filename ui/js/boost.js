@@ -103,11 +103,11 @@ function boostOptions(st) {
     h("div", null, h("div", { class: "t" }, title, helpTip(key.replace("_", "."))), h("div", { class: "s" }, sub)));
   return h("div", { class: "col boost-side" },
     h("div", { class: "boost-sub" }, "While it's on"),
-    row("boost_power", "Fastest power plan", s.boost_cpu ? "Replaced by the CPU profile below." : planText, p.kind === "none" || p.kind === "already" || !!s.boost_cpu),
+    row("boost_power", "Fastest power plan", s.boost_cpu ? "Not used: the CPU profile you picked below brings its own power plan." : planText, p.kind === "none" || p.kind === "already" || !!s.boost_cpu),
     boostProfiles(s),
     row("boost_priority", "Slow down background apps", "Apps with no window get low priority, so the game gets the CPU first. Voice chat and music are left alone."),
-    row("boost_trim", "Free memory", "Asks Windows to move idle memory of background apps out of the way."),
-    row("boost_auto_end", "Turn off by itself", "About a minute after your game closes. Deck spots games from Steam, Epic, Riot, GOG, Ubisoft and Xbox, and anything running fullscreen."));
+    row("boost_trim", "Free memory when it's low", "Only when 85% or more of the memory is in use: moves idle memory of background apps aside. With room to spare it does nothing, since Windows already gives the game what it needs."),
+    row("boost_auto_end", "Turn off by itself", "About a minute after your game closes, or after 3 hours if no game shows up. Deck spots games from Steam, Epic, Riot, GOG, Ubisoft and Xbox, anything fullscreen, and the program in front when it works the graphics card hard."));
 }
 
 function boostApps(st) {
@@ -151,7 +151,7 @@ function boostProfiles(s) {
       h("option", { value: "", selected: !s[key] }, "Don't change"),
       list.map((p) => h("option", { value: p.id, selected: s[key] === p.id }, p.name))));
   return h("div", { class: "boost-opt", style: { cursor: "default" } }, h("span", { style: { width: "38px" } }),
-    h("div", null, h("div", { class: "t" }, "Switch profiles while it's on"), h("div", { class: "s" }, "Your previous profiles come back when Full power turns off."),
+    h("div", null, h("div", { class: "t" }, "Switch profiles while it's on"), h("div", { class: "s" }, "Your previous profiles come back when Full power turns off. Picking a CPU profile replaces Fastest power plan."),
       h("div", { class: "row wrap", style: { marginTop: "8px" } },
         s.cpu_profiles.length ? pick("boost_cpu", s.cpu_profiles, "CPU") : null,
         s.gpu_profiles.length ? pick("boost_gpu", s.gpu_profiles, "GPU") : null)));

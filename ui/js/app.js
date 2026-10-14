@@ -3,15 +3,17 @@
 // Sidebar: every item is its own page, grouped. [page, sub, label, icon]
 const NAV = [
   [null, [["home", null, "Home", "home"], ["boost", null, "Game boost", "zap"]]],
-  ["Hardware", [["cpu", null, "CPU", "chip"], ["gpu", null, "GPU", "gpu"], ["fans", null, "Fans", "fan"], ["lighting", null, "Lighting", "bulb"], ["lcd", null, "Cooler display", "monitor"]]],
-  ["Monitor", [["sensors", null, "Sensors", "gauge"], ["system", "processes", "Processes", "cpu"], ["system", "network", "Network", "wifi"], ["thispc", null, "This PC", "info"]]],
+  ["Hardware", [["cpu", null, "CPU", "chip"], ["gpu", null, "GPU", "gpu"], ["fans", null, "Fans", "fan"], ["lighting", null, "Lighting", "bulb"], ["lcd", null, "Cooler display", "monitor"], ["thispc", null, "This PC", "info"]]],
+  ["Monitor", [["sensors", null, "Sensors", "gauge"], ["overlay", null, "Overlay", "gamepad"], ["drives", null, "Drives", "disk"], ["system", "processes", "Processes", "cpu"], ["system", "network", "Network", "wifi"]]],
   ["Desktop", [["windows", null, "Windows", "windows"], ["system", "display", "Display", "monitor"], ["clipboard", null, "Clipboard", "clipboard"], ["audio", null, "Sound", "volume"]]],
-  ["Power & time", [["power", "awake", "Keep awake", "coffee"], ["power", "timers", "Timers & breaks", "timer"], ["power", "plan", "Shut down when…", "power"]]],
   ["Maintenance", [["files", "space", "Disk space", "disk"], ["files", "cleanup", "Clean up", "broom"], ["system", "startup", "Startup apps", "rocket"], ["tools", null, "Tools", "tools"]]],
+  ["Power & time", [["power", "awake", "Keep awake", "coffee"], ["power", "timers", "Timers & breaks", "timer"], ["power", "plan", "Shut down when…", "power"]]],
 ];
 /** Hardware pages only show when this PC has something for them (the backend says which). */
-const HW_PAGES = ["cpu", "gpu", "fans", "lighting", "lcd", "sensors", "thispc"];
+const HW_PAGES = ["cpu", "gpu", "fans", "lighting", "lcd", "sensors"];
 const navShown = (page) => !HW_PAGES.includes(page) || !S.state?.hw || S.state.hw.pages.includes(page);
+/** Each group's own icon, in the same column as the pages' icons. */
+const NAV_GROUP_ICON = { Hardware: "sliders", Monitor: "activity", Desktop: "layout", Maintenance: "shield", "Power & time": "clock" };
 const NAV_END = [["phone", null, "Phone", "smartphone"], ["settings", null, "Settings", "gear"]];
 /** Which part of a page opens when only the page is given. */
 const DEFAULT_SUB = { windows: "open", files: "space", system: "processes", power: "awake", tools: "screen" };
@@ -24,7 +26,6 @@ function navBadge(page, sub) {
   if (page === "power" && sub === "plan" && p?.plan) return h("span", { class: "badge warn" }, "Set");
   if (page === "phone" && S.state?.remote?.clients) return h("span", { class: "badge" }, S.state.remote.clients);
   if (page === "boost" && S.live?.boost?.on) return h("span", { class: "badge" }, "On");
-  if ((page === "cpu" || page === "gpu") && S.live?.profiles?.[page]) return h("span", { class: "badge", title: S.live.profiles[page] }, S.live.profiles[page]);
   return null;
 }
 
@@ -38,18 +39,22 @@ function renderSide() {
   const scroll = list ? list.scrollTop : 0;
   const item = ([page, sub, label, ic]) => {
     const on = navOn([page, sub]);
+    // CPU / GPU: the active profile on its own line under the name, so a long name has room
+    const prof = (page === "cpu" || page === "gpu") && S.live?.profiles?.[page];
+    if (prof) return h("button", { class: "nav nav-2l" + (on ? " on" : ""), "aria-current": on ? "page" : null, title: `${label}: ${prof}`, onclick: () => go(page, sub) },
+      I(ic), h("span", { class: "nav-txt" }, h("span", null, label), h("small", { class: "nav-sub" }, prof)));
     return h("button", { class: "nav" + (on ? " on" : ""), "aria-current": on ? "page" : null, onclick: () => go(page, sub) }, I(ic), h("span", null, label), navBadge(page, sub));
   };
   const parts = [
     h("div", { class: "brand" }, h("div", { class: "mark" }, I("logo")), h("b", null, "Deck")),
-    h("div", { class: "nav-scroll" }, NAV.map(([group, items]) => {
+    h("div", { class: "nav-scroll" }, navOrdered().map(([group, items]) => {
       const shown = items.filter(([page]) => navShown(page));
       if (!shown.length) return [];
       const folded = group && (S.state?.settings?.nav_folded || []).includes(group);
       const visible = folded ? shown.filter(navOn) : shown;
-      const head = group ? h("button", { class: "nav-group" + (folded ? " shut" : ""), title: folded ? "Show" : "Hide", "aria-expanded": folded ? "false" : "true", onclick: () => foldGroup(group) },
-        h("span", { class: "grow" }, group), folded ? h("span", { class: "nav-count" }, shown.length) : null, I("chevron", "sm")) : null;
-      return [head, visible.map(item)];
+      const head = group ? h("button", { class: "nav-group" + (folded ? " shut" : ""), title: (folded ? "Show" : "Hide") + " · drag to move the group", "aria-expanded": folded ? "false" : "true", draggable: "true", "data-grp": group, onclick: () => foldGroup(group) },
+        I(NAV_GROUP_ICON[group] || "grid"), h("span", { class: "grow" }, group), folded ? h("span", { class: "nav-count" }, shown.length) : null, h("span", { class: "ng-ic" }, I("chevron", "sm"))) : null;
+      return [head, visible.map((it) => { const b = item(it); b.draggable = true; b.dataset.g = group || ""; b.dataset.k = navKey(it); return b; })];
     }).flat(2)),
     h("div", { class: "nav-end" }, NAV_END.map(item))];
   // nothing changed (the usual case on the 1-second tick): keep the buttons that are there, so
@@ -58,11 +63,76 @@ function renderSide() {
   if (sig === sideSig && side.firstChild) return;
   sideSig = sig;
   side.replaceChildren(...parts);
+  navDnd(side);
   const ns = side.querySelector(".nav-scroll");
   ns.scrollTop = scroll;
   const more = () => ns.classList.toggle("more", ns.scrollTop + ns.clientHeight < ns.scrollHeight - 4);
   more();
   ns.addEventListener("scroll", more, { passive: true });
+}
+
+// ---- the user's own sidebar order: drag a group's header, or a page up and down inside its group
+const navKey = (it) => it[0] + "/" + (it[1] || "");
+
+/** NAV in the saved order. Pages and groups the saved order doesn't know (added in an update) keep their default place at the end. */
+function navOrdered() {
+  const o = S.state?.settings?.nav_order || {};
+  const at = (list, k) => { const i = (list || []).indexOf(k); return i < 0 ? 1e6 : i; };
+  const groups = NAV.map(([g, items]) => [g, [...items].sort((a, b) => at(o.items?.[g || ""], navKey(a)) - at(o.items?.[g || ""], navKey(b)))]);
+  // the untitled group (Home, Game boost) stays at the top
+  return [...groups.filter((g) => !g[0]), ...groups.filter((g) => g[0]).sort((a, b) => at(o.groups, a[0]) - at(o.groups, b[0]))];
+}
+
+let navDrag = null;
+/** Drag and drop on the sidebar (listeners set once on the sidebar itself; its buttons are redrawn). */
+function navDnd(side) {
+  if (side.dataset.dnd) return;
+  side.dataset.dnd = "1";
+  const clear = () => side.querySelectorAll(".drop-above, .drop-below").forEach((e) => e.classList.remove("drop-above", "drop-below"));
+  const target = (e) => {
+    if (!navDrag) return null;
+    const el = e.target.closest?.(navDrag.type === "group" ? ".nav-group[data-grp]" : ".nav[data-k]");
+    if (!el || el === navDrag.el || (navDrag.type === "item" && el.dataset.g !== navDrag.g)) return null;
+    const r = el.getBoundingClientRect();
+    return { el, below: e.clientY > r.top + r.height / 2 };
+  };
+  side.addEventListener("dragstart", (e) => {
+    const grp = e.target.closest?.(".nav-group[data-grp]"), it = e.target.closest?.(".nav[data-k]");
+    if (grp) navDrag = { type: "group", g: grp.dataset.grp, el: grp };
+    else if (it) navDrag = { type: "item", g: it.dataset.g, k: it.dataset.k, el: it };
+    else return;
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", navDrag.g);
+    navDrag.el.classList.add("dragging");
+  });
+  side.addEventListener("dragover", (e) => {
+    const t = target(e);
+    clear();
+    if (!t) return;
+    e.preventDefault();
+    t.el.classList.add(t.below ? "drop-below" : "drop-above");
+  });
+  side.addEventListener("dragleave", (e) => { if (!side.contains(e.relatedTarget)) clear(); });
+  side.addEventListener("drop", (e) => {
+    const t = target(e);
+    clear();
+    if (!t) return;
+    e.preventDefault();
+    navMove(navDrag, t.el, t.below);
+  });
+  side.addEventListener("dragend", () => { clear(); navDrag?.el.classList.remove("dragging"); navDrag = null; });
+}
+
+function navMove(d, el, below) {
+  const cur = navOrdered();
+  const o = { groups: cur.filter((g) => g[0]).map((g) => g[0]), items: Object.fromEntries(cur.map(([g, items]) => [g || "", items.map(navKey)])) };
+  const place = (list, moving, before) => { const l = list.filter((x) => x !== moving); l.splice(l.indexOf(before) + (below ? 1 : 0), 0, moving); return l; };
+  if (d.type === "group") o.groups = place(o.groups, d.g, el.dataset.grp);
+  else o.items[d.g] = place(o.items[d.g], d.k, el.dataset.k);
+  S.state.settings.nav_order = o;
+  sideSig = "";
+  renderSide();
+  invoke("set_setting", { key: "nav_order", value: o }).catch((e) => console.error(e));
 }
 
 async function foldGroup(group) {
@@ -89,12 +159,19 @@ function renderTop() {
   input.addEventListener("keydown", searchKey);
   top.append(
     h("div", { class: "searchbox" }, I("search"), input),
-    h("button", { class: "icon-btn pin" + (S.state?.pinned ? " on" : ""), title: "Keep Deck open when I click elsewhere", "aria-pressed": S.state?.pinned ? "true" : "false", onclick: async (e) => {
+    // the pin: the app window stays above other windows; the quick panel stays open when you click elsewhere
+    h("button", { class: "icon-btn pin" + (S.state?.pinned ? " on" : ""), title: appMode() ? "Keep Deck on top of other windows" : "Keep Deck open and on top while you use other apps", "aria-pressed": S.state?.pinned ? "true" : "false", onclick: async (e) => {
+      const btn = e.currentTarget;
       S.state.pinned = !S.state.pinned;
-      await invoke("set_pinned", { on: S.state.pinned });
-      e.currentTarget.classList.toggle("on", S.state.pinned);
-      e.currentTarget.setAttribute("aria-pressed", S.state.pinned ? "true" : "false");
-      note(S.state.pinned ? "Deck stays open" : "Deck hides when you click elsewhere");
+      // the quick panel floats where it is while pinned: the panel's place goes to the backend
+      const r = document.querySelector(".panel").getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+      const rect = [r.left, r.top, r.width, r.height].map((v) => Math.round(v * dpr));
+      if (!appMode()) document.body.classList.toggle("pin-float", S.state.pinned);
+      await invoke("set_pinned", { on: S.state.pinned, rect });
+      btn.classList.toggle("on", S.state.pinned);
+      btn.setAttribute("aria-pressed", S.state.pinned ? "true" : "false");
+      applyAccent(); // its own opacity with the pin on or off
+      note(appMode() ? (S.state.pinned ? "Deck stays on top of other windows" : "Deck no longer stays on top") : (S.state.pinned ? "Deck floats on top: use other apps while it stays" : "Deck hides when you click elsewhere"));
     } }, I("pin")),
     h("button", { class: "icon-btn close-x", title: "Close", onclick: () => invoke("hide") }, I("x")));
 }
@@ -141,7 +218,7 @@ function render() {
 
 // A mouse button held down on the page: a redraw now would swap the button under the pointer
 // and the click would be lost, so live redraws wait until it is released.
-// (A release that never arrives, say outside the window, stops counting after 5 s.)
+// (A release that never arrives, say outside the window, stops counting after 5 s, or 2 min while dragging.)
 // Every whole-page redraw (the tick, backend events, anything else) goes through render() or
 // renderSide(), and both wait here, so no caller can swap a button out from under a click.
 let pressedAt = 0;
@@ -154,7 +231,8 @@ const releasePress = () => {
 document.addEventListener("pointerdown", () => (pressedAt = Date.now()), true);
 for (const ev of ["pointerup", "pointercancel"]) document.addEventListener(ev, releasePress, true);
 window.addEventListener("blur", releasePress);
-const mouseHeld = () => !!pressedAt && Date.now() - pressedAt < 5000;
+// a drag (moving or resizing a panel, a slider) can take longer than a click: it holds for up to 2 min
+const mouseHeld = () => !!pressedAt && Date.now() - pressedAt < (S.interacting ? 120000 : 5000);
 /** True (and `fn` runs once the button is released) while a mouse button is held. */
 function holdRedraw(fn) {
   if (!mouseHeld()) return false;
@@ -240,13 +318,17 @@ async function refreshSlow() {
 async function onShown(payload) {
   document.body.classList.toggle("style-window", payload?.style === "window");
   document.body.classList.toggle("mode-app", payload?.mode === "app");
+  document.body.classList.toggle("pin-float", !!payload?.float);
   document.body.classList.add("shown");
-  S.state = await invoke("get_state");
+  // the first frame drawn tells the app the window isn't blank (no repaint nudge needed)
+  requestAnimationFrame(() => invoke("ui_heartbeat").catch(() => {}));
+  S.state = withLocalWrites(await invoke("get_state"));
   applyAccent();
   applySideWidth();
   if (payload?.page) await go(payload.page);
   await Promise.all([tick(), refreshSlow()]);
   render();
+  themeWelcome();
   // an editor left open (kept while hidden) gets the focus back, not the search box
   const kept = [...document.querySelectorAll(".modal-back")].pop();
   if (kept) {
@@ -271,7 +353,7 @@ async function boot() {
       document.querySelectorAll(".help-card").forEach((c) => c.__hide());
     }),
   ]);
-  S.state = await invoke("get_state");
+  S.state = withLocalWrites(await invoke("get_state"));
   applyAccent();
   applySideWidth();
   document.body.classList.toggle("style-window", S.state.settings.mode === "app");
@@ -292,7 +374,7 @@ async function boot() {
     const topic = e.payload?.topic;
     if (!document.body.classList.contains("shown")) return;
     if (topic === "settings" || topic === "remote") {
-      S.state = await invoke("get_state");
+      S.state = withLocalWrites(await invoke("get_state"));
       applyAccent();
       if (S.page === "settings" || S.page === "phone" || topic === "remote") renderSide();
     } else if (topic === "clipboard") {
@@ -314,10 +396,10 @@ async function boot() {
     } else if (topic === "display") {
       S.cache.display = await invoke("display_state"); S.cache.dark = S.cache.display.dark;
     } else if (topic === "profiles" || topic === "hotkeys" || topic === "hw") {
-      if (topic === "hw") S.state = await invoke("get_state");
+      if (topic === "hw") S.state = withLocalWrites(await invoke("get_state"));
       const p = Pages[S.page];
       const busy = uiBusy();
-      const mine = (topic === "hw" ? HW_PAGES : ["cpu", "gpu", "boost", "settings"]).includes(S.page);
+      const mine = (topic === "hw" ? [...HW_PAGES, "thispc"] : ["cpu", "gpu", "boost", "settings"]).includes(S.page);
       if (!S.query && mine && p?.load && !busy && !(topic === "hw" && HW.dirty)) { await p.load(); render(); }
       else renderSide();
     } else if (topic === "boost") {
@@ -327,7 +409,9 @@ async function boot() {
       else renderSide();
     }
   });
-  setInterval(tick, 1000);
+  // low-spec mode: live readings every 3 s
+  let lowSkip = 0;
+  setInterval(() => { if (S.state?.settings?.low_spec && ++lowSkip % 3) return; tick(); }, 1000);
   // clicking the dimmed area closes Deck
   document.getElementById("backdrop").addEventListener("mousedown", () => invoke("hide"));
   document.addEventListener("keydown", (e) => {

@@ -265,3 +265,54 @@ mod free_space_tests {
         assert!(super::free_bytes(std::path::Path::new("Q:/no/such/drive")).is_none());
     }
 }
+
+/// Whether a row of Windows' adapter table is a real network adapter whose traffic counts once:
+/// hardware (Ethernet, Wi-Fi, mobile broadband), connected, and not a filter layer stacked on
+/// another adapter (Npcap, WFP, QoS, VPN and VM filters repeat the same traffic).
+pub fn real_adapter(r: &windows_sys::Win32::NetworkManagement::IpHelper::MIB_IF_ROW2) -> bool {
+    let bits = r.InterfaceAndOperStatusFlags._bitfield;
+    let (hardware, filter) = (bits & 1 != 0, bits & 2 != 0);
+    hardware && !filter && r.OperStatus == 1 && matches!(r.Type, 6 | 71 | 243 | 244)
+}
+
+/// Network rates on the PC's real adapters (see `real_adapter`), counted per adapter: only what
+/// each adapter moved since the last reading, and only for adapters there both times. Several
+/// connected adapters add up (that is the PC's traffic); one plugged in or reconnected starts
+/// counting from its next reading (its lifetime total would be a false spike); one removed just stops.
+#[derive(Default)]
+pub struct NetCounter {
+    prev: std::collections::HashMap<u64, (u64, u64)>,
+}
+
+impl NetCounter {
+    pub fn new() -> Self {
+        let mut c = Self::default();
+        c.sample();
+        c
+    }
+
+    /// Bytes (in, out) since the last call.
+    pub fn sample(&mut self) -> (u64, u64) {
+        use windows_sys::Win32::NetworkManagement::IpHelper::{FreeMibTable, GetIfTable2, MIB_IF_TABLE2};
+        let (mut rx, mut tx) = (0u64, 0u64);
+        let mut now = std::collections::HashMap::new();
+        unsafe {
+            let mut t: *mut MIB_IF_TABLE2 = std::ptr::null_mut();
+            if GetIfTable2(&mut t) != 0 || t.is_null() {
+                return (0, 0);
+            }
+            let rows = std::slice::from_raw_parts((*t).Table.as_ptr(), (*t).NumEntries as usize);
+            for r in rows.iter().filter(|r| real_adapter(r)) {
+                let id = r.InterfaceLuid.Value;
+                if let Some((pi, po)) = self.prev.get(&id) {
+                    rx += r.InOctets.saturating_sub(*pi);
+                    tx += r.OutOctets.saturating_sub(*po);
+                }
+                now.insert(id, (r.InOctets, r.OutOctets));
+            }
+            FreeMibTable(t as *const _);
+        }
+        self.prev = now;
+        (rx, tx)
+    }
+}

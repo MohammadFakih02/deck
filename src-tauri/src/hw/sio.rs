@@ -418,7 +418,7 @@ impl FanChip for NctEc {
         self.saved[i] = None;
     }
     fn report(&self) -> String {
-        format!("manual-mode bits (0xA00): {:?}", self.manual_bits().map(|b| format!("{:08b}", b)))
+        format!("manual-mode bits (0xA00): {}", self.manual_bits().map(|b| format!("{:08b}", b)).unwrap_or_else(|| "unreadable".into()))
     }
 }
 

@@ -23,6 +23,15 @@ fn control_text(c: &hw::sio::Control) -> (String, String) {
     }
 }
 
+/// Every drive's health (S.M.A.R.T.). `refresh` reads the drives again instead of using the
+/// last reading (up to a minute old).
+#[tauri::command]
+pub async fn drive_health(refresh: Option<bool>) -> R<Value> {
+    let max_age = if refresh.unwrap_or(false) { 0 } else { 60 };
+    let v = tauri::async_runtime::spawn_blocking(move || hw::smart::cached(max_age)).await.map_err(|e| e.to_string())?;
+    Ok(serde_json::to_value(v).unwrap_or_default())
+}
+
 /// Everything the pages need once: what was found, options, the applied configuration.
 #[tauri::command]
 pub fn hw_state(app: A) -> Value {

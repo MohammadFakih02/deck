@@ -1,6 +1,6 @@
 [package]
 name = "deck"
-version = "1.1.2"
+version = "2.0.0"
 description = "Dashboard, launcher and Windows power tools in one tray app"
 authors = ["moudi"]
 edition = "2021"

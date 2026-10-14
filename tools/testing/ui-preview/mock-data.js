@@ -36,10 +36,52 @@
   R.gpu_live = () => ({ core_mhz: 2715, mem_mhz: 10501, power_w: 238, temp_c: 61, util: 87, mem_used_mb: 7340, mem_total_mb: 16376, fan_pct: [48], fan_manual: false, voltage_mv: 1050, limit: "power" });
   R.hw_mem = () => ({ used: 18.4, total: 32, cached: 9.2, free: 3.1 });
   const GB = 1073741824;
-  R.disk_status = () => ({ running: false, root: "C:\\", target: "C:\\", took: 12.4, files: 812334, bytes: 740 * GB, elapsed: 12 });
-  R.disk_children = () => ({ crumbs: [{ id: 0, name: "C:\\" }], size: 740 * GB, files: 812334, items: [
+  R.disk_status = () => ({ running: false, root: "C:\\", target: "C:\\", took: 2.4, files: 812334, bytes: 740 * GB, elapsed: 2, method: "MFT", free: 212e9 });
+  R.disk_types = () => [[".pak", 120, 900], [".vpk", 64, 210], [".dll", 48, 61000], [".exe", 31, 9000], [".mp4", 28, 140], [".sys", 30, 400], ["", 22, 80000], [".cache", 18, 3000]]
+    .map(([ext, gb, count], i) => ({ ext, bytes: gb * GB, count, color: ["#e07a1f", "#d6c21a", "#2fb34a", "#9b4fd6", "#e0457b", "#2f8fe0", "#8a8f9c", "#3fc6d8"][i] }));
+  // a made-up nested drive, squarified like the backend does (folders: label strip and padding)
+  R.disk_treemap = ({ w, h }) => {
+    let seed = 7;
+    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    const tree = (depth) => Array.from({ length: depth > 2 ? 0 : 5 + Math.floor(rnd() * 6) }, (_, i) => {
+      const kids = depth < 2 && rnd() < 0.5 ? tree(depth + 1) : [];
+      return { name: kids.length ? `Folder ${depth}-${i}` : `file${i}.${["pak", "vpk", "dll", "exe", "mp4"][i % 5]}`, size: kids.length ? kids.reduce((a, k) => a + k.size, 0) : (1 + rnd() * 40) * GB, kids, c: 1 + (i % 5) };
+    }).sort((a, b) => b.size - a.size);
+    const sq = (areas, x, y, w, h) => {
+      const out = []; let i = 0;
+      while (i < areas.length) {
+        const sh = Math.min(w, h); let j = i, sum = 0, best = Infinity;
+        while (j < areas.length) { const ns = sum + areas[j]; const wr = Math.max((sh * sh * areas[i]) / (ns * ns), (ns * ns) / (sh * sh * areas[j])); if (wr > best) break; best = wr; sum = ns; j++; }
+        const t = sum / sh;
+        if (w >= h) { let yy = y; for (let k = i; k < j; k++) { out.push([x, yy, t, areas[k] / t]); yy += areas[k] / t; } x += t; w -= t; }
+        else { let xx = x; for (let k = i; k < j; k++) { out.push([xx, y, areas[k] / t, t]); xx += areas[k] / t; } y += t; h -= t; }
+        i = j;
+      }
+      return out;
+    };
+    const o = { r: [], k: [], c: [], d: [], ref: [], n: [], s: [], palette: ["#8a8f9c", "#e07a1f", "#d6c21a", "#2fb34a", "#9b4fd6", "#e0457b", "#2f8fe0", "#3fc6d8", "#c94fc4", "#d83a2f", "#7fae2e", "#1fb39a", "#a8702e", "#5a6ee0", "#e0a64f", "#6fd08a"] };
+    const push = (r, k, c, d, ref, n, s) => { o.r.push(...r); o.k.push(k); o.c.push(c); o.d.push(d); o.ref.push(ref); o.n.push(n); o.s.push(s); };
+    let ids = 0;
+    const lay = (node, [x, y, w, h], depth) => {
+      push([x, y, w, h], 0, 0, depth, ids++, node.name, node.size);
+      const head = h >= 30 && w >= 40 ? 13 : 0, pad = w >= 8 && h >= 8 ? 1.5 : 0;
+      const [ix, iy, iw, ih] = [x + pad, y + head + pad, w - 2 * pad, h - head - 2 * pad];
+      if (iw < 1 || ih < 1) return;
+      const sc = (iw * ih) / node.size;
+      sq(node.kids.map((k) => k.size * sc), ix, iy, iw, ih).forEach((r, i) => {
+        const k = node.kids[i];
+        if (k.kids.length) lay(k, r, depth + 1); else push(r, 1, k.c, depth + 1, i, k.name, k.size);
+      });
+    };
+    const kids = tree(0), used = kids.reduce((a, k) => a + k.size, 0), free = used * 0.25;
+    const [ur, fr] = sq([used, free].map((v) => (v * w * h) / (used + free)), 0, 0, w, h);
+    lay({ name: "C:\\", size: used, kids }, ur, 0);
+    push(fr, 2, 0, 0, -1, "Free space", free);
+    return o;
+  };
+  R.disk_children = () => ({ id: 0, crumbs: [{ id: 0, name: "C:\\" }], size: 740 * GB, files: 812334, folders: 96000, items: [
     ["Users", 310, 421000, 1], ["Windows", 38, 190000, 2], ["Program Files", 96, 61000, 3], ["Program Files (x86)", 54, 48000, 4], ["ProgramData", 21, 15000, 5], ["pagefile.sys", 18, 1, 0], ["hiberfil.sys", 12, 1, 0], ["$Recycle.Bin", 7, 120, 6], ["Intel", 1, 40, 7], ["Temp", 2, 900, 8]]
-    .map(([name, gb, files, id]) => ({ id, name, size: gb * GB, files, dir: name.includes(".sys") ? false : true, path: "C:\\" + name, keep: /^(Users|Windows|Program|pagefile|hiberfil|\$Recycle)/.test(name) })) });
+    .map(([name, gb, files, id]) => ({ id, name, size: gb * GB, files, folders: Math.round(files / 9), dir: name.includes(".sys") ? false : true, path: "C:\\" + name, keep: /^(Users|Windows|Program|pagefile|hiberfil|\$Recycle)/.test(name) })) });
   R.disk_big = () => [["D:/Fortnite/pakchunk0-WindowsClient.pak", 41], ["D:/CS2/game/csgo/pak01_dir.vpk", 24], ["C:/pagefile.sys", 18], ["D:/Premiere/render_final.mp4", 12], ["C:/hiberfil.sys", 12]].map(([p, gb]) => ({ name: p.split("/").pop(), path: p.replaceAll("/", "\\"), size: gb * GB, keep: p.startsWith("C:/") }));
   R.cleanup_state = () => ({ busy: false, last: [2.3 * GB], recycle: { items: 14, size: 1.8 * GB }, targets: [
     { id: "temp", name: "Windows temp files", desc: "Leftovers apps and installers put in the temp folders.", level: "safe", size: 3.1 * GB },
@@ -96,7 +138,7 @@
     },
     media: { current: { id: "m1", title: "Nights", artist: "Frank Ocean", album: "Blonde", app: "Spotify", status: "playing", pos: 94, len: 307, can_prev: true, can_next: true, art: null }, others: [{ id: "m2", title: "How to lose weight - YouTube", artist: "", app: "Chrome", status: "paused", can_prev: false, can_next: false }] },
     master: { vol: 0.62, muted: false, peak: 0.34, device: "Headphones (HyperX Cloud II Virtual Surround Sound)" },
-    apps: [{ key: "spotify", name: "Spotify", exe: "C:\\Spotify\\Spotify.exe", vol: 0.8, muted: false, peak: 0.4 }, { key: "cs2", name: "Counter-Strike 2", exe: "C:\\Steam\\cs2.exe", vol: 0.55, muted: false, peak: 0.7 }, { key: "discord", name: "Discord", exe: "C:\\Discord\\Discord.exe", vol: 1, muted: false, peak: 0.1 }, { key: "chrome", name: "Google Chrome", exe: "C:\\Chrome\\chrome.exe", vol: 0.3, muted: true, peak: 0 }],
+    apps: [{ key: "spotify", name: "Spotify", exe: "C:\\Spotify\\Spotify.exe", vol: 0.8, muted: false, peak: 0.4 }, { key: "cs2", name: "Counter-Strike 2", exe: "C:\\Steam\\cs2.exe", vol: 0.55, muted: false, peak: 0.7 }, { key: "discord", name: "Microsoft Edge WebView2 Runtime", exe: "C:\\Discord\\Discord.exe", vol: 1, muted: false, peak: 0.1 }, { key: "chrome", name: "Google Chrome", exe: "C:\\Chrome\\chrome.exe", vol: 0.3, muted: true, peak: 0 }],
     power: { ...window.__power, now: Date.now(), timers: [{ id: "t1", label: "Pasta", secs: 600, end_ms: Date.now() + 340e3, paused_left: null, done: false }] },
 
   });

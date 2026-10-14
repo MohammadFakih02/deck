@@ -367,9 +367,8 @@ impl Net {
             let rows = std::slice::from_raw_parts((*t).Table.as_ptr(), n);
             let now = Instant::now();
             for r in rows {
-                let hardware = r.InterfaceAndOperStatusFlags._bitfield & 1 != 0;
-                if !hardware || r.OperStatus != 1 || (r.Type != 6 && r.Type != 71) {
-                    continue; // only real, connected Ethernet / Wi-Fi adapters
+                if !crate::util::real_adapter(r) {
+                    continue; // only real, connected adapters (no filter layers repeating one)
                 }
                 let luid = r.InterfaceLuid.Value;
                 let name = String::from_utf16_lossy(&r.Alias[..r.Alias.iter().position(|c| *c == 0).unwrap_or(0)]);

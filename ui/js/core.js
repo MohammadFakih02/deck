@@ -148,13 +148,30 @@ async function run(cmd, args, okMsg) {
   }
 }
 
+/** Settings this page wrote itself recently: { key: [value, when done (0 = still being written)] }.
+ *  A "settings changed" reload can answer from before the write landed (two writes in a row: the
+ *  reload of the first can miss the second); these values win over such a stale answer. */
+const localWrites = new Map();
+
 async function setSetting(key, value) {
   S.state.settings[key] = value;
+  localWrites.set(key, [value, 0]);
   try {
     await invoke("set_setting", { key, value });
   } catch (e) {
     note(String(e), true);
+  } finally {
+    if (localWrites.get(key)?.[0] === value) localWrites.set(key, [value, Date.now()]);
   }
+}
+
+/** A reloaded state, with this page's own recent writes kept over what the reload says. */
+function withLocalWrites(state) {
+  for (const [k, [v, done]] of localWrites) {
+    if (done && Date.now() - done > 3000) localWrites.delete(k);
+    else if (state?.settings) state.settings[k] = v;
+  }
+  return state;
 }
 
 function toggle(checked, onchange) {

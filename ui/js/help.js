@@ -443,6 +443,12 @@ const HELP = {
     why: "See trouble out of the corner of your eye without reading the numbers.",
     change: "Uses the limits under Warnings.",
   },
+  "pc.drives": {
+    t: "Drive health",
+    what: "Each drive's own health data (S.M.A.R.T.): worn or replaced areas, read errors, life left on SSDs, temperature and hours, judged like CrystalDiskInfo.",
+    why: "A drive usually shows trouble here weeks before it fails: time to copy what matters off it.",
+    change: "Deck checks every 10 minutes; with Drive notifications on, it tells you once when something gets worse. Caution means watch it and keep backups; Bad means copy your files off soon. Problems that are over show as \"Earlier\" and don't change the verdict.",
+  },
   "ov.position": {
     t: "Position",
     what: "The corner of the screen the overlay sits in, and how far it is from the edges.",
@@ -542,14 +548,14 @@ const HELP = {
     change: "Everything goes back to normal priority afterwards. Voice chat and music players are left alone.",
   },
   "boost.trim": {
-    t: "Free memory",
-    what: "Asks Windows to move memory that background apps aren't using out of the way.",
-    why: "More room for the game on a PC with 8 or 16 GB.",
+    t: "Free memory when it's low",
+    what: "When 85% or more of the memory is in use, asks Windows to move memory that background apps aren't using out of the way. Otherwise it does nothing.",
+    why: "Makes room for the game on a PC that's short of memory. With room to spare, Windows already gives the game what it needs, and trimming would only make background apps slow to come back.",
     change: "Nothing closes. A background app may be a little slow the first time you go back to it.",
   },
   "boost.auto_end": {
     t: "Turn off by itself",
-    what: "Full power ends about a minute after your game closes.",
+    what: "Full power ends about a minute after your game closes, or after 3 hours if Deck never spots a game.",
     why: "So you don't leave the PC in game mode with apps closed.",
     change: "Off: it stays on until you turn it off.",
   },

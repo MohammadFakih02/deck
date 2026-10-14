@@ -2,7 +2,7 @@
 
 Deck is a single Windows tray app that brings together a launcher, a live dashboard, PowerToys-style tools, full hardware control, and a phone remote. It replaces **MoboCtl** (fans, RGB, cooler display, sensors) and **MSI Afterburner** (GPU tuning). **RivaTuner (RTSS)** stays installed because it draws the in-game overlay.
 
-- **Version:** 1.1.2. Setup: `cargo tauri build --bundles nsis`, attached to each [GitHub release](https://github.com/MohammadFakih02/deck/releases).
+- **Version:** 2.0.0. Setup: `cargo tauri build --bundles nsis`, attached to each [GitHub release](https://github.com/MohammadFakih02/deck/releases).
 - **Stack:** Tauri 2, Rust backend, vanilla JS UI. No frameworks, no build step for the UI.
 - **Source:** https://github.com/MohammadFakih02/deck (public). Machine-specific notes (the maintainer's PC, local paths, personal profiles) live in `PRIVATE_NOTES.md`, which is git-ignored; read it first if it exists.
 - **Detailed history:** session-by-session handoff notes are in `PROJECT_STATE.md`.
@@ -81,7 +81,9 @@ Read this section first. `CLAUDE.md` in this folder points here, so it loads aut
 | Runs as | **Administrator**, with no UAC prompt. It starts through scheduled tasks: `\Deck\Deck` runs at logon with `--minimized`, and `\Deck\Open` is what the Start-menu entry runs (via `run.vbs`). Apps that Deck launches still start as the normal user (`util::launch_as_user`), so Steam, games and Discord are not elevated. |
 | Settings | `%APPDATA%\Deck\settings.json`, plus the folders listed in §7. |
 | Opened by | Hot corner (top-left by default, 250 ms, off over fullscreen games), the tray icon, the Start menu, or the phone. An optional open hotkey (`open_hotkey`) exists but is empty by default. |
-| Window modes | `panel`: a quick panel over a dimmed screen (the default). `app`: a normal window. |
+| Window modes | `panel`: a quick panel over a dimmed screen (the default). `app`: a normal window. The pin: in `panel` mode the panel becomes a floating always-on-top window the size of the panel (`PIN_RECT`); in `app` mode the window stays on top. |
+| Look | `theme` (8 themes, `data-theme` on `<html>`), `accent`, `opacity_pinned` / `opacity_unpinned`, `open_anim` (`data-anim`), `low_spec` (class `low-spec`: no transitions or soft shadows, live tick every 3 s). The first-start picker ("Make Deck yours") shows until `setup_picked`. |
+| Defaults | Home tile places and sizes: `HOME_DEFAULT` in `ui/js/layout.js` (used until the user arranges Home). PC tile cards: `pc_cards`. Sidebar: every group folded (`nav_folded`), width 180. |
 | Phone remote | LAN web app / PWA on port **47830** (MicDrop uses 47823). It has a key check and a WebSocket for live state. |
 
 ### User rules Deck follows
@@ -99,10 +101,10 @@ Read this section first. `CLAUDE.md` in this folder points here, so it loads aut
 |---|---|
 | Top | **Home** (clock and calendar, now playing, PC vitals with sparklines, Performance tile to switch CPU/GPU profiles, sound, pinned and frequent apps, quick actions, clipboard, power and timers, network), **Game boost**. The Apps and Games pages were removed on 2026-10-12 at the user's request (apps and games are still found through the search box and the Home tile). The MicDrop tile and Deck's MicDrop link were removed the same day, also at the user's request. |
 | Hardware | **CPU**, **GPU** (every setting in both profile editors has a "?" that explains what it does, why to use it and what changing it does; text in `ui/js/help.js`), **Fans**, **Lighting**, **Cooler display**. A page is hidden when the PC has nothing for it. |
-| Monitor | **Sensors**, **Processes**, **Network** (one screen: live rates with a 1-minute graph, click-to-copy IPs, speed test, ping with Start / Stop (one round when the page opens, then rounds back to back only while started; leaving the page stops it), game-server ping that tests a game the first time it's picked), **This PC** (hidden when the PC has nothing for it, like the hardware pages) |
+| Monitor | **Sensors** (opens on All readings), **Overlay** (the in-game overlay settings; can install RivaTuner), **Drives** (S.M.A.R.T. health of every HDD/SSD with history in `drive-health.json`; optional alerts, `drive_alerts`, off by default), **Processes**, **Network** (one screen: live rates with a 1-minute graph, click-to-copy IPs, speed test, ping with Start / Stop (one round when the page opens, then rounds back to back only while started; leaving the page stops it), game-server ping that tests a game the first time it's picked), **This PC** (hidden when the PC has nothing for it, like the hardware pages) |
 | Desktop | **Windows**, with tabs: Open windows (pin on top, see-through, snap, center, close), Snap zones (FancyZones-style), Workspaces. **Display** (refresh rate, DDC/CI brightness, HDR, dark/light schedule that switches only at its set times, so a manual switch holds). **Clipboard** (history of text, images and files, pins, search, "paste as"; skips password managers), **Sound** (default output, master and per-app volume, media sessions) |
 | Power & time | **Keep awake** (shows Windows' own sleep and screen-off times; "until downloads finish" waits for a download to start, then ends a minute after it stops), **Timers & breaks**, **Shut down when…** (time, app closes, downloads finish, CPU idle, network quiet, media stops, away; with a 60 s cancel warning). Downloads and media conditions wait until something downloads or plays; a time missed while the PC was asleep is skipped, not run on wake. |
-| Maintenance | **Disk space** (treemap; Windows' own folders and files are locked against the Recycle Bin), **Clean up** (caches, plus **Clear RAM**), **Startup apps**, **Tools**, with tabs: Screen tools (colour picker, text from screen via OCR, ruler), Locked files, Windows panels |
+| Maintenance | **Disk space** (NTFS drives are read straight from the MFT (`mft.rs`), others with a FindFirstFileEx walk; WizTree-style squarified treemap with File types / Folders views and a back button; Windows' own folders and files are locked against the Recycle Bin), **Clean up** (caches, plus **Clear RAM**), **Startup apps**, **Tools**, with tabs: Screen tools (colour picker, text from screen via OCR, ruler), Locked files, Windows panels |
 | Removed | **Notes** and its Home tile (2026-10-12, at the user's request). Saved notes stay in `settings.json` (`notes`), untouched. The unlinked **File search** route (`files/index`) was removed on 2026-10-14; its settings live in Settings → Clipboard & search. |
 | Bottom | **Phone**, **Settings** |
 
@@ -192,7 +194,11 @@ Every way of switching runs the same code:
 | `gpu/` | `engine.rs` (apply, fan loop, drift and resume re-apply), `nvml.rs`, `nvapi.rs`, `curve.rs`, `guard.rs` (crash guard) |
 | `hw/` | MoboCtl's engine: `sio`, `hp`, `pawn` (+ `mods/`), `sensors`, `sysmon`, `smbios`, `fx`, `hid`, `devices`, `lcd`, `loopback`, `screen`, `game`, `cpupower`, `powermode`, `rapl`, `memclean`, `cfg`, `kv` |
 | `profcmd.rs`, `hwcmd.rs` | Commands for the Hardware pages |
-| `rtss.rs` | RTSS overlay slot and MAHM shared memory |
+| `rtss.rs` | RTSS overlay slot and MAHM shared memory; installs RTSS (winget); flips RTSS's own OSD switch through the 32-bit helper |
+| `rtss32/` | The 32-bit helper (`rtss-osd32.exe`) that calls RTSSHooks' SetFlags; `build.rs` builds it for i686 into `target/rtss32` and embeds it (needs `rustup target add i686-pc-windows-msvc`) |
+| `mft.rs`, `disk.rs` | NTFS MFT reader, folder tree and treemap layout for Disk space |
+| `hw/smart.rs` | Drive health (NVMe log page 2, ATA SMART attributes and thresholds), history and alerts |
+| `support.rs` | The support report (This PC) |
 | `boost.rs` | Game boost (close apps, power plan, priorities, trim; everything restored afterwards) |
 | `webview_guard.rs` | WebView2 browser flags that prevent blank windows (applied to every window builder) plus the watchdog |
 | Other modules | `sys`, `audio`, `media`, `apps`, `calc`, `files`, `clipboard`, `power`, `winmgr`, `disk`, `cleanup`, `startup`, `display`, `net`, `gameping`, `locksmith`, `games`, `picker`, `hotcorner`, `remote`, `elevation`, `util` |
@@ -204,7 +210,7 @@ Every way of switching runs the same code:
 
 ```powershell
 cd src-tauri
-cargo test --release      # 86 tests (+10 ignored live tests)
+cargo test --release      # 95 tests (+15 ignored live tests)
 cargo build --release     # set CARGO_TARGET_DIR to build elsewhere
 ..\install.ps1 -NoBuild   # elevates itself, quits Deck, copies to Program Files, (re)creates the tasks
 ..\uninstall.ps1 [-Purge] # quits Deck (fans back to the BIOS), removes tasks, shortcuts, files and the PawnIO driver if Deck installed it
@@ -232,6 +238,7 @@ cargo build --release     # set CARGO_TARGET_DIR to build elsewhere
 | `settings.json` | All app settings and profiles |
 | `hardware\settings.ini`, `curves.ini` | Fans, lighting, display, alerts, fan curves |
 | `gpu-applied.json` | GPU crash guard |
+| `drive-health.json` | Drive health history (Drives page) |
 | `gpu-stock-curve.json` | Stock voltage/frequency curve cache |
 | `gpu-defaults.json` | The card's factory temperature limit (per PCI id) |
 | `boost.json` | Game boost state to restore |

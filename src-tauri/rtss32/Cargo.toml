@@ -1,0 +1,14 @@
+[package]
+name = "rtss-osd32"
+version = "1.0.0"
+description = "Turns RivaTuner's Show On-Screen Display switch on or off for Deck (32-bit, like RivaTuner itself)"
+edition = "2021"
+
+# Not part of Deck's crate: Deck's build.rs builds it for i686-pc-windows-msvc and embeds the exe.
+[workspace]
+
+[profile.release]
+opt-level = "z"
+strip = true
+lto = true
+panic = "abort"

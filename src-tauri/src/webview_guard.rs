@@ -18,6 +18,8 @@ const BROWSER_ARGS: &str = "--disable-features=CalculateNativeWinOcclusion,msWeb
 
 static START: OnceLock<Instant> = OnceLock::new();
 static LAST_BEAT: AtomicU64 = AtomicU64::new(0);
+/// Frames the page has reported (only the page's own beats count, not `touch`).
+static BEATS: AtomicU64 = AtomicU64::new(0);
 
 fn now_ms() -> u64 {
     START.get_or_init(Instant::now).elapsed().as_millis() as u64
@@ -36,12 +38,28 @@ pub fn browser_args() -> String {
 /// The page reports that it is drawing frames.
 #[tauri::command]
 pub fn ui_heartbeat() {
+    BEATS.fetch_add(1, Ordering::Relaxed);
     touch();
 }
 
 /// Restart the "has it gone quiet?" clock (call when the window is shown).
 pub fn touch() {
     LAST_BEAT.store(now_ms(), Ordering::Relaxed);
+}
+
+/// A freshly shown window: nudged only if the page hasn't reported a drawn frame shortly after
+/// (it reports its first frame on every show). A resize repaints the whole window, which on a
+/// full-screen panel wakes the graphics card for a moment, so it is kept for windows that need it.
+pub fn nudge_if_blank(w: &WebviewWindow) {
+    touch();
+    let before = BEATS.load(Ordering::Relaxed);
+    let w = w.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(500));
+        if BEATS.load(Ordering::Relaxed) == before {
+            repaint_nudge(&w);
+        }
+    });
 }
 
 /// One-pixel resize and back, shortly after the window is shown.

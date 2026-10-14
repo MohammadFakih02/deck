@@ -11,6 +11,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          # the 32-bit RivaTuner helper (src-tauri/rtss32) that build.rs embeds
+          targets: i686-pc-windows-msvc
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri

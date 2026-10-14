@@ -1,10 +1,52 @@
 # Deck — project state
 
-Handoff notes so work can resume later. Last updated: 2026-10-11 (hardware control merged).
+Handoff notes so work can resume later. Last updated: 2026-10-14 (v2.0.0).
 
 **Start with `DECK.md`** (full overview: features, hardware, files, build/test, status). This file is the dated history.
 
 > **RULE: before every commit, update the docs.** Add today's dated entry here, add user-visible changes to `CHANGELOG.md`, update `DECK.md` / `README.md` when facts change, and stage them in the same commit. The pre-commit hook enforces it; never bypass it. No personal data in these files (that goes in the git-ignored `PRIVATE_NOTES.md`).
+
+## 2026-10-14: v2.0.0 — the big update
+
+Everything since 1.1.2, built and tested on the maintainer's PC between releases (fast build + exe swap each round).
+
+- **Look:** 8 themes (`THEMES` in `pages3.js`, colours in `app.css` under `[data-theme]`), accent, opacity per pin state
+  (`--deck-opacity`), opening animations (`:root[data-anim]` sets `--a-from/--a-to/--a-t/--a-ease`), low-spec mode
+  (`html.low-spec`, tick every 3 s in `app.js`). First-start picker `themeWelcome` ("Make Deck yours", flag `setup_picked`;
+  older flags `theme_picked` / `look_picked` stay in the struct so old settings files load).
+- **Pin:** `set_pinned(on, rect)` floats the quick panel as its own always-on-top window (`PIN_RECT`); "shown" carries
+  `float`; `body.pin-float`. In app mode: always on top. The click handler used `e.currentTarget` after an await (null).
+- **Home grid:** free 12-column grid with 10 px rows (`pgEngine` / `pgResolve` / `pgSpot` in `layout.js`), push-down
+  collision, snap guide, fold-away parts (`pgFit` / `pgFold`, `data-drop` marks). `pgKeep` carries place, size and fold
+  across live redraws (stopped flicker). Defaults: `HOME_DEFAULT`. Stale `get_state` replies overwrote in-flight writes
+  (resize "needed twice"): `localWrites` + `withLocalWrites` in `core.js`. `mouseHeld` covers long drags (2 min).
+- **PC tile:** `PC_CARDS` in `home.js` (cpu, ram, gpu, vram, net), rows aligned with CSS subgrid; customize dialog
+  `pcCustomize` (`pc_cards`, `pc_drives`). Backend: `live.cpu_now` (clock, package power, temps from the hw engine),
+  NVML graphics clock and `vram_hist` in `sys.rs`.
+- **Network rates:** sysinfo's adapter list counted the Npcap filter interface as well as the real adapter (double).
+  `util::real_adapter` (hardware, not a filter, up, Ethernet/Wi-Fi/WWAN) + `util::NetCounter` (per-LUID deltas, so
+  adapters add, a new one starts from its next reading, a removed one stops). Used by `sys.rs`, `rtss.rs`, `sysmon.rs`.
+- **RAM RGB after a cold boot:** Deck starts ~17 s after boot, before the Fury controllers answer; the scan found
+  nothing and never ran again (only wake rescanned). Now `FuryRam::scan_missing` retries (5 s doubling to 60 s, 10 min
+  after start or wake) while fewer sticks than `fury_modules()` were found, without touching found sticks (a full
+  rescan reset them: visible flashing).
+- **Drives:** `hw/smart.rs` (NVMe log page 2, ATA 0xD0/0xD1/0xDA), history in `drive-health.json`, alerts gated by
+  `drive_alerts` (default off), "past issue" notice once. Page in `hw.js` (`drivesCard`), support report includes it.
+- **Disk space:** `mft.rs` reads the NTFS MFT directly (FindFirstFileEx fallback), squarified treemap, `disk_treemap`,
+  `disk_types`, `disk_path`; UI in `pages2.js`.
+- **Overlay:** own page; `rtss_install` (winget); the overlay key also flips RTSS's OSD switch via the embedded 32-bit
+  helper `rtss32/` (RTSSHooks SetFlags + `WM_APP+100`). `build.rs` builds it into `target/rtss32` (short path: LNK1104
+  in OUT_DIR). CI adds the i686 target.
+- **Game boost:** trim only when memory ≥ 85 % (`memory_short`), auto-end after 3 h without a game (`NO_GAME_LIMIT`),
+  GPU-busy foreground counts as a game.
+- **Sidebar:** drag to reorder (`nav_order`, `navDnd`), Power & time last, Reset in Settings, all groups folded by
+  default, width 180.
+- **GPU wake on open (investigated, not fixable):** opening any window makes the NVIDIA driver jump P8 → P0 (~90 W for
+  2–3 s); the Start menu does the same. NVML reads don't wake it, and `--disable-gpu` didn't help (DWM still composes).
+  Kept: no repaint nudge on show unless the page reports no frame (`nudge_if_blank`).
+- Tests: `cargo test --release` 95 pass (+15 ignored live). Live: `net_matches_windows`. UI checked with preview
+  screenshots (the harness hard-codes Edge's path; Chrome works). Not tested: a cold boot with the RAM retry, laptops,
+  AMD/Intel GPU cards in the PC tile.
 
 ## 2026-10-14: v1.1.2 — sidebar regrouped
 

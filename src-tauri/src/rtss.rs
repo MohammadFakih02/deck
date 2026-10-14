@@ -426,6 +426,77 @@ static STOP: AtomicBool = AtomicBool::new(false);
 static WRITE: Mutex<()> = Mutex::new(());
 static RUNNING: AtomicBool = AtomicBool::new(false);
 
+/// RivaTuner has its own "Show On-Screen Display" switch that hides every overlay, Deck's
+/// included. Afterburner's overlay key flips it, and Deck does the same: the switch follows
+/// Deck's overlay on and off, so a switch left off (by Afterburner, or by hand) doesn't hide
+/// Deck's. The switch RivaTuner shows and the 32-bit games use lives in its 32-bit hooks, which
+/// 64-bit Deck can't load: the embedded 32-bit helper (`rtss32/`) sets it and tells RivaTuner.
+/// The 64-bit hooks keep their own copy, set here directly.
+fn set_rtss_osd_visible(visible: bool) {
+    use windows::core::{HSTRING, PCSTR};
+    use windows::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
+    type SetFlags = unsafe extern "C" fn(u32, u32) -> u32;
+    const OSD_VISIBLE: u32 = 1; // RTSSHOOKSFLAG_OSD_VISIBLE in the RTSS SDK
+    let Some(dir) = rtss_exe().and_then(|e| e.parent().map(|p| p.to_path_buf())) else { return };
+    if let Some(helper) = rtss32_helper() {
+        use std::os::windows::process::CommandExt;
+        let _ = std::process::Command::new(helper)
+            .arg(if visible { "on" } else { "off" })
+            .arg(&dir)
+            .creation_flags(crate::util::CREATE_NO_WINDOW)
+            .status();
+    }
+    static SET64: OnceLock<Option<SetFlags>> = OnceLock::new();
+    let set = SET64.get_or_init(|| unsafe {
+        let m = LoadLibraryW(&HSTRING::from(dir.join("RTSSHooks64.dll").as_os_str())).ok()?;
+        Some(std::mem::transmute::<_, SetFlags>(GetProcAddress(m, PCSTR(c"SetFlags".as_ptr() as *const u8))?))
+    });
+    if let Some(set) = *set {
+        unsafe { set(!OSD_VISIBLE, if visible { OSD_VISIBLE } else { 0 }) };
+    }
+}
+
+/// How RivaTuner's "Show On-Screen Display" switch is set: (the one its window shows and
+/// 32-bit games use, the 64-bit hooks' copy). None when it can't be read.
+pub fn osd_switch() -> (Option<bool>, Option<bool>) {
+    use windows::core::{HSTRING, PCSTR};
+    use windows::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
+    let Some(dir) = rtss_exe().and_then(|e| e.parent().map(|p| p.to_path_buf())) else { return (None, None) };
+    let v32 = rtss32_helper().and_then(|h| {
+        use std::os::windows::process::CommandExt;
+        let code = std::process::Command::new(h).arg("status").arg(&dir).creation_flags(crate::util::CREATE_NO_WINDOW).status().ok()?.code()?;
+        matches!(code, 10 | 11).then_some(code == 11)
+    });
+    let v64 = unsafe {
+        LoadLibraryW(&HSTRING::from(dir.join("RTSSHooks64.dll").as_os_str()))
+            .ok()
+            .and_then(|m| GetProcAddress(m, PCSTR(c"GetFlags".as_ptr() as *const u8)))
+            .map(|f| std::mem::transmute::<_, unsafe extern "C" fn() -> u32>(f)() & 1 != 0)
+    };
+    (v32, v64)
+}
+
+/// The 32-bit helper, built by build.rs (empty when the i686 target wasn't installed).
+static RTSS32: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/rtss-osd32.exe"));
+
+/// Writes the helper next to Deck (or into %LOCALAPPDATA%\Deck) the first time it's needed.
+fn rtss32_helper() -> Option<std::path::PathBuf> {
+    if RTSS32.is_empty() {
+        return None;
+    }
+    let dirs = [std::env::current_exe().ok().and_then(|e| e.parent().map(|p| p.to_path_buf())), crate::util::env_path("LOCALAPPDATA").map(|p| p.join("Deck"))];
+    for d in dirs.into_iter().flatten() {
+        let p = d.join("rtss-osd32.exe");
+        if std::fs::metadata(&p).map(|m| m.len() == RTSS32.len() as u64).unwrap_or(false) && std::fs::read(&p).map(|b| b == RTSS32).unwrap_or(false) {
+            return Some(p);
+        }
+        if std::fs::create_dir_all(&d).is_ok() && std::fs::write(&p, RTSS32).is_ok() {
+            return Some(p);
+        }
+    }
+    None
+}
+
 pub fn rtss_exe() -> Option<std::path::PathBuf> {
     let base = crate::util::env_path("ProgramFiles(x86)").unwrap_or_else(|| "C:\\Program Files (x86)".into());
     let p = base.join("RivaTuner Statistics Server").join("RTSS.exe");
@@ -443,6 +514,26 @@ pub fn start_rtss() -> Result<(), String> {
     }
     let exe = rtss_exe().ok_or("RivaTuner Statistics Server is not installed.")?;
     std::process::Command::new(&exe).current_dir(exe.parent().unwrap()).spawn().map(|_| ()).map_err(|e| e.to_string())
+}
+
+/// Installs RivaTuner from its official source with winget, which downloads Guru3D's own
+/// installer and checks its hash (RivaTuner's licence doesn't allow shipping it inside Deck),
+/// then starts it.
+pub fn install_rtss() -> Result<(), String> {
+    if rtss_exe().is_some() {
+        return start_rtss();
+    }
+    let out = crate::util::run_hidden(
+        "winget",
+        &["install", "--id", "Guru3D.RTSS", "--exact", "--silent", "--accept-package-agreements", "--accept-source-agreements", "--disable-interactivity"],
+    )
+    .map_err(|_| "Windows' package manager (winget) isn't on this PC. Get RivaTuner from guru3d.com.".to_string())?;
+    if rtss_exe().is_none() {
+        let text = String::from_utf8_lossy(&out.stdout);
+        let last = text.lines().map(str::trim).filter(|l| l.chars().any(char::is_alphanumeric)).last().unwrap_or("no details");
+        return Err(format!("RivaTuner didn't install ({last}). Get it from guru3d.com."));
+    }
+    start_rtss()
 }
 
 /// Overlay on/off (the hotkey and the Sensors page switch).
@@ -815,6 +906,8 @@ pub fn look_edits(st: &OsdStyle) -> Vec<(&'static str, &'static str, String)> {
     let y = if st.corner.starts_with('b') { -my } else { my };
     let b = |v: bool| (v as u8).to_string();
     vec![
+        // "On-Screen Display support": off would hide Deck's overlay in every game
+        ("OSD", "EnableOSD", "1".to_string()),
         ("OSD", "PositionX", x.to_string()),
         ("OSD", "PositionY", y.to_string()),
         ("OSD", "ZoomRatio", st.zoom.clamp(1, 8).to_string()),
@@ -919,13 +1012,15 @@ pub fn start(app: Arc<App>) {
         .name("rtss".into())
         .spawn(move || {
             let mut sys = sysinfo::System::new();
-            let mut nets = sysinfo::Networks::new_with_refreshed_list();
+            let mut net = crate::util::NetCounter::new();
             let mut net_at = Instant::now();
             // a slot left by a Deck that crashed would keep showing frozen numbers
             if let Some(v) = open_rtss() {
                 write_osd(&v, "");
             }
             let mut wrote = false;
+            let mut shown = false;
+            let mut was_on: Option<bool> = None;
             while !STOP.load(Ordering::SeqCst) {
                 let (on, items, ms, mahm, style) = {
                     let s = app.settings.lock();
@@ -936,16 +1031,7 @@ pub fn start(app: Arc<App>) {
                 {
                     let dt = net_at.elapsed().as_secs_f32().max(0.2);
                     net_at = Instant::now();
-                    nets.refresh(true);
-                    let (mut rx, mut tx) = (0u64, 0u64);
-                    for (n, d) in nets.iter() {
-                        let n = n.to_ascii_lowercase();
-                        if n.contains("loopback") || n.contains("vethernet") || n.contains("wsl") {
-                            continue;
-                        }
-                        rx += d.received();
-                        tx += d.transmitted();
-                    }
+                    let (rx, tx) = net.sample();
                     snap.net_down = Some(rx as f32 / dt / 1048576.0);
                     snap.net_up = Some(tx as f32 / dt / 1048576.0);
                 }
@@ -954,6 +1040,18 @@ pub fn start(app: Arc<App>) {
                 if STOP.load(Ordering::SeqCst) {
                     break;
                 }
+                // RivaTuner's own switch follows Deck's overlay, like Afterburner's key: on when it
+                // comes on (or RivaTuner (re)starts while it is on), off when it is switched off.
+                // Deck starting with its overlay off leaves the switch alone.
+                if rt.is_some() {
+                    if on && !shown {
+                        set_rtss_osd_visible(true);
+                    } else if !on && was_on == Some(true) {
+                        set_rtss_osd_visible(false);
+                    }
+                }
+                shown = on && rt.is_some();
+                was_on = Some(on);
                 if let Some(v) = &rt {
                     if on {
                         let (text, width) = osd::osd_text_width(&items, &style, &snap, name.as_deref().unwrap_or(""));

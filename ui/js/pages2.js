@@ -2,42 +2,182 @@
 
 // ------------------------------------------------------------------ files
 
-const TM_COLORS = ["#3f6fd8", "#7a52d6", "#c24f94", "#d3693c", "#c9a13a", "#3c9d74", "#338aa6", "#5b62c9", "#a24fb8", "#b8584f", "#6a8a3a", "#3a7f9d"];
+// The disk space view, like WizTree: a folder tree with sizes and counts, the file types, and a
+// nested treemap of everything (laid out by the backend, drawn here on a canvas).
 
-function squarify(items, x, y, w, hgt) {
-  const total = items.reduce((a, b) => a + b.size, 0);
-  if (!total || w <= 0 || hgt <= 0) return [];
-  const scale = (w * hgt) / total;
-  const nodes = items.filter((it) => it.size > 0).map((it) => ({ ...it, area: it.size * scale }));
-  const out = [];
-  let row = [];
-  let rect = { x, y, w, h: hgt };
-  const worst = (r, len) => {
-    const s = r.reduce((a, b) => a + b.area, 0);
-    const mx = Math.max(...r.map((q) => q.area)), mn = Math.min(...r.map((q) => q.area));
-    return Math.max((len * len * mx) / (s * s), (s * s) / (len * len * mn));
-  };
-  const lay = (r, rc) => {
-    const s = r.reduce((a, b) => a + b.area, 0);
-    if (rc.w >= rc.h) {
-      const cw = s / rc.h;
-      let cy = rc.y;
-      for (const q of r) { const ch = q.area / cw; out.push({ ...q, x: rc.x, y: cy, w: cw, h: ch }); cy += ch; }
-      return { x: rc.x + cw, y: rc.y, w: rc.w - cw, h: rc.h };
+/** "#e07a1f" → [r, g, b] */
+const hexRgb = (hx) => [1, 3, 5].map((i) => parseInt(hx.slice(i, i + 2), 16));
+const mixRgb = (c, t, k) => `rgb(${c.map((v, i) => Math.round(v + (t[i] - v) * k)).join(",")})`;
+
+/** The folder tree: the open folder's folders and files, folders open in place (WizTree's tree view). */
+function diskTree(v) {
+  const open = (S.cache.diskOpen ||= new Map());
+  const parentSize = v.size || 1;
+  const rows = [];
+  const add = (items, depth, ofSize) => {
+    for (const it of items.slice(0, 200)) {
+      const isOpen = it.dir && open.has(it.id);
+      const pct = ofSize ? (it.size / ofSize) * 100 : 0;
+      rows.push(h("div", { class: "dt-row" + (it.dir ? " dir" : ""), ondblclick: () => (it.dir ? openNode(it.id) : invoke("open_path", { path: it.path, keep: true })) },
+        h("div", { class: "dt-name", style: { paddingLeft: 6 + depth * 16 + "px" } },
+          it.dir ? h("button", { class: "dt-tw" + (isOpen ? " on" : ""), "aria-label": isOpen ? "Close" : "Open", onclick: () => diskToggle(it.id) }, I("chevron", "sm")) : h("span", { class: "dt-tw" }),
+          I(it.dir ? "folder" : "file", "sm"), h("span", { class: "ell", title: it.path }, it.name)),
+        h("div", { class: "dt-pct" }, h("div", { class: "bar" }, h("i", { style: { width: Math.min(100, pct) + "%" } })), h("span", { class: "num" }, pct.toFixed(1) + " %")),
+        h("div", { class: "num r" }, fmtBytes(it.size)),
+        h("div", { class: "num r" }, it.dir ? it.files.toLocaleString() : ""),
+        h("div", { class: "num r" }, it.dir ? it.folders.toLocaleString() : ""),
+        h("div", { class: "acts" },
+          h("button", { class: "icon-btn sm", title: "Show in Explorer", onclick: () => invoke("reveal", { path: it.path }) }, I("folder", "sm")),
+          it.keep ? h("span", { class: "icon-btn sm", title: "Part of Windows: Deck won't move it to the Recycle Bin", "aria-label": "Protected" }, I("lock", "sm"))
+            : h("button", { class: "icon-btn sm danger", title: "Move to Recycle Bin", onclick: () => recycleItem(it) }, I("trash", "sm")))));
+      if (isOpen && open.get(it.id)) add(open.get(it.id).items, depth + 1, it.size);
     }
-    const ch = s / rc.w;
-    let cx = rc.x;
-    for (const q of r) { const cw = q.area / ch; out.push({ ...q, x: cx, y: rc.y, w: cw, h: ch }); cx += cw; }
-    return { x: rc.x, y: rc.y + ch, w: rc.w, h: rc.h - ch };
   };
-  let i = 0;
-  while (i < nodes.length) {
-    const len = Math.min(rect.w, rect.h);
-    if (!row.length || worst([...row, nodes[i]], len) <= worst(row, len)) { row.push(nodes[i]); i++; }
-    else { rect = lay(row, rect); row = []; }
-  }
-  if (row.length) lay(row, rect);
-  return out;
+  add(v.items, 0, parentSize);
+  return h("div", { class: "card dtree" },
+    h("div", { class: "dt-row dt-head" }, h("div", null, "Name"), h("div", null, "% of parent"), h("div", { class: "r" }, "Size"), h("div", { class: "r" }, "Files"), h("div", { class: "r" }, "Folders"), h("div", null)),
+    h("div", { class: "dt-body" }, rows.length ? rows : h("div", { class: "dim", style: { padding: "12px" } }, "Empty folder")));
+}
+
+async function diskToggle(id) {
+  const open = (S.cache.diskOpen ||= new Map());
+  if (open.has(id)) open.delete(id);
+  else open.set(id, await invoke("disk_children", { id }));
+  render();
+}
+
+/** The file types in the open folder, biggest first, in their treemap colours. */
+function diskTypes() {
+  const types = S.cache.diskTypes || [];
+  const total = types.reduce((a, t) => a + t.bytes, 0) || 1;
+  return h("div", { class: "card dtypes" },
+    h("div", { class: "dt-row dt-head" }, h("div", null, "Type"), h("div", { class: "r" }, "Size"), h("div", { class: "r" }, "%"), h("div", { class: "r" }, "Files")),
+    h("div", { class: "dt-body" }, types.map((t) => h("div", { class: "dt-row" },
+      h("div", { class: "dt-name" }, h("i", { class: "dt-sw", style: { background: t.color } }), h("span", { class: "ell" }, t.ext || "(no type)")),
+      h("div", { class: "num r" }, fmtBytes(t.bytes)),
+      h("div", { class: "num r" }, ((t.bytes / total) * 100).toFixed(1)),
+      h("div", { class: "num r" }, t.count.toLocaleString())))));
+}
+
+/** The nested treemap on a canvas. The layout comes from the backend for the canvas' size. */
+function diskTreemap(nodeId) {
+  const wrap = h("div", { class: "tmap" });
+  const cv = h("canvas", null);
+  const tip = h("div", { class: "tmap-tip" });
+  wrap.append(cv, tip);
+  let tm = null, hover = -1, size = [0, 0], seq = 0;
+  const ctx = cv.getContext("2d");
+  const at = (px, py) => {
+    // the smallest rectangle under the pointer: the last drawn one
+    if (!tm) return -1;
+    for (let i = tm.k.length - 1; i >= 0; i--) {
+      const x = tm.r[i * 4], y = tm.r[i * 4 + 1], w = tm.r[i * 4 + 2], hh = tm.r[i * 4 + 3];
+      if (px >= x && py >= y && px < x + w && py < y + hh) return i;
+    }
+    return -1;
+  };
+  const deepestDir = (px, py) => {
+    let best = -1;
+    for (let i = 0; i < tm.k.length; i++) {
+      if (tm.k[i] !== 0) continue;
+      const x = tm.r[i * 4], y = tm.r[i * 4 + 1], w = tm.r[i * 4 + 2], hh = tm.r[i * 4 + 3];
+      if (px >= x && py >= y && px < x + w && py < y + hh && (best < 0 || tm.d[i] >= tm.d[best])) best = i;
+    }
+    return best;
+  };
+  const draw = () => {
+    if (!tm) return;
+    const dpr = window.devicePixelRatio || 1;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, size[0], size[1]);
+    const pal = tm.palette.map(hexRgb);
+    ctx.font = "10.5px Segoe UI, sans-serif";
+    ctx.textBaseline = "top";
+    for (let i = 0; i < tm.k.length; i++) {
+      const x = tm.r[i * 4], y = tm.r[i * 4 + 1], w = tm.r[i * 4 + 2], hh = tm.r[i * 4 + 3];
+      if (w <= 0 || hh <= 0) continue;
+      const k = tm.k[i];
+      if (k === 0) {
+        // a folder: a dark frame; its label strip when there is room
+        ctx.fillStyle = `rgba(10,12,18,${Math.min(0.55, 0.25 + tm.d[i] * 0.04)})`;
+        ctx.fillRect(x, y, w, hh);
+        ctx.strokeStyle = "rgba(255,255,255,.08)";
+        ctx.strokeRect(x + 0.5, y + 0.5, w - 1, hh - 1);
+        if (hh >= 30 && w >= 40) {
+          ctx.fillStyle = "rgba(230,234,242,.85)";
+          ctx.save();
+          ctx.beginPath(); ctx.rect(x + 2, y, w - 4, 13); ctx.clip();
+          ctx.fillText(`${tm.n[i]} (${fmtBytes(tm.s[i])})`, x + 3, y + 1.5);
+          ctx.restore();
+        }
+        continue;
+      }
+      // a file: a cushion in its type's colour (free space grey, small files dim)
+      const base = k === 2 ? [150, 154, 164] : k === 3 ? [70, 74, 86] : pal[tm.c[i]] || pal[0];
+      const g = ctx.createRadialGradient(x + w * 0.35, y + hh * 0.3, 0, x + w * 0.5, y + hh * 0.5, Math.max(w, hh) * 0.75);
+      g.addColorStop(0, mixRgb(base, [255, 255, 255], 0.35));
+      g.addColorStop(1, mixRgb(base, [0, 0, 0], 0.5));
+      ctx.fillStyle = g;
+      ctx.fillRect(x, y, w, hh);
+      if (w > 70 && hh > 26) {
+        ctx.save();
+        ctx.beginPath(); ctx.rect(x + 2, y + 2, w - 4, hh - 4); ctx.clip();
+        ctx.fillStyle = "rgba(255,255,255,.92)";
+        ctx.shadowColor = "rgba(0,0,0,.7)"; ctx.shadowBlur = 2;
+        ctx.fillText(tm.n[i], x + 4, y + 4);
+        ctx.fillText(fmtBytes(tm.s[i]), x + 4, y + 16);
+        ctx.restore();
+      }
+    }
+    if (hover >= 0) {
+      ctx.strokeStyle = "#fff";
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(tm.r[hover * 4] + 0.75, tm.r[hover * 4 + 1] + 0.75, tm.r[hover * 4 + 2] - 1.5, tm.r[hover * 4 + 3] - 1.5);
+      ctx.lineWidth = 1;
+    }
+  };
+  const load = async () => {
+    const w = Math.floor(wrap.clientWidth), hh = Math.floor(wrap.clientHeight);
+    if (w < 10 || hh < 10) return;
+    size = [w, hh];
+    const dpr = window.devicePixelRatio || 1;
+    cv.width = w * dpr; cv.height = hh * dpr;
+    cv.style.width = w + "px"; cv.style.height = hh + "px";
+    const mine = ++seq;
+    const r = await invoke("disk_treemap", { id: nodeId, w, h: hh }).catch(() => null);
+    if (mine !== seq) return;
+    tm = r;
+    draw();
+  };
+  let resizeT;
+  new ResizeObserver(() => { clearTimeout(resizeT); resizeT = setTimeout(load, 120); }).observe(wrap);
+  cv.addEventListener("mousemove", (e) => {
+    const b = cv.getBoundingClientRect();
+    const i = at(e.clientX - b.left, e.clientY - b.top);
+    if (i !== hover) { hover = i; draw(); }
+    if (i < 0) { tip.style.display = "none"; return; }
+    const kind = ["Folder", "File", "Free space", "Small files"][tm.k[i]];
+    tip.textContent = `${tm.n[i]}\n${fmtBytes(tm.s[i])} · ${kind}`;
+    tip.style.display = "block";
+    const tx = Math.min(e.clientX - b.left + 14, size[0] - tip.offsetWidth - 4), ty = Math.min(e.clientY - b.top + 14, size[1] - tip.offsetHeight - 4);
+    tip.style.left = tx + "px"; tip.style.top = ty + "px";
+  });
+  cv.addEventListener("mouseleave", () => { hover = -1; tip.style.display = "none"; draw(); });
+  // click a folder (its label strip or frame) to open it; double-click a file to show it in Explorer,
+  // or to open the folder it's in with Ctrl
+  cv.addEventListener("click", (e) => {
+    const b = cv.getBoundingClientRect();
+    const i = at(e.clientX - b.left, e.clientY - b.top);
+    if (i < 0) return;
+    const d = tm.k[i] === 0 ? i : e.ctrlKey ? deepestDir(e.clientX - b.left, e.clientY - b.top) : -1;
+    if (d >= 0 && tm.ref[d] !== nodeId) openNode(tm.ref[d]);
+  });
+  cv.addEventListener("dblclick", async (e) => {
+    const b = cv.getBoundingClientRect();
+    const i = at(e.clientX - b.left, e.clientY - b.top);
+    if (i >= 0 && tm.k[i] === 1) { const p = await invoke("disk_path", { file: tm.ref[i] }); if (p) invoke("reveal", { path: p }); }
+  });
+  return wrap;
 }
 
 Pages.files = {
@@ -49,6 +189,7 @@ Pages.files = {
     }
     if (S.cache.diskStatus.root && !S.cache.diskStatus.running) {
       S.cache.diskView = await invoke("disk_children", { id: S.cache.diskNode || 0 });
+      S.cache.diskTypes = await invoke("disk_types", { id: S.cache.diskNode || 0 });
       S.cache.diskBig = await invoke("disk_big");
     }
   },
@@ -69,12 +210,25 @@ Pages.files = {
     }
     const wasRunning = S.cache.diskStatus?.running;
     S.cache.diskStatus = st;
-    if (wasRunning && !st.running && st.root) {
+    // the scan that was asked for is done: show it from its top. A small drive can finish before
+    // the page ever sees it running, so this waits for that scan's root, not for a running → done.
+    const want = S.cache.diskWant;
+    if (!st.running && st.root && (want ? sameRoot(st.root, want) : wasRunning)) {
+      S.cache.diskWant = null;
       S.cache.diskNode = 0;
+      S.cache.diskOpen = new Map();
       S.cache.diskView = await invoke("disk_children", { id: 0 });
+      S.cache.diskTypes = await invoke("disk_types", { id: 0 });
       S.cache.diskBig = await invoke("disk_big");
+      return true;
     }
-    return st.running || wasRunning;
+    // stopped (or the scan failed): the last finished scan stays
+    if (want && !st.running && st.target && sameRoot(st.target, want)) {
+      S.cache.diskWant = null;
+      if (st.root) [S.cache.diskView, S.cache.diskTypes] = await Promise.all([invoke("disk_children", { id: 0 }), invoke("disk_types", { id: 0 })]);
+      return true;
+    }
+    return st.running || wasRunning || !!want;
   },
 };
 
@@ -82,7 +236,13 @@ function diskView() {
   const st = S.cache.diskStatus || {};
   const el = h("div", null);
   const drives = (S.live?.sys?.disks || []).filter((d) => d.total > 0).sort((a, b) => a.mount.localeCompare(b.mount));
-  el.append(h("div", { class: "drives-pick" },
+  // once a drive is picked the drive cards go away; Back brings them back (the scan is kept)
+  const picking = S.cache.diskPicking || (!st.root && !st.running && !S.cache.diskWant);
+  if (!picking) {
+    el.append(h("div", { class: "row", style: { marginBottom: "10px" } },
+      h("button", { class: "btn sm", title: "Back to the drives", onclick: () => { S.cache.diskPicking = true; render(); } }, I("back", "sm"), "Drives")));
+  }
+  if (picking) el.append(h("div", { class: "drives-pick" },
     drives.map((d) => {
       const used = 1 - d.free / d.total;
       return h("button", { class: "dcard" + (st.root === d.mount + "\\" ? " on" : ""), disabled: st.running, onclick: () => startScan(d.mount + "\\") },
@@ -92,6 +252,14 @@ function diskView() {
     }),
     h("button", { class: "dcard", disabled: st.running, onclick: async () => { const p = await invoke("pick", { folder: true, title: "Scan a folder" }); if (p) startScan(p); } },
       h("div", { class: "row" }, I("folder", "lg")), h("div", { class: "big" }, "A folder…"), h("div", { class: "dim", style: { fontSize: "12px" } }, "Scan just one folder"))));
+  if (picking && st.root && !st.running) {
+    el.append(h("div", { class: "row", style: { marginTop: "12px" } },
+      h("button", { class: "btn sm", onclick: () => { S.cache.diskPicking = false; render(); } }, I("back", "sm"), `Back to ${st.root}`)));
+  }
+  if (picking) {
+    if (!st.root) el.append(h("div", { class: "empty", style: { marginTop: "20px" } }, "Pick a drive to see which folders and files take the most space. NTFS drives are read in seconds; others take a little longer."));
+    return el;
+  }
 
   if (st.running) {
     el.append(h("div", { class: "card row", style: { marginTop: "16px" } },
@@ -102,45 +270,30 @@ function diskView() {
     return el;
   }
   const v = S.cache.diskView;
+  if (S.cache.diskWant) {
+    el.append(h("div", { class: "empty", style: { marginTop: "20px" } }, `Reading ${S.cache.diskWant}…`));
+    return el;
+  }
   if (!st.root || !v) {
     el.append(h("div", { class: "empty", style: { marginTop: "20px" } }, "Pick a drive to see which folders take the most space. It reads the whole drive, which takes from a few seconds to a couple of minutes."));
     return el;
   }
+  const how = st.method === "MFT" ? `read from the drive's file table in ${st.took?.toFixed(1)} s`
+    : `listed folder by folder in ${st.took?.toFixed(1)} s${st.why_slow ? ` (the file table couldn't be used: ${st.why_slow})` : ""}`;
   el.append(h("div", { class: "section" },
     h("div", { class: "crumbs grow" }, v.crumbs.map((c, i) => [i ? I("chevron", "sm") : null, h("button", { onclick: () => openNode(c.id) }, c.name)])),
-    h("span", { class: "dim num" }, `${fmtBytes(v.size)} · ${v.files.toLocaleString()} files · scanned in ${st.took?.toFixed(1)} s`),
+    h("span", { class: "dim num", title: how }, `${fmtBytes(v.size)} · ${v.files.toLocaleString()} files · ${v.folders.toLocaleString()} folders${st.free != null && v.id === 0 ? ` · ${fmtBytes(st.free)} free` : ""}`),
     h("button", { class: "icon-btn sm", title: "Scan again", onclick: () => startScan(st.root) }, I("refresh", "sm"))));
-  // treemap
-  const tm = h("div", { class: "treemap" });
-  el.append(tm);
-  requestAnimationFrame(() => {
-    const W = tm.clientWidth, H = tm.clientHeight;
-    const items = v.items.slice(0, 60).map((it, i) => ({ ...it, idx: i }));
-    const rects = squarify(items, 0, 0, W, H);
-    for (const r of rects) {
-      const color = r.dir ? TM_COLORS[r.idx % TM_COLORS.length] : "#4a5266";
-      const cell = h("div", { class: "cell", title: `${r.name}\n${fmtBytes(r.size)}`, style: { left: r.x + "px", top: r.y + "px", width: Math.max(0, r.w) + "px", height: Math.max(0, r.h) + "px", background: `linear-gradient(145deg, ${color}, ${color}bb)` },
-        onclick: () => r.dir ? openNode(r.id) : invoke("reveal", { path: r.path }) },
-        r.w > 60 && r.h > 34 ? [h("b", null, r.name), h("span", null, fmtBytes(r.size))] : null);
-      tm.append(cell);
-    }
-  });
-  // list
-  const max = v.items[0]?.size || 1;
-  el.append(h("div", { class: "section" }, h("h2", null, "In this folder")));
-  el.append(h("div", { class: "list" }, v.items.slice(0, 80).map((it) =>
-    h("div", { class: "item", ondblclick: () => it.dir ? openNode(it.id) : invoke("open_path", { path: it.path, keep: true }) },
-      h("div", { class: "ic" }, I(it.dir ? "folder" : "file")),
-      h("div", { class: "grow", style: { minWidth: 0 } },
-        h("div", { class: "t ell" }, it.name),
-        h("div", { class: "s" }, it.dir ? `${it.files.toLocaleString()} files` : "file")),
-      h("div", { class: "sizebar" }, h("div", { class: "bar" }, h("i", { style: { width: (it.size / max) * 100 + "%" } }))),
-      h("div", { class: "num", style: { width: "74px", textAlign: "right", fontWeight: 700 } }, fmtBytes(it.size)),
-      h("div", { class: "acts" },
-        it.dir ? h("button", { class: "icon-btn sm", title: "Open", onclick: () => openNode(it.id) }, I("chevron", "sm")) : null,
-        h("button", { class: "icon-btn sm", title: "Show in Explorer", onclick: () => invoke("reveal", { path: it.path }) }, I("folder", "sm")),
-        it.keep ? h("span", { class: "icon-btn sm", title: "Part of Windows: Deck won't move it to the Recycle Bin", "aria-label": "Protected" }, I("lock", "sm"))
-          : h("button", { class: "icon-btn sm danger", title: "Move to Recycle Bin", onclick: () => recycleItem(it) }, I("trash", "sm")))))));
+  el.append(h("div", { class: "dim small", style: { margin: "-6px 0 10px" } }, `Scan ${how}.`));
+  el.append(h("div", { class: "dgrid" }, diskTree(v), diskTypes()));
+  // WizTree's two buttons: up one folder, and back to the top of the scan
+  const up = v.crumbs.length > 1 ? v.crumbs[v.crumbs.length - 2].id : null;
+  el.append(h("div", { class: "tmap-bar" },
+    h("button", { class: "btn sm", disabled: up == null ? "" : null, title: "Up one folder (Backspace)", onclick: () => up != null && openNode(up) }, I("moveup", "sm"), "Up"),
+    h("button", { class: "btn sm", disabled: v.id === 0 ? "" : null, title: "Back to the top of the scan", onclick: () => openNode(0) }, I("home", "sm"), "Root"),
+    h("span", { class: "tmap-path ell", title: v.path }, v.path),
+    h("span", { class: "dim small" }, "Click a folder's label to open it · double-click a file to show it in Explorer")));
+  el.append(diskTreemap(v.id));
   const big = S.cache.diskBig || [];
   if (big.length) {
     el.append(h("div", { class: "section" }, h("h2", null, "Biggest files on this scan")));
@@ -157,16 +310,31 @@ function diskView() {
   return el;
 }
 
+const sameRoot = (a, b) => a.replace(/[\\/]+$/, "").toLowerCase() === b.replace(/[\\/]+$/, "").toLowerCase();
+
 async function startScan(root) {
+  // forget the last scan's view (and the folder open in it) until this one is done
+  S.cache.diskPicking = false;
+  S.cache.diskWant = root;
   S.cache.diskView = null;
+  S.cache.diskBig = null;
+  S.cache.diskNode = 0;
   await invoke("disk_scan", { root });
-  S.cache.diskStatus = await invoke("disk_status");
+  await Pages.files.tick();
   render();
 }
 
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Backspace" || S.page !== "files" || (S.sub || "space") !== "space" || S.query) return;
+  if (["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName) || document.querySelector(".modal-back")) return;
+  const c = S.cache.diskView?.crumbs;
+  if (c && c.length > 1) { e.preventDefault(); openNode(c[c.length - 2].id); }
+});
+
 async function openNode(id) {
   S.cache.diskNode = id;
-  S.cache.diskView = await invoke("disk_children", { id });
+  S.cache.diskOpen = new Map();
+  [S.cache.diskView, S.cache.diskTypes] = await Promise.all([invoke("disk_children", { id }), invoke("disk_types", { id })]);
   render();
   document.querySelector(".content").scrollTo({ top: 0 });
 }
@@ -846,6 +1014,6 @@ function displayView() {
       h("span", { class: "dim" }, "Light"), h("input", { type: "time", value: s.light_at, onchange: (e) => setSetting("light_at", e.target.value) }),
       h("span", { class: "dim" }, "Dark"), h("input", { type: "time", value: s.dark_at, onchange: (e) => setSetting("dark_at", e.target.value) })) : null,
     s.theme_auto && s.theme_mode === "sun" ? h("div", { class: "setting" }, h("div", { class: "grow" }, h("div", { class: "t" }, "Location"), h("div", { class: "d" }, s.place || "Not set")),
-      h("button", { class: "btn", onclick: async () => { const r = await run("locate"); S.state = await invoke("get_state"); S.cache.display = await invoke("display_state"); note(`Location: ${r.place}`); render(); } }, I("target"), "Use my location")) : null));
+      h("button", { class: "btn", onclick: async () => { const r = await run("locate"); S.state = withLocalWrites(await invoke("get_state")); S.cache.display = await invoke("display_state"); note(`Location: ${r.place}`); render(); } }, I("target"), "Use my location")) : null));
   return el;
 }

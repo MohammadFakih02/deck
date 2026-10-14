@@ -8,6 +8,8 @@ mod calc;
 mod cleanup;
 mod clipboard;
 mod disk;
+mod support;
+mod mft;
 mod display;
 mod elevation;
 mod files;
@@ -57,6 +59,8 @@ static PREV_FG: AtomicIsize = AtomicIsize::new(0);
 static DIALOG: AtomicBool = AtomicBool::new(false);
 /// "Keep Deck open" pin in the UI.
 static PINNED: AtomicBool = AtomicBool::new(false);
+/// Where the pinned quick panel floats (screen pixels: x, y, width, height).
+static PIN_RECT: parking_lot::Mutex<Option<[i32; 4]>> = parking_lot::Mutex::new(None);
 
 // ------------------------------------------------------------ window control
 
@@ -101,7 +105,8 @@ fn show_deck(handle: &AppHandle, page: Option<&str>) {
         let _ = w.set_shadow(true);
         let _ = w.set_skip_taskbar(false);
         let _ = w.set_resizable(true);
-        let _ = w.set_always_on_top(false);
+        // the pin keeps the app window above other windows (in the quick panel it keeps it open)
+        let _ = w.set_always_on_top(PINNED.load(Ordering::Relaxed));
         if !app.is_visible() {
             let fit = rect.and_then(|r| {
                 let (_, wk, _) = monitor_info(POINT { x: r[0] + r[2] / 2, y: r[1] + r[3] / 2 }, false);
@@ -120,22 +125,26 @@ fn show_deck(handle: &AppHandle, page: Option<&str>) {
             }
         }
     } else {
-        // the quick panel: over the whole monitor the mouse is on, the screen dimmed behind it
+        // the quick panel: over the whole monitor the mouse is on, the screen dimmed behind it;
+        // pinned, it floats just where the panel is, so the rest of the screen stays usable
         let _ = w.set_decorations(false);
         let _ = w.set_shadow(false);
         let _ = w.set_skip_taskbar(true);
         let _ = w.set_resizable(false);
         let _ = w.unmaximize();
-        let _ = w.set_position(tauri::PhysicalPosition::new(mon.left, mon.top));
-        let _ = w.set_size(tauri::PhysicalSize::new((mon.right - mon.left) as u32, (mon.bottom - mon.top) as u32));
+        let float = PINNED.load(Ordering::Relaxed).then(|| *PIN_RECT.lock()).flatten();
+        let [x, y, ww, wh] = float.unwrap_or([mon.left, mon.top, mon.right - mon.left, mon.bottom - mon.top]);
+        let _ = w.set_position(tauri::PhysicalPosition::new(x, y));
+        let _ = w.set_size(tauri::PhysicalSize::new(ww as u32, wh as u32));
         let _ = w.set_always_on_top(true);
     }
     app.visible.store(true, Ordering::Relaxed);
     let _ = w.show();
     let _ = w.unminimize();
     let _ = w.set_focus();
-    webview_guard::repaint_nudge(&w);
-    let _ = handle.emit("shown", json!({ "page": page, "style": style, "mode": mode }));
+    webview_guard::nudge_if_blank(&w);
+    let floating = mode != "app" && PINNED.load(Ordering::Relaxed) && PIN_RECT.lock().is_some();
+    let _ = handle.emit("shown", json!({ "page": page, "style": style, "mode": mode, "float": floating }));
 }
 
 fn app_mode(handle: &AppHandle) -> bool {
@@ -286,10 +295,21 @@ fn get_state(app: A, remote: State<Arc<Remote>>) -> Value {
     })
 }
 
+/// The CPU's clock (MHz), package power (W) and temperature from the hardware engine, and the GPU's
+/// temperature and load (any brand), for Home's PC tile (null while the engine hasn't started;
+/// a value the PC doesn't report is null).
+fn cpu_now(app: &App) -> Value {
+    let Some(h) = app.hw_engine() else { return Value::Null };
+    let (mhz, t, gpu_t, gpu_l) = h.live.lock().map(|l| (l.cpu_mhz, l.cpu_t, l.gpu_t, l.gpu_l)).unwrap_or_default();
+    let watts = h.table.lock().ok().and_then(|t| t.rows.iter().find(|r| r.group.starts_with("CPU") && r.name == "Package power").and_then(|r| r.cur));
+    json!({ "mhz": mhz, "w": watts, "t": t, "gpu_t": gpu_t, "gpu_l": gpu_l })
+}
+
 #[tauri::command]
 async fn live(app: A<'_>) -> R<Value> {
     Ok(json!({
         "sys": app.sys.snapshot(),
+        "cpu_now": cpu_now(&app),
         "media": app.media.state(),
         "master": audio::master(),
         "apps": audio::apps(),
@@ -315,9 +335,33 @@ fn hide(handle: AppHandle) {
     hide_deck(&handle);
 }
 
+/// The pin. In the app window (which never hides by itself) it keeps the window above other
+/// windows. In the quick panel it turns the panel into a floating window where it is (`rect`: the
+/// panel inside the window, physical pixels), on top of everything, with no dimmed screen around it,
+/// so other apps can be used while it stays; unpinned, it's the full-screen panel again.
 #[tauri::command]
-fn set_pinned(on: bool) {
+fn set_pinned(handle: AppHandle, on: bool, rect: Option<[i32; 4]>) {
     PINNED.store(on, Ordering::Relaxed);
+    let Some(w) = handle.get_webview_window("main") else { return };
+    if app_mode(&handle) {
+        let _ = w.set_always_on_top(on);
+        return;
+    }
+    if on {
+        let Some([rx, ry, rw, rh]) = rect else { return };
+        let at = w.outer_position().map(|p| (p.x, p.y)).unwrap_or((0, 0));
+        let r = [at.0 + rx, at.1 + ry, rw.max(400), rh.max(300)];
+        *PIN_RECT.lock() = Some(r);
+        let _ = w.set_position(tauri::PhysicalPosition::new(r[0], r[1]));
+        let _ = w.set_size(tauri::PhysicalSize::new(r[2] as u32, r[3] as u32));
+        let _ = w.set_always_on_top(true);
+    } else {
+        // back to the full screen of the monitor it floats on
+        let at = PIN_RECT.lock().take().map(|r| POINT { x: r[0] + r[2] / 2, y: r[1] + r[3] / 2 });
+        let (mon, _, _) = at.map(|p| monitor_info(p, false)).unwrap_or_else(monitor_at_cursor);
+        let _ = w.set_position(tauri::PhysicalPosition::new(mon.left, mon.top));
+        let _ = w.set_size(tauri::PhysicalSize::new((mon.right - mon.left) as u32, (mon.bottom - mon.top) as u32));
+    }
 }
 
 #[tauri::command]
@@ -792,6 +836,65 @@ fn disk_status(app: A) -> Value {
 #[tauri::command]
 fn disk_cancel(app: A) {
     app.disk.cancel()
+}
+
+/// The support report (This PC): works with or without admin. `save` writes it to a file and
+/// shows it in Explorer instead of returning the text; `lights` adds the lights test (every zone
+/// red, green and blue for about 15 s, then what the controllers answered).
+#[tauri::command]
+async fn support_report(app: A<'_>, save: bool, lights: Option<bool>) -> R<String> {
+    let a = app.inner().clone();
+    let lights = lights.unwrap_or(false);
+    let text = tauri::async_runtime::spawn_blocking(move || {
+        let mut text = support::report(&a);
+        if lights {
+            text.push_str("\r\n== Lights test ==\r\n");
+            text.push_str(&match a.hw.lock().clone() {
+                Some(sh) if !sh.rgb_hold.swap(true, std::sync::atomic::Ordering::Relaxed) => {
+                    let r = hw::devices::rgb_diag();
+                    sh.reconnect.store(true, std::sync::atomic::Ordering::Relaxed);
+                    sh.rgb_hold.store(false, std::sync::atomic::Ordering::Relaxed);
+                    r
+                }
+                Some(_) => "skipped: a lights test was already running\r\n".into(),
+                None => "skipped: the hardware engine isn't running\r\n".into(),
+            });
+        }
+        text
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    if !save {
+        return Ok(text);
+    }
+    let dir = util::appdata().join("Deck");
+    let _ = std::fs::create_dir_all(&dir);
+    let path = dir.join("deck-support-report.txt");
+    std::fs::write(&path, &text).map_err(|e| e.to_string())?;
+    util::reveal(&path.to_string_lossy());
+    Ok(path.to_string_lossy().to_string())
+}
+
+/// The nested treemap of folder `id`, laid out for a w × h canvas.
+#[tauri::command]
+fn disk_treemap(app: A, id: u32, w: f64, h: f64) -> Value {
+    app.disk.treemap(id, w, h)
+}
+
+/// The file types under folder `id`, biggest first, with their treemap colours.
+#[tauri::command]
+fn disk_types(app: A, id: u32) -> Value {
+    app.disk.types(id)
+}
+
+/// A treemap cell's path: a file (`file`) or a folder (`id`).
+#[tauri::command]
+fn disk_path(app: A, id: Option<u32>, file: Option<u32>) -> Option<String> {
+    match (file, id) {
+        (Some(f), _) => app.disk.file_path(f),
+        (None, Some(d)) => app.disk.dir_path(d),
+        _ => None,
+    }
 }
 
 #[tauri::command]
@@ -1642,6 +1745,11 @@ fn main() {
             {
                 let h = handle.clone();
                 app.set_ui(Box::new(move |event, payload| {
+                    if event == "show-deck" {
+                        let (h2, page) = (h.clone(), payload["page"].as_str().map(str::to_string));
+                        let _ = h.run_on_main_thread(move || show_deck(&h2, page.as_deref()));
+                        return;
+                    }
                     if event == "toggle-deck" {
                         let h2 = h.clone();
                         let _ = h.run_on_main_thread(move || toggle_deck(&h2));
@@ -1817,14 +1925,14 @@ fn main() {
             clip_list, clip_copy, set_clipboard, clip_pin, clip_remove, clip_clear,
             set_awake, set_plan, cancel_plan, run_power, timer_add, timer_cmd, stopwatch, toast_action, toast_resize,
             windows_list, window_action, snap_window, ws_capture, ws_recapture, ws_open,
-            disk_scan, disk_status, disk_cancel, disk_children, disk_big, recycle, cleanup_scan, cleanup_state, cleanup_run,
+            disk_scan, disk_status, disk_cancel, disk_treemap, disk_types, disk_path, support_report, disk_children, disk_big, recycle, cleanup_scan, cleanup_state, cleanup_run,
             processes, kill, kill_pid, startup_list, startup_set, who_uses, pick,
             display_state, set_refresh, set_brightness, set_hdr, set_dark, locate,
             net_info, net_public_ip, net_ping, net_speed, net_speed_cancel, game_ping_games, game_ping, index_rebuild, index_info,
             boost_state, boost_apps, boost_run, boost_pick,
             screen_tool, remote_info, remote_reset_token, share_to_phone, shared_remove,
             elevate_setup,
-            hwcmd::hw_state, hwcmd::hw_live, hwcmd::hw_hist, hwcmd::hw_table, hwcmd::hw_table_reset, hwcmd::hw_apply, hwcmd::hw_lights_off,
+            hwcmd::hw_state, hwcmd::drive_health, hwcmd::hw_live, hwcmd::hw_hist, hwcmd::hw_table, hwcmd::hw_table_reset, hwcmd::hw_apply, hwcmd::hw_lights_off,
             hwcmd::hw_display_off, hwcmd::hw_report, hwcmd::hw_test_lights, hwcmd::hw_clear_ram, hwcmd::hw_mem, hwcmd::hw_import_moboctl, hwcmd::hw_open_folder,
             hwcmd::hw_lcd_preview, hwcmd::hw_lcd_grab,
             profcmd::cpu_state, profcmd::cpu_live, profcmd::cpu_plans, profcmd::cpu_adopt, profcmd::cpu_create, profcmd::cpu_save,
@@ -1832,7 +1940,7 @@ fn main() {
             profcmd::gpu_state, profcmd::gpu_live, profcmd::gpu_curve, profcmd::gpu_save, profcmd::gpu_delete, profcmd::gpu_try,
             profcmd::gpu_stock, profcmd::ab_preview, profcmd::ab_import, profcmd::ab_stop_tuning, profcmd::ab_undo_stop, profcmd::gpu_apply_held,
             profcmd::icons_list, profcmd::icon_custom, profcmd::icon_preview, profcmd::shortcuts_repair, profcmd::hotkey_check,
-            profcmd::rtss_state, profcmd::rtss_start, profcmd::rtss_reset_stats, profcmd::rtss_restore_look,
+            profcmd::rtss_state, profcmd::rtss_start, profcmd::rtss_install, profcmd::rtss_reset_stats, profcmd::rtss_restore_look,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Deck");

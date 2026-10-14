@@ -242,6 +242,7 @@ impl App {
         crate::profiles::cpu::start_watch(self.clone());
         crate::profiles::hotkeys::start(self.clone());
         crate::rtss::start(self.clone());
+        crate::hw::smart::start(self.clone());
         std::thread::spawn(|| {
             crate::profiles::icons::ensure();
         });
@@ -287,6 +288,11 @@ impl App {
     /// The NVIDIA engine, if there is one (same rule as `hw_engine`).
     pub fn gpu_engine(&self) -> Option<Arc<crate::gpu::Gpu>> {
         self.gpu.lock().clone()
+    }
+
+    /// Opens Deck at a page (a notification's "Show" button).
+    pub fn show_page(&self, page: &str) {
+        self.emit("show-deck", json!({ "page": page }));
     }
 
     /// Opens Deck, or closes it when it is in front (the open shortcut).
@@ -357,6 +363,8 @@ impl App {
             if let Some(a) = APP_SELF.lock().as_ref().and_then(|w| w.upgrade()) {
                 let _ = crate::profcmd::apply_held(&a);
             }
+        } else if (id.starts_with("drive:") || id.starts_with("drive-past:")) && action == "show" {
+            self.show_page("drives");
         } else if id == "phone-text" && action == "copy" {
             if let Some(t) = self.shared.lock().iter().rev().find(|s| s.from == "phone" && s.kind != "file") {
                 let _ = crate::clipboard::set_text(&t.text);

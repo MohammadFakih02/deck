@@ -106,6 +106,26 @@ function ovGraphSvg(st, ms) {
   return `<svg viewBox="0 0 100 100" preserveAspectRatio="none"><polyline points="${pts}" fill="none" stroke="currentColor" stroke-width="2.4" vector-effect="non-scaling-stroke"/>${fill}</svg>`;
 }
 
+/** Downloads and installs RivaTuner through winget (from Guru3D), then refreshes the page. */
+async function ovInstallRtss() {
+  S.cache.rtssInstalling = true;
+  render();
+  note("Installing RivaTuner: this takes about a minute");
+  try {
+    await run("rtss_install", null, "RivaTuner installed and running");
+  } catch {}
+  S.cache.rtssInstalling = false;
+  await ovRefresh();
+  render();
+}
+
+/** Large preview: the preview takes the wide column and the editor the narrow one, so both stay usable. Per viewer. */
+const ovBig = () => { try { return localStorage.getItem("deck.ovBig") === "1"; } catch { return false; } };
+function ovSetBig(on) {
+  try { localStorage.setItem("deck.ovBig", on ? "1" : "0"); } catch {}
+  render();
+}
+
 function ovPreview(st, r) {
   const body = h("div", { class: "ov-osd" + (st.group_values ? " gv" : "") + (st.shadow ? " shadow" : "") + (st.box_on ? " box" : "") + (st.bold ? " bold" : "") });
   const bar = st.color_bar ? h("div", { class: "ov-bar " + (st.corner[1] === "r" ? "r" : "l") }) : null;
@@ -149,7 +169,8 @@ function ovPreview(st, r) {
   HW.updaters.push(draw);
   const live = r.fps != null ? h("span", { class: "chip on num" }, `${Math.round(r.fps)} FPS${r.app ? " · " + r.app : ""}`) : h("span", { class: "dim small" }, "No game running: the framerate shows a dash");
   return h("div", { class: "card col ov-prev" },
-    h("div", { class: "tile-head" }, I("eye"), h("span", null, "Preview"), h("span", { class: "grow" }), live),
+    h("div", { class: "tile-head" }, I("eye"), h("span", null, "Preview"), h("span", { class: "grow" }), live,
+      h("button", { class: "icon-btn", title: ovBig() ? "Smaller preview" : "Larger preview (keep editing on the left)", "aria-label": ovBig() ? "Smaller preview" : "Larger preview", "aria-pressed": ovBig() ? "true" : "false", onclick: () => ovSetBig(!ovBig()) }, I(ovBig() ? "shrink" : "expand"))),
     screen,
     h("div", { class: "dim small" }, "Your readings, right now. Click a corner to move the overlay there. RivaTuner draws the real thing, so its font and spacing differ a little."));
 }
@@ -353,7 +374,7 @@ function ovColorsCard(st) {
 function ovLookCard(st, r) {
   const put = (patch) => ovStyle(patch);
   // a real list: the suggested overlay fonts first, then every font installed on this PC
-  if (!S.cache.fonts) invoke("fonts_list").then((f) => { S.cache.fonts = f; if (S.page === "sensors") render(); }).catch(() => (S.cache.fonts = []));
+  if (!S.cache.fonts) invoke("fonts_list").then((f) => { S.cache.fonts = f; if (S.page === "overlay") render(); }).catch(() => (S.cache.fonts = []));
   const installed = (S.cache.fonts || []).filter((f) => !OV_FONTS.includes(f));
   const opt = (f) => h("option", { value: f, selected: f === st.font }, f);
   const font = h("select", { class: "ov-font", "aria-label": "Font", onchange: (e) => put({ font: e.target.value }) },
@@ -418,6 +439,22 @@ function ovBehaviourCard(st, s) {
 
 // ------------------------------------------------------------------- the page
 
+/** Its own sidebar page (Monitor → Overlay). It needs RivaTuner, not this PC's hardware, so it shows on every PC. */
+Pages.overlay = {
+  async load() {
+    await ovRefresh();
+  },
+  async tick() {
+    await ovRefresh();
+    for (const f of HW.updaters) { try { f(); } catch (e) { console.error(e); } }
+    return false;
+  },
+  render() {
+    HW.updaters = [];
+    return h("div", null, head("Overlay", "Your readings over your games: what to show, how it looks and the key that shows it. RivaTuner draws it."), overlayPage());
+  },
+};
+
 function overlayPage() {
   const s = S.state.settings;
   const st = ovStyleNow();
@@ -431,11 +468,12 @@ function overlayPage() {
     h("div", { class: "grow" },
       h("div", { class: "ov-title" }, on ? "The overlay is on" : "The overlay is off"),
       h("div", { class: "dim" }, !r.installed
-        ? "RivaTuner Statistics Server draws the overlay in games. It comes with MSI Afterburner, or install it on its own."
+        ? "RivaTuner Statistics Server draws the overlay in games. Deck installs it from its maker (Guru3D) in about a minute, then sets it up and runs it for you."
         : on ? "Deck sends the readings to RivaTuner, which draws them in games." : "Turn it on to see the readings over your games.")),
     status,
-    r.installed && !r.running ? h("button", { class: "btn sm", onclick: async () => { await run("rtss_start", null, "Starting RivaTuner…"); setTimeout(async () => { await ovRefresh(); render(); }, 1500); } }, "Start RivaTuner") : null);
-  return h("div", { class: "ov" },
+    r.installed && !r.running ? h("button", { class: "btn sm", onclick: async () => { await run("rtss_start", null, "Starting RivaTuner…"); setTimeout(async () => { await ovRefresh(); render(); }, 1500); } }, "Start RivaTuner") : null,
+    !r.installed ? h("button", { class: "btn sm primary", disabled: S.cache.rtssInstalling ? "" : null, onclick: ovInstallRtss }, S.cache.rtssInstalling ? "Installing…" : "Install RivaTuner") : null);
+  return h("div", { class: "ov" + (ovBig() ? " big" : "") },
     master,
     h("div", { class: "ov-cols" },
       h("div", { class: "ov-main" }, ovLooksCard(s, r), ovItemsCard(s, r), ovLayoutCard(st, s), ovColorsCard(st), ovLookCard(st, r), ovWarnCard(st), ovBehaviourCard(st, s)),

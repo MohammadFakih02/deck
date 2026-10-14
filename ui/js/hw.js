@@ -459,11 +459,6 @@ Pages.sensors = {
     if (HW.state.ready) [HW.table, HW.hist] = await Promise.all([invoke("hw_table"), invoke("hw_hist")]);
   },
   async tick() {
-    if (S.cache.sensTab === "overlay") {
-      await ovRefresh();
-      for (const f of HW.updaters) { try { f(); } catch (e) { console.error(e); } }
-      return false;
-    }
     if (!HW.state?.ready) return hwTick();
     try {
       [HW.live, HW.table, HW.hist, S.cache.rtss] = await Promise.all([invoke("hw_live"), invoke("hw_table"), invoke("hw_hist"), invoke("rtss_state")]);
@@ -473,10 +468,11 @@ Pages.sensors = {
   },
   render() {
     HW.updaters = [];
-    const tab = S.cache.sensTab || "graphs";
-    const tabs = seg([["graphs", "Graphs"], ["readings", "All readings"], ["overlay", "Overlay"], ["alerts", "Alerts"]], tab, (v) => { S.cache.sensTab = v; render(); });
-    const el = h("div", null, head("Sensors", "Live graphs, every reading with min / max / average, and the in-game overlay.", tab === "graphs" && HW.state?.ready ? layoutButton("sensors") : null, tabs));
-    if (tab === "overlay") return el.append(overlayPage()), el;
+    // the in-game overlay has its own page now (Monitor → Overlay)
+    // All readings first: every sensor at a glance; the graphs are a click away
+    const tab = ["graphs", "readings", "alerts"].includes(S.cache.sensTab) ? S.cache.sensTab : "readings";
+    const tabs = seg([["readings", "All readings"], ["graphs", "Graphs"], ["alerts", "Alerts"]], tab, (v) => { S.cache.sensTab = v; render(); });
+    const el = h("div", null, head("Sensors", "Live graphs and every reading with min / max / average.", tab === "graphs" && HW.state?.ready ? layoutButton("sensors") : null, tabs));
     const gate = hwGate();
     if (gate) return el.append(gate), el;
     if (tab === "graphs") el.append(sensGraphs());
@@ -771,14 +767,103 @@ const fmtP = (v) => (v == null ? "–" : Math.round(v) + "%");
 
 // ------------------------------------------------------------------- This PC
 
+// ------------------------------------------------------------------- drive health (S.M.A.R.T.)
+
+const DRIVE_STATUS = { good: ["good", "Good"], caution: ["warn", "Caution"], bad: ["bad", "Bad"], unknown: ["", "No health data"] };
+
+/** Every drive's health, like CrystalDiskInfo: verdict, life left, temperature, hours, the reasons and the raw attributes. */
+function drivesCard() {
+  const list = S.cache.drives;
+  const refresh = h("button", { class: "btn sm ghost", title: "Read the drives again", onclick: async () => {
+    refresh.disabled = true;
+    S.cache.drives = await invoke("drive_health", { refresh: true }).catch(() => S.cache.drives);
+    render();
+  } }, I("refresh", "sm"), "Check now");
+  const card = h("div", { class: "card col drives" },
+    h("div", { class: "tile-head" }, I("disk"), h("span", null, "Drives"), helpTip("pc.drives"), h("span", { class: "grow" }), refresh));
+  if (!list) return card.append(h("div", { class: "dim" }, "Reading the drives…")), card;
+  if (!list.length) return card.append(h("div", { class: "dim" }, "No drives could be read. Drive health needs Deck to run as admin.")), card;
+  for (const d of list) {
+    const [tone, word] = DRIVE_STATUS[d.status] || DRIVE_STATUS.unknown;
+    const kind = [d.bus, d.status === "unknown" && !d.attrs.length ? null : d.ssd ? "SSD" : "HDD", d.size ? fmtBytes(d.size) : null].filter(Boolean).join(" · ");
+    const facts = [
+      d.temp != null ? fmtTemp(d.temp) : null,
+      d.hours != null ? `${d.hours.toLocaleString()} h on` : null,
+      d.cycles != null ? `${d.cycles.toLocaleString()} starts` : null,
+      d.written != null ? `${fmtBytes(d.written)} written` : null,
+    ].filter(Boolean);
+    const open = S.cache.driveOpen === d.disk;
+    card.append(h("div", { class: "drive" },
+      h("div", { class: "drive-top" },
+        h("i", { class: "dot " + (tone || "off") }),
+        h("div", { class: "grow" }, h("div", { class: "drive-name" }, d.model), h("div", { class: "dim small" }, kind)),
+        h("span", { class: "chip " + tone }, word + (d.health != null ? ` ${d.health}%` : ""))),
+      facts.length ? h("div", { class: "drive-facts dim small" }, facts.join("  ·  ")) : null,
+      d.reasons.length ? h("ul", { class: "drive-why " + tone }, d.reasons.map((r) => h("li", null, r))) : null,
+      (d.history || []).length ? h("ul", { class: "drive-why past" }, d.history.map((r) => h("li", null, "Earlier (fine now): " + r))) : null,
+      d.status === "unknown" ? h("div", { class: "dim small" }, d.bus === "USB" ? "USB enclosures usually hide the drive's health data." : "This drive's controller doesn't pass its health data to Windows.") : null,
+      d.attrs.length ? h("button", { class: "btn sm ghost drive-more", onclick: () => { S.cache.driveOpen = open ? null : d.disk; render(); } }, open ? "Hide the raw values" : "Show the raw values") : null,
+      open ? h("div", { class: "drive-attrs-wrap" }, h("table", { class: "sr-t drive-attrs" },
+        h("thead", null, h("tr", null, ["ID", "Attribute", "Value", "Worst", "Limit", "Raw"].map((x, i) => h("th", { class: i > 1 ? "r" : null }, x)))),
+        h("tbody", null, d.attrs.map((a) => h("tr", { class: a.threshold && a.threshold < 254 && a.current <= a.threshold ? "bad" : null },
+          h("td", { class: "num" }, a.id.toString(16).toUpperCase().padStart(2, "0")), h("td", null, a.name),
+          h("td", { class: "r num" }, a.current), h("td", { class: "r num" }, a.worst), h("td", { class: "r num" }, a.threshold || "–"), h("td", { class: "r num" }, a.raw.toLocaleString())))))) : null));
+  }
+  return card;
+}
+
+Pages.drives = {
+  load() {
+    // reading the drives can take a moment (a sleeping hard drive spins up): the page draws first
+    invoke("drive_health").then((d) => { S.cache.drives = d; if (S.page === "drives") render(); }).catch(() => (S.cache.drives = []));
+  },
+  render() {
+    const on = !!S.state?.settings?.drive_alerts;
+    return h("div", null, head("Drives", "Each drive's health, like CrystalDiskInfo. Deck checks the drives every 10 minutes."),
+      h("div", { class: "card", style: { marginBottom: "14px" } },
+        ovSwitch("Drive notifications", "A notification when a drive gets worse (new bad sectors, read errors, health dropping), and once about problems a drive had in the past. Off: the health only shows here.", on,
+          (v) => setSetting("drive_alerts", v).then(render))),
+      drivesCard());
+  },
+};
+
+/** Save report: asks first whether to add the lights test (it takes the lights over for ~15 s). */
+async function saveReport() {
+  const st = HW.state?.status;
+  const lit = HW.state?.ready && (st?.rgb_ok || st?.ram_ok);
+  let lights = false;
+  if (lit) {
+    const pick = await new Promise((resolve) => modal("Add a lights test?",
+      h("div", { class: "dim" }, "For lighting problems: every light turns red, green and blue for about 15 seconds, and the report gets what each lighting controller answered. Your lighting comes back afterwards."),
+      (close) => [
+        h("button", { class: "btn ghost", onclick: () => { close(); resolve(null); } }, "Cancel"),
+        h("button", { class: "btn", onclick: () => { close(); resolve(false); } }, "Save without it"),
+        h("button", { class: "btn primary", onclick: () => { close(); resolve(true); } }, "Add the test"),
+      ], { onDismiss: () => resolve(null) }));
+    if (pick == null) return;
+    lights = pick;
+  }
+  if (lights) note("Testing the lights… (about 15 s)");
+  await run("support_report", { save: true, lights }, "Report saved");
+}
+
+/** Copy / save the support report: everything needed to fix a problem, with or without admin. */
+function reportButtons() {
+  return [
+    h("button", { class: "btn", onclick: async () => { const t = await run("support_report", { save: false }); await navigator.clipboard.writeText(t); note("Report copied: paste it in the chat"); } }, I("copy"), "Copy report"),
+    h("button", { class: "btn", onclick: saveReport }, I("save"), "Save report"),
+  ];
+}
+
 Pages.thispc = {
-  async load() { await hwLoad(true); S.cache.mem = await invoke("hw_mem").catch(() => null); },
+  async load() {
+    await hwLoad(true);
+    S.cache.mem = await invoke("hw_mem").catch(() => null);
+  },
   tick: hwTick,
   render() {
     HW.updaters = [];
-    const el = h("div", null, head("This PC", "What Deck found and what it can control.",
-      HW.state?.ready ? h("button", { class: "btn", onclick: async () => { const t = await run("hw_report", { save: false }); await navigator.clipboard.writeText(t); note("Report copied"); } }, I("copy"), "Copy report") : null,
-      HW.state?.ready ? h("button", { class: "btn", onclick: () => run("hw_report", { save: true }, "Saved") }, I("save"), "Save report") : null));
+    const el = h("div", null, head("This PC", "What Deck found and what it can control. Something not working? Copy the report and paste it in the chat: it has what's needed to fix it.", ...reportButtons()));
     const gate = hwGate();
     if (gate) return el.append(gate), el;
     const st = HW.state, i = st.info, s = st.status;
@@ -798,11 +883,6 @@ Pages.thispc = {
       row(true, "Memory", i.dimms.length ? [...i.dimms.reduce((m, [a, b]) => m.set(`${a} ${b}`.trim(), (m.get(`${a} ${b}`.trim()) || 0) + 1), new Map())].map(([n, c]) => (c > 1 ? `${c} × ${n}` : n)).join(" · ") : "–", S.cache.mem ? `${S.cache.mem.used.toFixed(1)} of ${S.cache.mem.total.toFixed(1)} GB in use` : null),
       row(st.admin, "Admin rights", st.admin ? "Deck runs with admin rights" : "Not admin")));
     el.append(h("div", { class: "row wrap", style: { marginTop: "14px" } },
-      h("button", { class: "btn", onclick: async () => {
-        if (!(await confirmBox("Test the lights", "Every light zone turns red, green and blue for about 15 seconds, then Deck shows a report. Your lighting comes back afterwards.", "Start"))) return;
-        note("Testing the lights… (about 15 s)");
-        try { await invoke("hw_test_lights"); } catch (e) { note(String(e), true); }
-      } }, I("bulb"), "Test lights"),
       st.moboctl ? h("button", { class: "btn", onclick: async () => {
         if (!(await confirmBox("Import from MoboCtl", "Copy MoboCtl's fan curves, fan modes, lighting and display settings into Deck? Deck's current hardware settings are replaced.", "Import"))) return;
         try { note(await invoke("hw_import_moboctl")); await hwLoad(); render(); } catch (e) { note(String(e), true); }

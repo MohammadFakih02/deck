@@ -345,7 +345,7 @@ function workspacesView() {
       const name = await promptBox("Save a workspace", "Name (e.g. Coding, Gaming, Chill)", "", "Save");
       if (!name) return;
       await run("ws_capture", { name, icon: "layout" }, "Saved: " + name);
-      S.state = await invoke("get_state");
+      S.state = withLocalWrites(await invoke("get_state"));
       render();
     } }, I("plus"), "Save open windows")));
   const list = s.workspaces || [];
@@ -362,7 +362,7 @@ function workspacesView() {
         wsChips(ws).length ? h("div", { class: "row wrap", style: { gap: "6px", marginTop: "6px" } }, wsChips(ws).map(([ic, text]) => h("span", { class: "chip" }, I(ic, "sm"), text))) : null),
       h("div", { class: "row", style: { gap: "4px" } },
         h("button", { class: "icon-btn sm", title: "Edit", onclick: () => editWorkspace(ws) }, I("edit", "sm")),
-        h("button", { class: "icon-btn sm", title: "Replace with the windows open now", onclick: async () => { await run("ws_recapture", { id: ws.id }, "Updated"); S.state = await invoke("get_state"); render(); } }, I("refresh", "sm")),
+        h("button", { class: "icon-btn sm", title: "Replace with the windows open now", onclick: async () => { await run("ws_recapture", { id: ws.id }, "Updated"); S.state = withLocalWrites(await invoke("get_state")); render(); } }, I("refresh", "sm")),
         h("button", { class: "icon-btn sm danger", title: "Delete", onclick: async () => { if (await confirmBox(`Delete ${ws.name}?`, "Only the saved layout is deleted.", "Delete", true)) { await setSetting("workspaces", list.filter((x) => x.id !== ws.id)); render(); } } }, I("trash", "sm")),
         h("button", { class: "btn sm primary", onclick: () => run("ws_open", { id: ws.id }) }, I("play", "sm"), "Open"))));
   }

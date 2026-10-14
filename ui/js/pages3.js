@@ -142,7 +142,7 @@ Pages.settings = {
   render() {
     const s = S.state.settings;
     const row = settingRow;
-    const set = (k) => (v) => setSetting(k, v).then(() => { if (k === "accent") applyAccent(); render(); });
+    const set = (k) => (v) => setSetting(k, v).then(() => { if (k === "accent" || k === "theme") applyAccent(); render(); });
     const tab = S.cache.setTab || "general";
     const tabs = seg([["general", "General"], ["home", "Home"], ["clip", "Clipboard & search"], ["profiles", "Profiles"], ["about", "About"]], tab, (v) => { S.cache.setTab = v; render(); });
     const el = h("div", { class: "page-narrow" }, head("Settings", null, tabs));
@@ -183,9 +183,33 @@ Pages.settings = {
     })));
 
     cur = "general";
+    add(h("div", { class: "section" }, h("h2", null, "Sidebar")));
+    add(h("div", { class: "settings-card" },
+      row("Order", "Drag a group's name, or a page inside its group, up or down in the sidebar. Folded groups stay folded after a restart.",
+        h("button", { class: "btn sm", disabled: s.nav_order ? null : "", onclick: async () => { await set("nav_order")(null); sideSig = ""; renderSide(); } }, I("undo", "sm"), "Reset the order"))));
+
+    cur = "general";
     add(h("div", { class: "section" }, h("h2", null, "Colour")));
+    const theme = s.theme || "midnight";
+    add(h("div", { class: "settings-card" },
+      h("div", { class: "setting", style: { paddingBottom: "0" } }, h("div", { class: "grow" }, h("div", { class: "t" }, "Theme"), h("div", { class: "d" }, "The app's colours. Your accent colour stays the same."))),
+      themeCards(theme, (id) => theme !== id && set("theme")(id)),
+      ...[["opacity_pinned", "Opacity when pinned", "With the pin on (top right)."], ["opacity_unpinned", "Opacity when not pinned", "With the pin off."]].map(([k, t, d]) => {
+        const val = h("b", { class: "num", style: { width: "44px", textAlign: "right" } }, (s[k] || 100) + "%");
+        return row(t, d, h("div", { class: "row", style: { gap: "10px", width: "240px" } },
+          slider(s[k] || 100, 30, 100, 5, (v) => { val.textContent = v + "%"; S.state.settings[k] = v; applyAccent(); }, (v) => set(k)(v)), val));
+      }),
+      row("Opening animation", s.low_spec ? "Off while low-spec mode is on." : "How Deck appears when it opens.", h("div", { class: "row", style: { gap: "8px" } },
+        h("select", { disabled: !!s.low_spec, onchange: async (e) => { await setSetting("open_anim", e.target.value); applyAccent(); replayOpen(); } },
+          OPEN_ANIMS.map(([id, name]) => h("option", { value: id, selected: (s.open_anim || "zoom") === id }, name))),
+        h("button", { class: "btn ghost", disabled: !!s.low_spec, onclick: replayOpen }, "Preview")))));
     add(h("div", { class: "settings-card" }, row("Accent", null,
       h("div", { class: "row", style: { gap: "8px" } }, ACCENTS.map((c) => h("button", { title: c, onclick: () => set("accent")(c), style: { width: "26px", height: "26px", borderRadius: "50%", background: c, border: s.accent === c ? "2px solid #fff" : "2px solid transparent", boxShadow: s.accent === c ? `0 0 0 3px ${c}55` : "none" } }))))));
+
+    add(h("div", { class: "section" }, h("h2", null, "Performance")));
+    add(h("div", { class: "settings-card" },
+      row("Low-spec mode", "For older or slower PCs: no animations or soft shadows, and live readings and graphs update every 3 seconds instead of every second. Everything still works.",
+        toggle(!!s.low_spec, async (v) => { await setSetting("low_spec", v); applyAccent(); render(); }))));
 
     cur = "general";
     add(h("div", { class: "section" }, h("h2", null, "Units")));
@@ -228,7 +252,82 @@ Pages.settings = {
   },
 };
 
+/** The theme cards; `pick` gets the theme id. */
+function themeCards(cur, pick) {
+  return h("div", { class: "themes" }, THEMES.map(([id, name, bg, panel, card]) => h("button", { class: "theme" + (cur === id ? " on" : ""), "aria-pressed": cur === id ? "true" : "false", onclick: () => pick(id) },
+    h("div", { class: "pv", style: { background: bg, boxShadow: "inset 0 0 0 1px #ffffff14" } }, h("i", { style: { background: panel } }), h("b", null, h("i", { style: { background: card, boxShadow: "inset 0 0 0 1px #ffffff14" } }), h("i", { style: { background: card, boxShadow: "inset 0 0 0 1px #ffffff14" } }))),
+    name + (id === "midnight" ? " (default)" : ""))));
+}
+
+function accentDots(cur, pick) {
+  return h("div", { class: "row accents", style: { gap: "8px" } }, ACCENTS.map((c) => h("button", { title: c, "aria-label": "Accent " + c, onclick: () => pick(c), style: { width: "26px", height: "26px", borderRadius: "50%", background: c, border: cur === c ? "2px solid #fff" : "2px solid transparent", boxShadow: cur === c ? `0 0 0 3px ${c}55` : "none" } })));
+}
+
+/** First start (or the first start after this update): pick a look and how see-through Deck is. Clicks preview at once; any way out counts as done. */
+async function themeWelcome() {
+  const st = S.state?.settings;
+  if (!st || st.setup_picked || document.querySelector(".theme-welcome")) return;
+  const body = h("div", { class: "theme-welcome" });
+  const line = (t, d, ctl) => h("div", { class: "row", style: { gap: "12px", marginTop: "12px", flexWrap: "wrap" } },
+    h("div", { style: { flex: "1 1 180px", minWidth: 0 } }, h("div", { class: "t", style: { fontWeight: 600 } }, t), h("div", { class: "dim" }, d)), ctl);
+  const low = () => !!S.state.settings.low_spec;
+  const draw = () => body.replaceChildren(
+    h("div", { class: "dim", style: { marginBottom: "10px" } }, "Pick how Deck looks and feels. You can change all of it any time in Settings → General."),
+    themeCards(S.state.settings.theme || "midnight", async (id) => { await setSetting("theme", id); applyAccent(); draw(); }),
+    h("div", { class: "t", style: { fontWeight: 600 } }, "Accent"),
+    accentDots(S.state.settings.accent, async (c) => { await setSetting("accent", c); applyAccent(); draw(); }),
+    ...[["opacity_unpinned", "Opacity", "How see-through Deck is."], ["opacity_pinned", "Opacity when pinned", "With the pin on (top right), Deck floats over your other apps."]].map(([k, t, d]) => {
+      const v0 = S.state.settings[k] || 100;
+      const val = h("b", { class: "num", style: { width: "44px", textAlign: "right" } }, v0 + "%");
+      return h("div", { class: "row", style: { gap: "12px", marginTop: "12px", flexWrap: "wrap" } },
+        h("div", { style: { flex: "1 1 180px", minWidth: 0 } }, h("div", { class: "t", style: { fontWeight: 600 } }, t), h("div", { class: "dim" }, d)),
+        h("div", { class: "row", style: { gap: "10px", width: "240px" } },
+          slider(v0, 30, 100, 5, (v) => { val.textContent = v + "%"; S.state.settings[k] = v; applyAccent(); }, (v) => setSetting(k, v)), val));
+    }),
+    line("Opening animation", low() ? "Off while low-spec mode is on." : "How Deck appears when it opens.", h("div", { class: "row", style: { gap: "8px" } },
+      h("select", { disabled: low(), onchange: async (e) => { await setSetting("open_anim", e.target.value); applyAccent(); replayOpen(); } },
+        OPEN_ANIMS.map(([id, name]) => h("option", { value: id, selected: (S.state.settings.open_anim || "zoom") === id }, name))),
+      h("button", { class: "btn ghost", disabled: low(), onclick: replayOpen }, "Preview"))),
+    line("Low-spec mode", "For older or slower PCs: no animations or soft shadows, live readings every 3 seconds.",
+      toggle(low(), async (v) => { await setSetting("low_spec", v); applyAccent(); draw(); })));
+  draw();
+  const done = () => setSetting("setup_picked", true);
+  modal("Make Deck yours", body, (close) => [h("button", { class: "btn primary", onclick: () => { close(); done(); } }, "Done")], { wide: true, onDismiss: done });
+}
+
+/** Opening animations (app.css, :root[data-anim]). */
+const OPEN_ANIMS = [["zoom", "Zoom (default)"], ["fade", "Fade"], ["pop", "Pop"], ["rise", "Rise"], ["drop", "Drop"], ["flip", "Flip"], ["swirl", "Swirl"], ["blur", "Blur in"], ["none", "None"]];
+
+/** Plays the opening animation again, to see the one picked. */
+function replayOpen() {
+  const b = document.body;
+  b.classList.remove("shown");
+  void b.offsetWidth;
+  requestAnimationFrame(() => b.classList.add("shown"));
+}
+
+/** The app's themes: [id, name, background, panel, card] (the card colours are app.css's). */
+const THEMES = [
+  ["midnight", "Midnight", "#0c0e14", "#10131b", "#141823"],
+  ["graphite", "Graphite", "#111214", "#16171a", "#1b1c20"],
+  ["oled", "OLED black", "#000000", "#060607", "#0d0d10"],
+  ["black", "Pure black", "#000000", "#000000", "#0a0a0a"],
+  ["nord", "Nord", "#1f232b", "#232831", "#2a303b"],
+  ["forest", "Forest", "#0b110e", "#0f1612", "#131c17"],
+  ["plum", "Plum", "#110c16", "#15101c", "#1b1524"],
+  ["ember", "Ember", "#120e0c", "#171210", "#1d1714"],
+];
+
 function applyAccent() {
   const c = S.state?.settings?.accent || "#4f8cff";
   document.documentElement.style.setProperty("--acc", c);
+  // opacity: its own setting with the pin on and off (30-100 %)
+  const op = S.state?.pinned ? S.state?.settings?.opacity_pinned : S.state?.settings?.opacity_unpinned;
+  document.documentElement.style.setProperty("--deck-opacity", Math.max(30, Math.min(100, op || 100)) / 100);
+  const low = !!S.state?.settings?.low_spec;
+  document.documentElement.classList.toggle("low-spec", low);
+  document.documentElement.setAttribute("data-anim", low ? "none" : S.state?.settings?.open_anim || "zoom");
+  const t = S.state?.settings?.theme || "midnight";
+  if (t === "midnight") document.documentElement.removeAttribute("data-theme");
+  else document.documentElement.setAttribute("data-theme", t);
 }

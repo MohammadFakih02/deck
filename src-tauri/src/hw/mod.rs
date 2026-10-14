@@ -18,6 +18,7 @@ pub mod rapl;
 pub mod screen;
 pub mod sensors;
 pub mod sio;
+pub mod smart;
 pub mod smbios;
 pub mod sysmon;
 pub mod winutil;
@@ -700,7 +701,20 @@ pub fn spawn_all(sh: &Arc<Shared>) -> Workers {
         crate::gpu::watch_resume();
         let mut wakes = crate::gpu::WAKES.load(Relaxed);
         let mut wake_at: Option<Instant> = None;
+        // Right after a cold boot the sticks' controllers (or the SMBus) may not answer yet: with
+        // fewer RGB sticks found than Fury modules Windows lists, look again, a little less often
+        // each time, for 10 minutes after start or wake. Otherwise the RAM keeps its own onboard
+        // effect while everything else follows the saved lighting (lights off included).
+        let fury = FuryRam::fury_modules();
+        let mut retry_from = Instant::now();
+        let (mut retry_at, mut retry_gap) = (Instant::now() + Duration::from_secs(5), 5u64);
         while s.up() {
+            if ram.sticks.len() < fury && retry_from.elapsed().as_secs() < 600 && Instant::now() >= retry_at {
+                ram.scan_missing();
+                s.status.lock().unwrap().ram = ram.status.clone() + if !ram.sticks.is_empty() { "  (close Fury CTRL / MSI Center if colours flicker)" } else { "" };
+                retry_gap = (retry_gap * 2).min(60);
+                retry_at = Instant::now() + Duration::from_secs(retry_gap);
+            }
             // the sticks power-cycle in sleep and fall back to their onboard effect: rescan (re-enters direct mode)
             let w = crate::gpu::WAKES.load(Relaxed);
             if w != wakes {
@@ -711,6 +725,8 @@ pub fn spawn_all(sh: &Arc<Shared>) -> Workers {
                 wake_at = None;
                 ram = FuryRam::new();
                 ram.scan();
+                retry_from = Instant::now();
+                (retry_at, retry_gap) = (Instant::now() + Duration::from_secs(5), 5);
                 s.status.lock().unwrap().ram = ram.status.clone() + if !ram.sticks.is_empty() { "  (close Fury CTRL / MSI Center if colours flicker)" } else { "" };
             }
             let p = s.effect();
@@ -766,34 +782,44 @@ pub fn shutdown(sh: &Shared, w: Workers) {
 /// Plain-text description of this PC and what Deck can do on it (for "Copy report").
 pub fn report(sh: &Shared) -> String {
     let hw = sh.hw.lock().unwrap().clone();
+    let mut r = format!("Deck {} hardware report\r\n", env!("CARGO_PKG_VERSION"));
+    r.push_str(&format!("Motherboard: {} {}  (BIOS {})\r\n", hw.board.board_vendor, hw.board.board_name, hw.board.bios));
+    r.push_str(&report_body(sh));
+    for (m, p) in &hw.board.dimms {
+        r.push_str(&format!("  DIMM: {} {}\r\n", m, p));
+    }
+    r
+}
+
+/// What the engine reads and controls, without the board and memory list (the support report
+/// already has those): temperatures, every fan and sensor, the fan chip, lighting, the display.
+pub fn report_body(sh: &Shared) -> String {
+    let hw = sh.hw.lock().unwrap().clone();
     let st = sh.status.lock().unwrap().clone();
     let l = sh.live.lock().unwrap().clone();
+    let deg = |t: Option<f32>| t.map(|t| format!("{t:.0} °C")).unwrap_or_else(|| "no reading".into());
     let mut r = String::new();
     let mut line = |s: String| {
         r.push_str(&s);
         r.push_str("\r\n");
     };
-    line(format!("Deck {} hardware report", env!("CARGO_PKG_VERSION")));
-    line(format!("Motherboard: {} {}  (BIOS {})", hw.board.board_vendor, hw.board.board_name, hw.board.bios));
-    line(format!("CPU: {}  temp {:?}  {}", hw.cpu_brand, l.cpu_t, if hw.cpu_temp_note.is_empty() { String::new() } else { format!("({})", hw.cpu_temp_note) }));
-    line(format!("GPU: {}  temp {:?} load {:?}", hw.gpu_name, l.gpu_t, l.gpu_l));
-    line(format!("Fan chip: {}  control: {:?}", hw.chip, hw.control));
+    line(format!("CPU: {} · {}{}", hw.cpu_brand, deg(l.cpu_t), if hw.cpu_temp_note.is_empty() { String::new() } else { format!(" ({})", hw.cpu_temp_note) }));
+    line(format!("GPU: {} · {} · load {}", hw.gpu_name, deg(l.gpu_t), l.gpu_l.map(|v| format!("{v:.0}%")).unwrap_or_else(|| "?".into())));
+    line(format!("Fan chip: {} · control {:?}", hw.chip, hw.control));
     for (i, n) in hw.fan_names.iter().enumerate() {
-        line(format!("  {} = {:?}%  {} rpm", n, l.fan_pct.get(i).copied().flatten(), l.fan_rpm.get(i).copied().unwrap_or(0)));
+        let rpm = l.fan_rpm.get(i).copied().unwrap_or(0);
+        let pct = l.fan_pct.get(i).copied().flatten().map(|p| format!("{p:.0}%")).unwrap_or_else(|| "?".into());
+        line(format!("  {n}: {pct} · {rpm} rpm{}", if rpm == 0 { " (nothing connected, or stopped)" } else { "" }));
     }
     for (i, n) in hw.temp_names.iter().enumerate() {
-        line(format!("  {} = {:?} C", n, l.board_t.get(i).copied().flatten()));
+        line(format!("  {n}: {}", deg(l.board_t.get(i).copied().flatten())));
     }
     if !hw.chip_report.is_empty() {
         line(format!("  {}", hw.chip_report));
     }
-    line(format!("Board RGB: {}", st.rgb.0));
-    line(format!("RAM: {}", st.ram));
-    for (m, p) in &hw.board.dimms {
-        line(format!("  DIMM: {} {}", m, p));
-    }
+    line(format!("Board lighting: {}", st.rgb.0));
+    line(format!("RAM lighting: {}", st.ram.strip_prefix("RAM: ").unwrap_or(&st.ram)));
     line(format!("Cooler display: {}", st.disp.0));
-    line(format!("Windows: {}", std::env::var("OS").unwrap_or_default()));
     r
 }
 

@@ -105,6 +105,8 @@ pub struct Settings {
     pub app_max: bool,
     /// sidebar groups folded shut
     pub nav_folded: Vec<String>,
+    /// the user's own sidebar order: { groups: [name…], items: { group: ["page/sub"…] } } (null = default)
+    pub nav_order: serde_json::Value,
     /// the sidebar's width in CSS pixels (0 = the default)
     pub nav_width: u32,
     /// how the user arranged a page's panels: page -> { order, hidden, size: { id: [columns, height] } }
@@ -115,6 +117,24 @@ pub struct Settings {
     /// Home tiles in order; missing ones are hidden.
     pub tiles: Vec<String>,
     pub accent: String,
+    /// the app's colour theme: midnight (default), graphite, oled, black, nord, forest, plum, ember
+    pub theme: String,
+    /// the theme picker was shown (first start, or the first start after the update that added it)
+    pub theme_picked: bool,
+    /// the look picker (theme, accent, opacity) was shown: first start, or once after the update that added opacity
+    pub look_picked: bool,
+    /// the first-start picker with the opening animation and low-spec mode too (shown once after that update)
+    pub setup_picked: bool,
+    /// Deck's opacity, %, with the pin on and off (30-100)
+    pub opacity_pinned: u32,
+    pub opacity_unpinned: u32,
+    /// how Deck appears when it opens: zoom (default), fade, pop, rise, drop, flip, swirl, blur, none
+    pub open_anim: String,
+    /// low-spec mode: no animations or soft shadows, live readings every 3 s instead of every second
+    pub low_spec: bool,
+    /// Home's PC tile: its cards in order (cpu, ram, gpu, vram, net) and whether the drives show
+    pub pc_cards: Vec<String>,
+    pub pc_drives: bool,
 
     // ---- search
     /// id -> (launch count, last launch unix seconds)
@@ -208,6 +228,8 @@ pub struct Settings {
     pub osd_reset_hotkey: String,
     /// start RivaTuner Statistics Server together with Deck
     pub rtss_autostart: bool,
+    /// notifications when a drive gets worse (off unless asked for: no surprise pop-ups)
+    pub drive_alerts: bool,
     /// publish Afterburner's monitoring shared memory for other tools
     pub mahm_on: bool,
     /// how the overlay is laid out and drawn
@@ -220,8 +242,9 @@ pub struct Settings {
     pub unit_temp: String,
 }
 
+/// Every Home tile, in the default order (the default places and sizes are in ui/js/layout.js, HOME_DEFAULT).
 pub const ALL_TILES: &[&str] =
-    &["clock", "media", "audio", "system", "profiles", "pinned", "power", "clipboard", "network", "quick"];
+    &["clock", "media", "audio", "system", "profiles", "clipboard", "power", "pinned", "network", "quick"];
 
 impl Default for Settings {
     fn default() -> Self {
@@ -236,12 +259,24 @@ impl Default for Settings {
             open_hotkey: String::new(),
             app_rect: None,
             app_max: false,
-            nav_folded: Vec::new(),
+            // every sidebar group starts folded: a short menu, opened one group at a time
+            nav_folded: ["Hardware", "Monitor", "Desktop", "Maintenance", "Power & time"].iter().map(|s| s.to_string()).collect(),
+            nav_order: serde_json::Value::Null,
             nav_width: 0,
             panels: HashMap::new(),
             pinned: Vec::new(),
             tiles: ALL_TILES.iter().map(|s| s.to_string()).collect(),
             accent: "#4f8cff".into(),
+            theme: "midnight".into(),
+            theme_picked: false,
+            look_picked: false,
+            setup_picked: false,
+            opacity_pinned: 100,
+            opacity_unpinned: 100,
+            open_anim: "zoom".into(),
+            low_spec: false,
+            pc_cards: vec!["cpu".into(), "ram".into(), "gpu".into(), "vram".into()],
+            pc_drives: true,
             frecency: HashMap::new(),
             index_roots: Vec::new(),
             index_on: true,
@@ -292,6 +327,7 @@ impl Default for Settings {
             osd_hotkey: String::new(),
             osd_reset_hotkey: String::new(),
             rtss_autostart: false,
+            drive_alerts: false,
             mahm_on: true,
             osd_style: crate::osd::OsdStyle::default(),
             unit_clock: "MHz".into(),

@@ -1,4 +1,5 @@
-//! SMBIOS (the firmware's hardware table): motherboard maker/model, BIOS version and every DIMM's maker/part number.
+//! SMBIOS (the firmware's hardware table): the PC's maker/model and form factor, motherboard
+//! maker/model, BIOS version and every DIMM's maker/part number.
 use windows_sys::Win32::System::SystemInformation::GetSystemFirmwareTable;
 
 #[derive(Clone, Default, Debug)]
@@ -7,12 +8,28 @@ pub struct Info {
     pub board_name: String,
     pub bios: String,
     pub dimms: Vec<(String, String)>, // (manufacturer, part number) of populated slots
+    /// the whole PC's maker and model (a laptop's "HP" / "Victus 16"; often a placeholder on self-built PCs)
+    pub sys_vendor: String,
+    pub sys_product: String,
+    /// SMBIOS chassis type (3 desktop, 9 laptop, 10 notebook, …; 0 unknown)
+    pub chassis: u8,
 }
 
 impl Info {
     pub fn is_msi(&self) -> bool {
         let v = self.board_vendor.to_ascii_lowercase();
         v.contains("micro-star") || v.contains("msi")
+    }
+    /// "Laptop", "Desktop", … from the chassis type.
+    pub fn form_factor(&self) -> &'static str {
+        match self.chassis {
+            8 | 9 | 10 | 14 => "Laptop",
+            30 | 31 | 32 => "Tablet / 2-in-1",
+            3 | 4 | 5 | 6 | 7 | 15 | 16 | 35 | 36 => "Desktop",
+            13 => "All-in-one",
+            17 | 23 | 28 | 29 => "Server",
+            _ => "Unknown",
+        }
     }
     /// MSI AM5 / LGA1851 boards whose fan chip (NCT6687DR) uses a different register map.
     pub fn is_msi_800(&self) -> bool {
@@ -62,6 +79,11 @@ pub fn read() -> Info {
             let get = |idx: u8| if idx == 0 { String::new() } else { strs.get(idx as usize - 1).cloned().unwrap_or_default() };
             match ty {
                 0 if l > 5 => info.bios = format!("{} {}", get(t[i + 4]), get(t[i + 5])).trim().to_string(),
+                1 if l > 5 => {
+                    info.sys_vendor = get(t[i + 4]);
+                    info.sys_product = get(t[i + 5]);
+                }
+                3 if l > 5 => info.chassis = t[i + 5] & 0x7F,
                 2 if l > 5 => {
                     info.board_vendor = get(t[i + 4]);
                     info.board_name = get(t[i + 5]);
