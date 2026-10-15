@@ -40,8 +40,20 @@ impl Board {
         }
     }
 
+    /// Does the board still hold the config Deck wrote? It can lose it (the controller resets, or
+    /// another program writes its own) and then ignores every colour Deck sends, with no error.
+    pub fn config_intact(&self) -> bool {
+        let Some(h) = &self.h else { return false };
+        match h.get_feature(0x52, 185) {
+            // the board rewrites a couple of bytes further down (62, 82), so only the zone setup at the
+            // start is compared; a config that isn't Deck's differs there (checked on the real board)
+            Some(now) => now[..60] == Self::config_packet(self.n1, self.n2)[..60],
+            None => false,
+        }
+    }
+
     // Exact "efficiency" config packet from SignalRGB's MSI_185Byte_Controller.js (no flash save).
-    fn send_config(h: &HidDev, n1: usize, n2: usize) -> bool {
+    fn config_packet(n1: usize, n2: usize) -> Vec<u8> {
         let mut p: Vec<u8> = Vec::with_capacity(185);
         p.push(0x52);
         let z = |p: &mut Vec<u8>, a: u8, t: u8, s: u8| p.extend_from_slice(&[a, 0, 0, 0, t, 0, 0, 0, s, 0]);
@@ -61,6 +73,11 @@ impl Board {
         }
         z(&mut p, 0x01, 0x2a, 0x80);
         p.push(0x00);
+        p
+    }
+
+    fn send_config(h: &HidDev, n1: usize, n2: usize) -> bool {
+        let p = Self::config_packet(n1, n2);
         p.len() == 185 && h.set_feature(&p, 185)
     }
 

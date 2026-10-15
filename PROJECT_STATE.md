@@ -1,10 +1,18 @@
 # Deck — project state
 
-Handoff notes so work can resume later. Last updated: 2026-10-15 (v2.5.2).
+Handoff notes so work can resume later. Last updated: 2026-10-15 (v2.5.3).
 
 **Start with `DECK.md`** (full overview: features, hardware, files, build/test, status). This file is the dated history.
 
 > **RULE: before every commit, update the docs.** Add today's dated entry here, add user-visible changes to `CHANGELOG.md`, update `DECK.md` / `README.md` when facts change, and stage them in the same commit. The pre-commit hook enforces it; never bypass it. No personal data in these files (that goes in the git-ignored `PRIVATE_NOTES.md`).
+
+## 2026-10-15: v2.5.3 — the board lighting config is checked and re-sent
+
+- Report (owner's PC, 2.5.2, support report attached): all lighting controls dead, any effect, on or off; the lights test didn't work either; the report said "Motherboard RGB connected". Restarting Deck did not help. RAM lighting "not found" in that report is irrelevant: this PC has no RGB RAM (the friend's has).
+- Found by talking to the controller from a separate process (Python ctypes, `HidD_GetFeature`/`SetFeature` on `vid_1462&pid_7d43`): it answered instantly (not hung), but feature 0x52 held a foreign config (`01 ff 00 00 28 …`) instead of Deck's (`01 00 00 00 08 …`). Writing Deck's `config_packet(60, 60)` was accepted, read back identically in the first 60 bytes and then stayed for 36 s. While the board holds another config it ignores every 0x53 colour report, with no error, and Deck only wrote the config at connect/reconnect (start, wake, send failure), so it never noticed. What reset the config is not known (no other lighting program was running; the PC had been restarted at 21:44).
+- Fix: `Board::config_intact()` reads 0x52 and compares `[..60]` with `config_packet` (bytes 62 and 82 are rewritten by the board, so a full compare never matches: checked on the real board). The board loop checks every 5 s and sets `reconnect` (which rewrites the config) when it differs. `config_packet()` split out of `send_config()`.
+- Second fix: `hw::lights_test()` is the one place that runs the lights test (hold flag, `rgb_diag` on a thread with a 40 s limit, always releases the hold, reconnects). `hw_test_lights` and `support_report(lights)` use it. Before, a hung `HidD_GetFeature` or a panic left `rgb_hold` set: every lighting control frozen and "already running" for later tests. The board loop also drops a hold older than 60 s. (This was the first theory; restarting Deck didn't fix the report, so it was not the cause here, but it is a real weakness.)
+- NOT tested: that the self-heal fires on a real config loss (the loss itself could not be reproduced); the build compiles and the packet compare was checked against the live board.
 
 ## 2026-10-15: v2.5.2 — the closing hook also works without the Quit task
 

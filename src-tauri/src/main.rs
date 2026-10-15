@@ -856,13 +856,7 @@ async fn support_report(app: A<'_>, save: bool, lights: Option<bool>) -> R<Strin
         if lights {
             text.push_str("\r\n== Lights test ==\r\n");
             text.push_str(&match a.hw.lock().clone() {
-                Some(sh) if !sh.rgb_hold.swap(true, std::sync::atomic::Ordering::Relaxed) => {
-                    let r = hw::devices::rgb_diag();
-                    sh.reconnect.store(true, std::sync::atomic::Ordering::Relaxed);
-                    sh.rgb_hold.store(false, std::sync::atomic::Ordering::Relaxed);
-                    r
-                }
-                Some(_) => "skipped: a lights test was already running\r\n".into(),
+                Some(sh) => hw::lights_test(&sh).unwrap_or_else(|| "skipped: a lights test was already running\r\n".into()),
                 None => "skipped: the hardware engine isn't running\r\n".into(),
             });
         }

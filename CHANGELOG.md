@@ -2,6 +2,12 @@
 
 All notable changes to Deck. Setups for each version are on the [Releases](https://github.com/MohammadFakih02/deck/releases) page.
 
+## 2.5.3 — 2026-10-15
+
+### Fixed
+- **Lighting controls did nothing** (every effect, on or off, and the lights test too) while Deck said "Motherboard RGB connected". The board's lighting controller had lost the configuration Deck writes when it connects, and then ignores every colour sent to it without any error. Deck now checks every 5 seconds that the board still holds its configuration and writes it again when it doesn't.
+- A **lights test** that never finished (the controller stopped answering) kept all lighting frozen and refused a new test until Deck restarted. The hold is now always released: the test gives up after 40 seconds, and a hold older than a minute is cleared by the lighting loop.
+
 ## 2.5.2 — 2026-10-15
 
 ### Fixed

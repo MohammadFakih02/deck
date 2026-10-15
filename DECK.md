@@ -2,7 +2,7 @@
 
 Deck is a single Windows tray app that brings together a launcher, a live dashboard, PowerToys-style tools, full hardware control, and a phone remote. It replaces **MoboCtl** (fans, RGB, cooler display, sensors) and **MSI Afterburner** (GPU tuning). **RivaTuner (RTSS)** stays installed because it draws the in-game overlay.
 
-- **Version:** 2.5.2. Setup: `cargo tauri build --bundles nsis`, attached to each [GitHub release](https://github.com/MohammadFakih02/deck/releases).
+- **Version:** 2.5.3. Setup: `cargo tauri build --bundles nsis`, attached to each [GitHub release](https://github.com/MohammadFakih02/deck/releases).
 - **Stack:** Tauri 2, Rust backend, vanilla JS UI. No frameworks, no build step for the UI.
 - **Source:** https://github.com/MohammadFakih02/deck (public). Machine-specific notes (the maintainer's PC, local paths, personal profiles) live in `PRIVATE_NOTES.md`, which is git-ignored; read it first if it exists.
 - **Detailed history:** session-by-session handoff notes are in `PROJECT_STATE.md`.
@@ -61,6 +61,7 @@ Read this section first. `CLAUDE.md` in this folder points here, so it loads aut
 - **Notes (mandatory before every commit):** add a dated entry to `PROJECT_STATE.md` for each session, add user-facing changes to `CHANGELOG.md`, and update this file and `README.md` when facts change. See §9.
 
 ### Gotchas already learned
+- **A lights test must always release `rgb_hold`.** Use `hw::lights_test()` (thread + 40 s limit); `HidD_GetFeature` has no timeout. To debug the board from outside Deck, read/write feature 0x52 (config, 185 bytes) and 0x53 (colours, 725 bytes) on `vid_1462&pid_7d43` with Python ctypes; bytes 62 and 82 of the config read-back differ from what was written.
 - **Never loop `requestAnimationFrame`.** The WebView2 flags keep hidden windows awake, so a frame loop renders at the monitor's refresh rate in the tray (it cost ~15 % of a core). `guard.js` requests a single frame per heartbeat.
 - **WebView2 browser flags** must go on each window builder (`webview_guard::browser_args()`); the environment variable alone is overridden by wry. The main window is created in `setup` (`"create": false` in `tauri.conf.json`).
 - **Tauri caches compressed UI assets** and never rewrites them. A crash mid-build leaves broken pages; `install.ps1` clears the cache.
@@ -160,7 +161,7 @@ Every way of switching runs the same code:
   - Shared options: hysteresis, delay, and "stop system fans below".
   - The tray has **All fans** Silent / Balanced / Performance.
   - **Fans always go back to the BIOS** on quit, panic, log-off, `--release-fans`, and in the uninstaller.
-- **Lighting:** MSI Mystic Light board RGB and Kingston Fury RAM RGB. Effects include music and screen-colour reactions and an auto "Game" preset (which can react only to the game's sound; off by default). Comet can use your colour, cycle through colours, or draw a rainbow tail. Screen colours come from DXGI desktop duplication (GDI fallback), so Screen/Game lighting costs well under 1 % CPU.
+- **Lighting:** MSI Mystic Light board RGB and Kingston Fury RAM RGB. Effects include music and screen-colour reactions and an auto "Game" preset (which can react only to the game's sound; off by default). Comet can use your colour, cycle through colours, or draw a rainbow tail. Screen colours come from DXGI desktop duplication (GDI fallback), so Screen/Game lighting costs well under 1 % CPU. The board loop re-checks every 5 s that the Mystic Light controller still holds Deck's config (feature 0x52, first 60 bytes) and rewrites it when not: without it the board ignores every colour and Deck shows no error.
 - **Units:** Settings → General → Units picks MHz/GHz, Mb/s / MB/s and °C/°F for everything shown (pages, sensor table, phone, overlay). Typed-in values stay in MHz and °C.
 - **Cooler display:** LCD coolers with USB id 0416:8001. Content options are sensors, clock, text, paint design, animation, music meter and rotate. This PC has none.
 - **Sensors:** three tabs. *Graphs*: 5-minute graphs. *All readings*: the HWiNFO-style table, one device at a time (list on the left with each device's temperature and load). Per-core and per-fan rows are folded into one grid showing the current and highest values. Other rows are grouped by unit. Search covers every device. *Overlay & alerts*: the RTSS overlay items and key, heat alerts as toasts, and CSV logging to `monitor.csv`.

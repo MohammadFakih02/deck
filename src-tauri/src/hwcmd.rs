@@ -159,20 +159,15 @@ pub fn hw_report(app: A, save: bool) -> R<String> {
 #[tauri::command]
 pub async fn hw_test_lights(app: A<'_>) -> R<String> {
     let sh = engine(&app)?;
-    if sh.rgb_hold.swap(true, Relaxed) {
-        return Err("The lights test is already running.".into());
-    }
     let r = tauri::async_runtime::spawn_blocking(move || {
-        let r = hw::devices::rgb_diag();
+        let r = hw::lights_test(&sh).ok_or_else(|| "The lights test is already running.".to_string())?;
         let path = hw::kv::dir().join("deck-lights-test.txt");
         let _ = std::fs::write(&path, format!("{}\r\n{}", hw::report(&sh), r));
-        sh.reconnect.store(true, Relaxed);
-        sh.rgb_hold.store(false, Relaxed);
         crate::util::reveal(&path.to_string_lossy());
-        path.to_string_lossy().to_string()
+        Ok::<String, String>(path.to_string_lossy().to_string())
     })
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(|e| e.to_string())??;
     Ok(r)
 }
 

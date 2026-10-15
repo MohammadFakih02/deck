@@ -125,6 +125,23 @@ pub struct Status {
     pub fans: Option<String>, // error text, None = fine
 }
 
+/// The lights test: every zone red, green and blue (~15 s) with the lights held. `None` when a test
+/// already holds them. The hold is always released: HidD_GetFeature has no timeout and a stalled
+/// controller (or a panic) used to leave it on, which froze every lighting control until Deck restarted.
+pub fn lights_test(sh: &Arc<Shared>) -> Option<String> {
+    if sh.rgb_hold.swap(true, Relaxed) {
+        return None;
+    }
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(rgb_diag());
+    });
+    let r = rx.recv_timeout(Duration::from_secs(40)).unwrap_or_else(|_| "The light controller didn't finish the test within 40 s (it stopped answering); the test was abandoned.\r\n".into());
+    sh.reconnect.store(true, Relaxed);
+    sh.rgb_hold.store(false, Relaxed);
+    Some(r)
+}
+
 pub struct Shared {
     pub s: Settings,
     pub hw: Mutex<HwInfo>,
@@ -637,6 +654,8 @@ pub fn spawn_all(sh: &Arc<Shared>) -> Workers {
         let mut last_key: Option<(Rgb, Rgb, Rgb, String)> = None;
         let mut last_send = Instant::now() - Duration::from_secs(10);
         let mut retry = Instant::now() - Duration::from_secs(10);
+        let mut hold_since: Option<Instant> = None;
+        let mut cfg_check = Instant::now();
         crate::gpu::watch_resume();
         let mut wakes = crate::gpu::WAKES.load(Relaxed);
         let mut wake_at: Option<Instant> = None;
@@ -652,9 +671,20 @@ pub fn spawn_all(sh: &Arc<Shared>) -> Workers {
                 s.reconnect.store(true, Relaxed);
             }
             if s.rgb_hold.load(Relaxed) {
-                last_key = None;
-                sleep(Duration::from_millis(100));
-                continue;
+                // a lights test holds the lights for ~15 s; a hold older than a minute is stuck
+                // (the controller never answered), and would freeze every lighting control for good
+                let since = *hold_since.get_or_insert_with(Instant::now);
+                if since.elapsed().as_secs() > 60 {
+                    s.rgb_hold.store(false, Relaxed);
+                    hold_since = None;
+                    s.reconnect.store(true, Relaxed);
+                } else {
+                    last_key = None;
+                    sleep(Duration::from_millis(100));
+                    continue;
+                }
+            } else {
+                hold_since = None;
             }
             if s.reconnect.swap(false, Relaxed) || (!board.connected() && retry.elapsed().as_secs() >= 10) {
                 retry = Instant::now();
@@ -664,6 +694,13 @@ pub fn spawn_all(sh: &Arc<Shared>) -> Workers {
                     Some(e) => (e.clone(), false),
                 };
                 last_key = None;
+            }
+            if board.connected() && cfg_check.elapsed().as_secs() >= 5 {
+                cfg_check = Instant::now();
+                if !board.config_intact() {
+                    // the board lost Deck's config (it ignores colours without it): write it again
+                    s.reconnect.store(true, Relaxed);
+                }
             }
             if board.connected() {
                 if s.dirty.swap(false, Relaxed) {
