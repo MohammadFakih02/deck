@@ -1,10 +1,16 @@
 # Deck — project state
 
-Handoff notes so work can resume later. Last updated: 2026-10-15 (v2.5.1).
+Handoff notes so work can resume later. Last updated: 2026-10-15 (v2.5.2).
 
 **Start with `DECK.md`** (full overview: features, hardware, files, build/test, status). This file is the dated history.
 
 > **RULE: before every commit, update the docs.** Add today's dated entry here, add user-visible changes to `CHANGELOG.md`, update `DECK.md` / `README.md` when facts change, and stage them in the same commit. The pre-commit hook enforces it; never bypass it. No personal data in these files (that goes in the git-ignored `PRIVATE_NOTES.md`).
+
+## 2026-10-15: v2.5.2 — the closing hook also works without the Quit task
+
+- Report: the uninstaller still shows "Failed to kill Deck" after 2.5.1. Two reasons found by reading, not yet reproduced on a second PC: (1) `uninstall.exe` in the install folder is the one written by the installed version, so a Deck older than 2.5.1 still has the old one; (2) `\Deck\Quit` is only created by `--setup-task` or by an elevated Deck on startup, so a fresh 2.5.1 that never ran elevated has none, and the hook had nothing to start.
+- Fix: `hooks.nsh` `DeckQuitIfRunning` now: runs the Quit task if Deck is running; if still running, `ExecShell "runas" deck.exe --quit` (one UAC prompt); waits up to 8 s after each step (`DeckRunning` / `DeckWait` macros). If both fail the template's own message appears as before.
+- Tested on this PC (normal-user shell, Deck elevated from Program Files, NSIS copy per-user in %LOCALAPPDATA%\Deck): the setup (2.5.1 and 2.5.2) and the uninstaller both closed the elevated Deck and finished, with the Quit task; the uninstaller also finished with the Quit task deleted (the runas fallback; UAC is off here, so no prompt was seen). A freshly installed 2.5.2 Deck creates the Quit task itself within seconds of starting elevated.
 
 ## 2026-10-15: v2.5.1 — setup and uninstaller can close an elevated Deck
 

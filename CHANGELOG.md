@@ -2,6 +2,11 @@
 
 All notable changes to Deck. Setups for each version are on the [Releases](https://github.com/MohammadFakih02/deck/releases) page.
 
+## 2.5.2 — 2026-10-15
+
+### Fixed
+- **Setup and uninstaller still said "Failed to kill Deck"** when Deck had no `\Deck\Quit` task yet (2.5.1 only adds it once it has started with admin rights). The setup / uninstaller now first uses that task and, if it isn't there, closes Deck by running `deck.exe --quit` as admin (one Windows prompt). Note: an uninstaller belongs to the version that is installed, so a Deck older than 2.5.1 still needs to be closed from the tray once; installing 2.5.2 over it replaces that uninstaller.
+
 ## 2.5.1 — 2026-10-15
 
 ### Fixed
