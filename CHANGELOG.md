@@ -2,6 +2,16 @@
 
 All notable changes to Deck. Setups for each version are on the [Releases](https://github.com/MohammadFakih02/deck/releases) page.
 
+## 2.5.4 — 2026-10-16
+
+### New
+- **Who can connect** (Phone page): how many phones may connect at home and how many away (no limit, 1, 2, 3 or 5 each), and two switches: a phone at home shuts out phones away, or a phone away shuts out phones at home. A phone that is turned away sees why and tries again every 10 seconds.
+
+### Fixed
+- **Overlay key and other Deck shortcuts didn't work in League of Legends** (and other games that switch off Windows shortcuts while they are in front). While a full-screen game is in front, Deck now also watches its shortcut keys itself and runs one Windows didn't deliver (the rest of the time it only checks once a second whether a game came to the front). Still no keyboard hooks.
+- **Phones connected** counted connections, not phones (the remote, its Screen view and its sound each added one), and didn't say where they were. It now counts each phone once and shows how many are at home and how many away.
+- **Screen view on the phone:** sliding a finger held the left mouse button down (dragging or selecting on the PC). Sliding now just moves the pointer, like a laptop touchpad; tap, then touch again and slide, to drag.
+
 ## 2.5.3 — 2026-10-15
 
 ### Fixed

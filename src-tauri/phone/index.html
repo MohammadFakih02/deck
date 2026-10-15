@@ -224,6 +224,7 @@ async function copyText(t) {
   try { document.execCommand("copy"); msg("Copied"); } catch (e) { msg("Couldn't copy"); }
 }
 
+let refused = ""; // why the PC said no (a limit on phones), shown when the connection closes
 function connect() {
   if (!key) {
     $("overT").textContent = "Scan the QR code";
@@ -243,9 +244,18 @@ function connect() {
     } else if (v.t === "clip") {
       if (v.text) copyText(v.text); else msg("The PC clipboard has no text");
     } else if (v.t === "error") msg(v.msg);
+    else if (v.t === "refused") refused = v.text || "This PC isn't taking more phones right now.";
   };
   ws.onclose = async () => {
     $("dot").style.background = "var(--bad)";
+    if (refused) {
+      $("overT").textContent = "Not right now";
+      $("overP").textContent = refused + " Trying again every 10 seconds.";
+      $("over").classList.add("on");
+      refused = "";
+      setTimeout(connect, 10000);
+      return;
+    }
     try {
       const r = await fetch(`/check?k=${encodeURIComponent(key)}`);
       if (r.status === 401) {
@@ -297,7 +307,7 @@ function render() {
   if (pw.plan) h += `<div class="card plan"><div class="h">${ic("power")}Plan<button class="r" data-a="plan_cancel">Cancel</button></div><b>${esc(planText(pw.plan))}</b><div class="muted">${esc(pw.plan.progress || "")}</div></div>`;
   if (st.screen && st.screen !== "off") h += `<div class="card"><div class="h">${ic("mon")}Screen</div>
     <button class="btn p" data-a="screen" style="width:100%">${ic("mon")}${st.screen === "control" ? "See and control the PC" : "See the PC's screen"}</button>
-    <div class="muted" style="margin-top:8px">${st.screen === "control" ? "Tap to click, hold for right-click, drag to drag. Two fingers scroll or zoom." : "View only. Pinch to zoom."}</div></div>`;
+    <div class="muted" style="margin-top:8px">${st.screen === "control" ? "Tap to click, hold for right-click, slide to move the pointer. Tap then touch again and slide to drag. Two fingers scroll or zoom." : "View only. Pinch to zoom."}</div></div>`;
   if (m && m.title) {
     const pct = m.len > 0 ? Math.min(100, m.pos / m.len * 100) : 0;
     h += `<div class="card"><div class="media"><div class="art" style="${m.art ? `background-image:url('${esc(m.art)}')` : ""}"></div>
@@ -530,7 +540,8 @@ $("file").addEventListener("change", async (e) => {
 
 // ---------------------------------------------------------------- Screen view
 // The PC's screen (a separate WebSocket: big pictures never hold up the controls above).
-// Tap = click, hold = right-click, drag = drag, two fingers = scroll (or pinch to zoom; zoomed in,
+// Tap = click, hold = right-click, slide = move the pointer, tap then slide = drag (left button held),
+// two fingers = scroll (or pinch to zoom; zoomed in,
 // two fingers move the picture), the phone keyboard, and a bar of keys and shortcuts. "View only" on the PC
 // ignores all input: one finger then moves a zoomed picture.
 const SC = { ws: null, open: false, mode: "off", z: 1, tx: 0, ty: 0, bw: 0, bh: 0, iw: 16, ih: 9, frames: 0, bytes: 0, t0: 0, right: false };
@@ -635,12 +646,19 @@ function screenConnect(hosts) {
     // how many new pictures the PC's screen itself made (Deck can't send more than that)
     else if (v.t === "diag") { SC.src = Math.round(v.new / 2); }
     else if (v.t === "msg") smsg(v.text);
+    else if (v.t === "refused") SC.refused = v.text || "This PC isn't taking more phones right now.";
     else if (v.t === "mode") setMode(v.mode);
     else if (v.t === "note") { if (v.text) msg(v.text); }
     else if (v.t === "off") { screenClose(); msg("Screen view was turned off on the PC"); }
   };
   w.onclose = () => {
     if (!SC.open || SC.ws !== w) return;
+    if (SC.refused) {
+      smsg(SC.refused + " Trying again every 10 seconds.");
+      SC.refused = "";
+      setTimeout(() => { if (SC.open && SC.ws === w) screenConnect(); }, 10000);
+      return;
+    }
     if (hosts.length > 1 && !SC.frames) return screenConnect(hosts.slice(1)); // home address refused: Tailscale
     smsg(st && st.screen === "off" ? "Screen view is off on the PC (Deck → Phone)." : "Reconnecting to the screen…");
     setTimeout(() => { if (SC.open && SC.ws === w) screenConnect(); }, 2000);
@@ -1284,6 +1302,7 @@ function spot(x, y) {
 const ptrs = new Map();
 let g = null; // the current gesture
 let moveQ = null, moveRaf = 0;
+let lastTap = null; // { t, x, y } of the last tap, for tap-then-drag
 function queueMove(p) { moveQ = p; if (!moveRaf) moveRaf = requestAnimationFrame(() => { moveRaf = 0; if (moveQ) ssend({ t: "mm", ...moveQ }); moveQ = null; }); }
 function click(p, b) { ssend({ t: "md", b, ...p }); ssend({ t: "mu", b, ...p }); }
 
@@ -1291,7 +1310,10 @@ $("sview").addEventListener("pointerdown", (e) => {
   $("sview").setPointerCapture(e.pointerId);
   ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
   if (ptrs.size === 1) {
-    g = { kind: "one", x0: e.clientX, y0: e.clientY, tx0: SC.tx, ty0: SC.ty, moved: false, dragging: false, done: false };
+    // a touch right after a tap, close to it, drags with the left button held (like a laptop touchpad)
+    const hold = !!lastTap && performance.now() - lastTap.t < 350 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 40;
+    lastTap = null;
+    g = { kind: "one", x0: e.clientX, y0: e.clientY, tx0: SC.tx, ty0: SC.ty, moved: false, dragging: false, done: false, hold };
     if (ctl()) g.timer = setTimeout(() => {
       if (g && g.kind === "one" && !g.moved) { click(spot(g.x0, g.y0), 1); g.done = true; if (navigator.vibrate) navigator.vibrate(15); }
     }, 550);
@@ -1313,7 +1335,8 @@ $("sview").addEventListener("pointermove", (e) => {
       if (SC.z > 1) { SC.tx = g.tx0 + dx; SC.ty = g.ty0 + dy; applyZoom(); }
       return;
     }
-    if (!g.dragging) { g.dragging = true; ssend({ t: "md", b: 0, ...spot(g.x0, g.y0) }); }
+    // sliding moves the pointer; only tap-then-slide holds the button
+    if (g.hold && !g.dragging) { g.dragging = true; ssend({ t: "md", b: 0, ...spot(g.x0, g.y0) }); }
     queueMove(spot(e.clientX, e.clientY));
   } else if (g.kind === "two" && ptrs.size >= 2) {
     const [a, b] = [...ptrs.values()];
@@ -1347,9 +1370,12 @@ function pointerEnd(e) {
     if (ctl() && !g.done) {
       const p = spot(e.clientX, e.clientY);
       if (g.dragging) { if (moveQ) ssend({ t: "mm", ...moveQ }); moveQ = null; ssend({ t: "mu", b: 0, ...p }); }
-      else if (!g.moved) {
-        click(p, SC.right ? 1 : 0);
-        if (SC.right) { SC.right = false; $("sRight").classList.remove("on"); }
+      else if (g.moved) { if (moveQ) ssend({ t: "mm", ...moveQ }); moveQ = null; }
+      else {
+        const right = SC.right;
+        click(p, right ? 1 : 0);
+        if (right) { SC.right = false; $("sRight").classList.remove("on"); }
+        else lastTap = { t: performance.now(), x: e.clientX, y: e.clientY };
       }
     }
     g = null;

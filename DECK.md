@@ -2,7 +2,7 @@
 
 Deck is a single Windows tray app that brings together a launcher, a live dashboard, PowerToys-style tools, full hardware control, and a phone remote. It replaces **MoboCtl** (fans, RGB, cooler display, sensors) and **MSI Afterburner** (GPU tuning). **RivaTuner (RTSS)** stays installed because it draws the in-game overlay.
 
-- **Version:** 2.5.3. Setup: `cargo tauri build --bundles nsis`, attached to each [GitHub release](https://github.com/MohammadFakih02/deck/releases).
+- **Version:** 2.5.4. Setup: `cargo tauri build --bundles nsis`, attached to each [GitHub release](https://github.com/MohammadFakih02/deck/releases).
 - **Stack:** Tauri 2, Rust backend, vanilla JS UI. No frameworks, no build step for the UI.
 - **Source:** https://github.com/MohammadFakih02/deck (public). Machine-specific notes (the maintainer's PC, local paths, personal profiles) live in `PRIVATE_NOTES.md`, which is git-ignored; read it first if it exists.
 - **Detailed history:** session-by-session handoff notes are in `PROJECT_STATE.md`.
@@ -61,6 +61,8 @@ Read this section first. `CLAUDE.md` in this folder points here, so it loads aut
 - **Notes (mandatory before every commit):** add a dated entry to `PROJECT_STATE.md` for each session, add user-facing changes to `CHANGELOG.md`, and update this file and `README.md` when facts change. See §9.
 
 ### Gotchas already learned
+- **Shortcuts: `RegisterHotKey` plus a `GetAsyncKeyState` poll.** Games can turn registered hotkeys off (`RIDEV_NOHOTKEYS`); the poll in `profiles/hotkeys.rs` covers that. Never add a keyboard hook instead.
+- **Phone connections are counted per IP** (`remote::CONNS`); every new phone WebSocket handler must call `admit()` and hold a `register()` guard.
 - **A lights test must always release `rgb_hold`.** Use `hw::lights_test()` (thread + 40 s limit); `HidD_GetFeature` has no timeout. To debug the board from outside Deck, read/write feature 0x52 (config, 185 bytes) and 0x53 (colours, 725 bytes) on `vid_1462&pid_7d43` with Python ctypes; bytes 62 and 82 of the config read-back differ from what was written.
 - **Never loop `requestAnimationFrame`.** The WebView2 flags keep hidden windows awake, so a frame loop renders at the monitor's refresh rate in the tray (it cost ~15 % of a core). `guard.js` requests a single frame per heartbeat.
 - **WebView2 browser flags** must go on each window builder (`webview_guard::browser_args()`); the environment variable alone is overridden by wry. The main window is created in `setup` (`"create": false` in `tauri.conf.json`).
@@ -85,7 +87,7 @@ Read this section first. `CLAUDE.md` in this folder points here, so it loads aut
 | Window modes | `panel`: a quick panel over a dimmed screen (the default). `app`: a normal window. The pin: in `panel` mode the panel becomes a floating always-on-top window the size of the panel (`PIN_RECT`); in `app` mode the window stays on top. |
 | Look | `theme` (8 themes, `data-theme` on `<html>`), `accent`, `opacity_pinned` / `opacity_unpinned`, `open_anim` (`data-anim`), `low_spec` (class `low-spec`: no transitions or soft shadows, live tick every 3 s). The first-start picker ("Make Deck yours") shows until `setup_picked`. |
 | Defaults | Home tile places and sizes: `HOME_DEFAULT` in `ui/js/layout.js` (used until the user arranges Home). PC tile cards: `pc_cards`. Sidebar: every group folded (`nav_folded`), width 180. |
-| Phone remote | LAN web app / PWA on port **47830** (MicDrop uses 47823). It has a key check and a WebSocket for live state. Deck adds its own firewall rule ("Deck phone remote", private + domain) when admin. Away from home: the same page on the PC's Tailscale address (Away tab); `/tailscale` is a get-Tailscale page for the phone. |
+| Phone remote | LAN web app / PWA on port **47830** (MicDrop uses 47823). It has a key check and a WebSocket for live state. Deck adds its own firewall rule ("Deck phone remote", private + domain) when admin. Away from home: the same page on the PC's Tailscale address (Away tab); `/tailscale` is a get-Tailscale page for the phone. Phones are counted once each, split into home and away (Tailscale or outside addresses), with optional limits per side and "one side shuts out the other" switches (Phone → Who can connect). |
 | Screen on your phone | `screencast.rs`, `/screen` WebSocket: the PC's screen in the phone remote (DXGI duplication, GDI fallback, `jpeg-encoder`, ack flow control, 30/60 fps) and, in `control` mode with Control on in the phone, taps/typing via SendInput. `/audio`: the PC's sound (WASAPI loopback, PCM). `remote_screen` off by default. |
 | Remote desktop | RustDesk (`rdesk.rs`, Phone page): Deck installs it, sets direct connections (port 21118), the password and hidden tray icons. Addresses: home IP, Tailscale IP, RustDesk ID. |
 

@@ -1,10 +1,17 @@
 # Deck — project state
 
-Handoff notes so work can resume later. Last updated: 2026-10-15 (v2.5.3).
+Handoff notes so work can resume later. Last updated: 2026-10-15 (v2.5.4).
 
 **Start with `DECK.md`** (full overview: features, hardware, files, build/test, status). This file is the dated history.
 
 > **RULE: before every commit, update the docs.** Add today's dated entry here, add user-visible changes to `CHANGELOG.md`, update `DECK.md` / `README.md` when facts change, and stage them in the same commit. The pre-commit hook enforces it; never bypass it. No personal data in these files (that goes in the git-ignored `PRIVATE_NOTES.md`).
+
+## 2026-10-16: v2.5.4 — shortcuts in League, phone connections, touchpad-style Screen view
+
+- **Shortcuts in League (owner, top priority):** the overlay showed in League but PageUp did nothing in a match. Deck's shortcuts are `RegisterHotKey`; Windows doesn't deliver them while the foreground app registered raw input with `RIDEV_NOHOTKEYS` (what League appears to do; RivaTuner's own keys still work because RTSS runs inside the game). `profiles/hotkeys.rs` now also polls every bound key with `GetAsyncKeyState` on the same thread while a full-screen game is in front (`hw::game::foreground_game`, checked once a second; a second thread timer next to the 30 s retry runs at 1 s and switches to 30 ms with a game, so idle cost is one wake a second; a windowed game is not covered): on a press with exactly its modifiers (`combo_down`, so Ctrl+PageUp is not PageUp) it waits 100 ms for `WM_HOTKEY`; if none came it runs the action itself (`run()`), and a `WM_HOTKEY` arriving within 600 ms after a polled run is ignored, so a press never toggles twice. Keys another program owns ("busy") are not polled. No hooks, no injection (DECK.md rule).
+- **Phone connections (friend's report):** the count was raw WebSockets (`remote_clients`): the remote page, the Screen view and its sound each added one. `remote.rs` now keeps `CONNS` (one entry per open socket with the peer IP, from `ConnectInfo`; the server is served with `into_make_service_with_connect_info::<SocketAddr>()`), counts distinct IPs as phones and splits them: away = Tailscale (`rdesk::is_tailscale`) or any non-private address; home = private, loopback, link-local. `remote_info` adds `local` and `online` (`clients` = their sum). New settings `remote_max_local`, `remote_max_online` (0 = no limit), `remote_local_blocks_online`, `remote_online_blocks_local`, checked by `admit()` in `/ws`, `/screen` and `/audio`; a phone already connected is always let in (another page or view of the same phone). A refused WebSocket is accepted, sent `{"t":"refused","text":…}` and closed (a browser can't read an HTTP refusal); the phone shows the reason and retries every 10 s. Limits apply to new connections only.
+- **Screen view dragging (friend's report):** one-finger slide sent `md` at the start, so it always dragged. Now slide = `mm` only; tap then touch again within 350 ms and 40 px = drag with the left button (`md` … `mu`); hold = right-click as before. Help text on the phone updated.
+- Tested on this PC against the installed 2.5.4: with "phones at home" = 1, a WebSocket from 127.0.0.1 was let in, one from the LAN address was refused with the limit text, and a second page from 127.0.0.1 was let in (same phone); `remote_info` reports `local`/`online`. NOT tested on a real phone (drag gestures, the refusal screen) or in a League match (the shortcut fallback).
 
 ## 2026-10-15: v2.5.3 — the board lighting config is checked and re-sent
 

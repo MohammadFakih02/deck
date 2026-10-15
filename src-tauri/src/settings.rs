@@ -206,6 +206,13 @@ pub struct Settings {
     pub remote_screen_codec: String,
     pub remote_port: u16,
     pub remote_token: String,
+    /// phones at a time on the home network / away (Tailscale or any address that isn't this
+    /// network); 0 = no limit. A phone counts once, however many pages or views it has open.
+    pub remote_max_local: u32,
+    pub remote_max_online: u32,
+    /// while a phone at home is connected, phones away can't connect (and the other way around)
+    pub remote_local_blocks_online: bool,
+    pub remote_online_blocks_local: bool,
 
     // ---- game boost
     /// App (lower-case exe name) -> close it for gaming. Missing = Deck's suggestion.
@@ -339,6 +346,10 @@ impl Default for Settings {
             remote_screen_codec: "auto".into(),
             remote_port: 47830,
             remote_token: String::new(),
+            remote_max_local: 0,
+            remote_max_online: 0,
+            remote_local_blocks_online: false,
+            remote_online_blocks_local: false,
             boost_close: HashMap::new(),
             boost_power: true,
             boost_priority: true,

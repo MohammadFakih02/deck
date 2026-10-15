@@ -5,7 +5,7 @@
 use crate::app::{App, Shared};
 use axum::body::Body;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
-use axum::extract::{Path as AxPath, Query, State};
+use axum::extract::{ConnectInfo, Path as AxPath, Query, State};
 use axum::http::{header, StatusCode};
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{get, post};
@@ -14,7 +14,7 @@ use futures_util::StreamExt;
 use parking_lot::Mutex;
 use serde::Deserialize;
 use serde_json::{json, Value};
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -78,6 +78,7 @@ pub fn info(app: &App, remote: &Remote) -> Value {
         (Some(ip), Some(p)) => Some(format!("http://{ip}:{p}/#k={token}")),
         _ => None,
     };
+    let phones = devices();
     json!({
         "enabled": on,
         "away": away,
@@ -95,7 +96,10 @@ pub fn info(app: &App, remote: &Remote) -> Value {
         "qr": lan.as_deref().map(qr_svg),
         "port": port,
         "error": *remote.error.lock(),
-        "clients": app.remote_clients.load(Ordering::Relaxed),
+        // phones (one per address, however many pages or views each has open), at home and online
+        "clients": phones.0 + phones.1,
+        "local": phones.0,
+        "online": phones.1,
         "screen_viewers": app.screen_viewers.load(Ordering::Relaxed),
         "shared": *app.shared.lock(),
     })
@@ -186,7 +190,8 @@ pub fn start(app: Arc<App>, remote: Arc<Remote>) {
         let listener = listener.tap_io(|tcp| {
             let _ = tcp.set_nodelay(true);
         });
-        if let Err(e) = axum::serve(listener, router).await {
+        // the phone's address: home or online, and one count per phone
+        if let Err(e) = axum::serve(listener, router.into_make_service_with_connect_info::<SocketAddr>()).await {
             *r2.error.lock() = Some(format!("Phone remote stopped: {e}"));
         }
     });
@@ -282,6 +287,89 @@ struct Key {
     id: Option<String>,
     size: Option<u64>,
     off: Option<u64>,
+}
+
+// ------------------------------------------------------------------ who is connected
+/// One open phone connection (its page, a Screen view or the Screen view's sound).
+struct Conn {
+    id: u64,
+    ip: IpAddr,
+}
+static CONNS: Mutex<Vec<Conn>> = parking_lot::const_mutex(Vec::new());
+static NEXT_CONN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+/// Away from home: a Tailscale address, or any address that isn't this network.
+pub fn is_online(ip: IpAddr) -> bool {
+    let ip = match ip {
+        IpAddr::V6(v) => v.to_ipv4_mapped().map(IpAddr::V4).unwrap_or(IpAddr::V6(v)),
+        v4 => v4,
+    };
+    if crate::rdesk::is_tailscale(ip) {
+        return true;
+    }
+    match ip {
+        IpAddr::V4(v) => !(v.is_private() || v.is_loopback() || v.is_link_local()),
+        IpAddr::V6(v) => !(v.is_loopback() || (v.segments()[0] & 0xfe00) == 0xfc00 || (v.segments()[0] & 0xffc0) == 0xfe80),
+    }
+}
+
+/// Phones connected now, (at home, online): one per address.
+fn count(list: &[Conn]) -> (usize, usize) {
+    let mut seen = std::collections::HashSet::new();
+    let (mut home, mut online) = (0, 0);
+    for c in list {
+        if seen.insert(c.ip) {
+            if is_online(c.ip) {
+                online += 1;
+            } else {
+                home += 1;
+            }
+        }
+    }
+    (home, online)
+}
+
+pub fn devices() -> (usize, usize) {
+    count(&CONNS.lock())
+}
+
+/// May a phone at `ip` connect now? The error is what the phone shows.
+fn admit(app: &App, ip: IpAddr) -> Result<(), String> {
+    let (home, online, known) = {
+        let list = CONNS.lock();
+        let (h, o) = count(&list);
+        (h, o, list.iter().any(|c| c.ip == ip))
+    };
+    // the same phone opening another page or the Screen view
+    if known {
+        return Ok(());
+    }
+    let away = is_online(ip);
+    let s = app.settings.lock();
+    if away && s.remote_local_blocks_online && home > 0 {
+        return Err("A phone at home is using this PC. Connections from away are off while it is.".into());
+    }
+    if !away && s.remote_online_blocks_local && online > 0 {
+        return Err("A phone away from home is using this PC. Connections at home are off while it is.".into());
+    }
+    let (max, n, place) = if away { (s.remote_max_online, online, "away from home") } else { (s.remote_max_local, home, "at home") };
+    if max > 0 && n as u32 >= max {
+        return Err(format!("This PC allows {max} phone{} {place} at a time, and that many are connected.", if max == 1 { "" } else { "s" }));
+    }
+    Ok(())
+}
+
+/// Keeps a connection in the list while it is open.
+struct Registered(u64);
+fn register(ip: IpAddr) -> Registered {
+    let id = NEXT_CONN.fetch_add(1, Ordering::Relaxed);
+    CONNS.lock().push(Conn { id, ip });
+    Registered(id)
+}
+impl Drop for Registered {
+    fn drop(&mut self) {
+        CONNS.lock().retain(|c| c.id != self.0);
+    }
 }
 
 fn authorized(app: &App, k: &Option<String>) -> bool {
@@ -555,11 +643,18 @@ pub(crate) fn pct(s: &str) -> String {
     s.bytes().map(|b| if b.is_ascii_alphanumeric() || b"-_.~".contains(&b) { (b as char).to_string() } else { format!("%{b:02X}") }).collect()
 }
 
-async fn ws(State(app): State<St>, Query(q): Query<Key>, up: WebSocketUpgrade) -> Response {
+async fn ws(State(app): State<St>, ConnectInfo(addr): ConnectInfo<SocketAddr>, Query(q): Query<Key>, up: WebSocketUpgrade) -> Response {
     if !authorized(&app, &q.k) {
         return (StatusCode::UNAUTHORIZED, "bad key").into_response();
     }
-    up.on_upgrade(move |socket| client(socket, app))
+    let ip = addr.ip();
+    if let Err(why) = admit(&app, ip) {
+        // a browser can't read an HTTP refusal of a WebSocket: open it, say why, close it
+        return up.on_upgrade(move |mut socket| async move {
+            let _ = socket.send(Message::Text(json!({ "t": "refused", "text": why }).to_string().into())).await;
+        });
+    }
+    up.on_upgrade(move |socket| client(socket, app, ip))
 }
 
 /// Everything the phone shows (gathered on a blocking thread: COM calls).
@@ -650,20 +745,25 @@ struct AudioQuery {
     q: Option<String>,
 }
 
-async fn audio_ws(State(app): State<St>, Query(q): Query<AudioQuery>, up: WebSocketUpgrade) -> Response {
+async fn audio_ws(State(app): State<St>, ConnectInfo(addr): ConnectInfo<SocketAddr>, Query(q): Query<AudioQuery>, up: WebSocketUpgrade) -> Response {
     if !authorized(&app, &q.k) {
         return (StatusCode::UNAUTHORIZED, "bad key").into_response();
+    }
+    let ip = addr.ip();
+    if let Err(why) = admit(&app, ip) {
+        return (StatusCode::FORBIDDEN, why).into_response();
     }
     if app.settings.lock().remote_screen == "off" {
         return (StatusCode::FORBIDDEN, "Screen view is off on the PC").into_response();
     }
     let quality = q.q.unwrap_or_default();
-    up.on_upgrade(move |socket| audio_client(socket, app, quality))
+    up.on_upgrade(move |socket| audio_client(socket, app, quality, ip))
 }
 
 /// The PC's sound for a phone with the Screen view open and its sound on. Ends when the phone
 /// turns it off or leaves, or the PC turns the Screen view off.
-async fn audio_client(mut socket: WebSocket, app: Arc<App>, quality: String) {
+async fn audio_client(mut socket: WebSocket, app: Arc<App>, quality: String, ip: IpAddr) {
+    let _reg = register(ip);
     let (tx, mut rx) = tokio::sync::mpsc::channel::<crate::screencast::Out>(64);
     let stop = crate::screencast::start_sound(&quality, tx);
     let mut check = tokio::time::interval(Duration::from_millis(1000));
@@ -703,9 +803,15 @@ struct ScreenQuery {
     pad: Option<String>,
 }
 
-async fn screen_ws(State(app): State<St>, Query(q): Query<ScreenQuery>, up: WebSocketUpgrade) -> Response {
+async fn screen_ws(State(app): State<St>, ConnectInfo(addr): ConnectInfo<SocketAddr>, Query(q): Query<ScreenQuery>, up: WebSocketUpgrade) -> Response {
     if !authorized(&app, &q.k) {
         return (StatusCode::UNAUTHORIZED, "bad key").into_response();
+    }
+    let ip = addr.ip();
+    if let Err(why) = admit(&app, ip) {
+        return up.on_upgrade(move |mut socket| async move {
+            let _ = socket.send(Message::Text(json!({ "t": "refused", "text": why }).to_string().into())).await;
+        });
     }
     if app.settings.lock().remote_screen == "off" {
         return (StatusCode::FORBIDDEN, "Screen view is off on the PC").into_response();
@@ -713,12 +819,13 @@ async fn screen_ws(State(app): State<St>, Query(q): Query<ScreenQuery>, up: WebS
     let video = if app.settings.lock().remote_screen_codec == "jpeg" { crate::screencast::Video::Jpeg } else { crate::screencast::Video::parse(q.v.as_deref().unwrap_or("")) };
     let away = q.away.as_deref() == Some("1");
     let pad = q.pad.as_deref() == Some("1");
-    up.on_upgrade(move |socket| screen_client(socket, app, video, away, pad))
+    up.on_upgrade(move |socket| screen_client(socket, app, video, away, pad, ip))
 }
 
 /// One phone's Screen view: pictures out, taps and typing in (only in "control" mode). Ends when
 /// the phone leaves or the PC turns the Screen view off.
-async fn screen_client(mut socket: WebSocket, app: Arc<App>, video: crate::screencast::Video, away: bool, pad: bool) {
+async fn screen_client(mut socket: WebSocket, app: Arc<App>, video: crate::screencast::Video, away: bool, pad: bool, ip: IpAddr) {
+    let _reg = register(ip);
     let (quality, fps, kbps, smooth) = {
         let s = app.settings.lock();
         (s.remote_screen_quality.clone(), s.remote_screen_fps, s.remote_screen_kbps, s.remote_screen_priority != "sharp")
@@ -819,7 +926,8 @@ async fn screen_client(mut socket: WebSocket, app: Arc<App>, video: crate::scree
     app.changed("remote");
 }
 
-async fn client(mut socket: WebSocket, app: Arc<App>) {
+async fn client(mut socket: WebSocket, app: Arc<App>, ip: IpAddr) {
+    let _reg = register(ip);
     app.remote_clients.fetch_add(1, Ordering::Relaxed);
     app.changed("remote");
     let mut changes = app.changes.subscribe();

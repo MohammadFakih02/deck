@@ -103,6 +103,31 @@ function bitrateSelect(k) {
   } }, ...opts.map(([v, l]) => h("option", { value: String(v), selected: v === k }, l)), h("option", { value: "custom" }, "Type…"));
 }
 
+/** Phone page: phones connected now, at home and away (a phone counts once, whatever it has open). */
+function phonesConnected(r) {
+  const home = r.local || 0, away = r.online || 0;
+  const n = (k) => `${k} phone${k > 1 ? "s" : ""}`;
+  if (!home && !away) return h("div", { class: "row" }, h("span", { class: "chip" }, I("smartphone"), "No phone connected"));
+  return h("div", { class: "row wrap", style: { justifyContent: "center" } },
+    home ? h("span", { class: "chip good", title: "On this PC's network (Wi-Fi or cable)" }, I("smartphone"), `${n(home)} at home`) : null,
+    away ? h("span", { class: "chip good", title: "Away from home, through Tailscale" }, I("globe"), `${n(away)} away`) : null);
+}
+
+/** Phone page: how many phones may connect at home and away, and whether one side shuts the other out. */
+function connLimitsCard(s) {
+  const pick = (key) => h("select", { onchange: (e) => setSetting(key, +e.target.value) },
+    [[0, "No limit"], [1, "1"], [2, "2"], [3, "3"], [5, "5"]].map(([v, l]) => h("option", { value: String(v), selected: (s[key] || 0) === v }, l)));
+  const row = (label, el) => h("div", { class: "rd-row" }, h("span", { class: "dim" }, label), el);
+  const sw = (label, key) => h("label", { class: "row", style: { justifyContent: "space-between", gap: "10px" } }, h("span", null, label), toggle(!!s[key], (v) => setSetting(key, v)));
+  return h("details", { class: "card col fold-card", style: { gap: "10px" } },
+    h("summary", { style: { fontWeight: 700, cursor: "pointer" } }, "Who can connect"),
+    row("Phones at home at a time", pick("remote_max_local")),
+    row("Phones away at a time", pick("remote_max_online")),
+    sw("A phone at home shuts out phones away", "remote_local_blocks_online"),
+    sw("A phone away shuts out phones at home", "remote_online_blocks_local"),
+    h("div", { class: "faint", style: { fontSize: "12px" } }, "A phone counts once, whatever it has open (the remote, the Screen view, its sound). Away means through Tailscale or any address outside this network. Applies to new connections; a phone that is turned away sees why and tries again every 10 seconds."));
+}
+
 /** Phone page: the PC's screen in the phone remote (view, or view and control). */
 function screenCard(r) {
   const s = S.state.settings;
@@ -187,7 +212,7 @@ Pages.phone = {
         r.enabled && r.qr ? h("div", { class: "qr", html: r.qr }) : h("div", { class: "empty" }, r.error || "The phone connection is off."),
         r.enabled ? h("div", { class: "dim" }, "Scan with your phone's camera. Phone and PC must be on the same Wi-Fi.") : null]),
       // while it's off there's nothing to connect to or re-code
-      r.enabled ? h("div", { class: "row" }, h("span", { class: "chip " + (r.clients ? "good" : "") }, I("smartphone"), r.clients ? `${r.clients} phone${r.clients > 1 ? "s" : ""} connected` : "No phone connected")) : null,
+      r.enabled ? phonesConnected(r) : null,
       !r.enabled ? null : h("button", { class: "btn sm ghost", title: "Old QR codes stop working", onclick: async () => { if (await confirmBox("Make a new code?", "Phones using the old code are disconnected and need to scan again.", "New code")) { S.cache.remote = await invoke("remote_reset_token"); render(); } } }, I("refresh", "sm"), "Make a new code"));
     const install = h("details", { class: "card col fold-card", style: { gap: "8px" } },
       h("summary", { style: { fontWeight: 700, cursor: "pointer" } }, "Put it in your app drawer (Android)"),
@@ -220,7 +245,7 @@ Pages.phone = {
           x.kind !== "file" ? h("button", { class: "icon-btn sm", title: "Copy", onclick: () => copyAnswer(x.text) }, I("copy", "sm")) : null,
           h("button", { class: "icon-btn sm danger", title: "Remove from list", onclick: async () => { await invoke("shared_remove", { id: x.id }); S.cache.remote = await invoke("remote_info"); render(); } }, I("x", "sm")))))) : h("div", { class: "faint" }, "Nothing yet. Things you send from the phone are copied to the PC clipboard; files land in Downloads\\From phone."));
     el.append(h("div", { style: { display: "grid", gridTemplateColumns: "300px minmax(0, 1fr)", gap: "14px", alignItems: "start" } },
-      h("div", { class: "col", style: { gap: "14px" } }, left, install),
+      h("div", { class: "col", style: { gap: "14px" } }, left, r.enabled ? connLimitsCard(s) : null, install),
       h("div", { class: "col", style: { gap: "14px" } }, send, screenCard(r), rdeskCard(), inbox)));
     return el;
   },

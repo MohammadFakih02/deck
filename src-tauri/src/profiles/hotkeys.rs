@@ -1,5 +1,9 @@
 //! Keyboard shortcuts for profiles and the overlay: `RegisterHotKey` on one thread (no hooks,
 //! so anti-cheat has nothing to object to). Keys another program holds are retried every 30 s.
+//! Games can switch registered shortcuts off while they are in front (raw input with
+//! `RIDEV_NOHOTKEYS`, League of Legends for one), so while a full-screen game is in front the same
+//! thread also polls the keys with `GetAsyncKeyState` (every 30 ms) and runs a shortcut that
+//! `WM_HOTKEY` didn't deliver within 100 ms. Without a game it only looks once a second for one.
 
 use crate::app::App;
 use parking_lot::Mutex;
@@ -172,6 +176,30 @@ pub fn reload() {
     }
 }
 
+/// Runs a shortcut's action off the hotkey thread (switching can take a moment: plans, NvAPI).
+fn run(a: Option<Action>) {
+    let app = APP.lock().as_ref().and_then(|w| w.upgrade());
+    if let (Some(a), Some(app)) = (a, app) {
+        std::thread::spawn(move || match a {
+            Action::Switch(kind, id) => super::switch(&app, &kind, &id, "hotkey"),
+            Action::Overlay => crate::rtss::toggle(&app),
+            Action::ResetStats => crate::rtss::reset_stats(),
+            Action::Limiter => crate::rtss::toggle_limiter(&app),
+            Action::Open => app.toggle_window(),
+        });
+    }
+}
+
+/// The key and exactly its modifiers are down right now (Ctrl+PageUp must not count as PageUp).
+fn combo_down(m: u32, vk: u32) -> bool {
+    let down = |k: i32| unsafe { windows_sys::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState(k) as u16 & 0x8000 != 0 };
+    down(vk as i32)
+        && (m & MOD_CONTROL != 0) == down(0x11)
+        && (m & MOD_ALT != 0) == down(0x12)
+        && (m & MOD_SHIFT != 0) == down(0x10)
+        && (m & MOD_WIN != 0) == (down(0x5B) || down(0x5C))
+}
+
 pub fn start(app: Arc<App>) {
     *APP.lock() = Some(Arc::downgrade(&app));
     std::thread::Builder::new()
@@ -182,7 +210,16 @@ pub fn start(app: Arc<App>) {
             let mut msg: MSG = std::mem::zeroed();
             PeekMessageW(&mut msg, std::ptr::null_mut(), 0, 0, PM_NOREMOVE); // creates the queue
             THREAD.store(windows_sys::Win32::System::Threading::GetCurrentThreadId(), Ordering::SeqCst);
-            SetTimer(std::ptr::null_mut(), 0, 30_000, None);
+            let retry_timer = SetTimer(std::ptr::null_mut(), 0, 30_000, None);
+            // once a second until a full-screen game is in front, then every 30 ms
+            let poll_timer = SetTimer(std::ptr::null_mut(), 0, 1000, None);
+            let mut fast = false;
+            let mut game_checked = std::time::Instant::now() - std::time::Duration::from_secs(5);
+            // per shortcut id: key held at the last poll, a press seen by polling only, and when each path last ran it
+            let mut held: HashMap<i32, bool> = HashMap::new();
+            let mut pending: HashMap<i32, std::time::Instant> = HashMap::new();
+            let mut by_message: HashMap<i32, std::time::Instant> = HashMap::new();
+            let mut by_poll: HashMap<i32, std::time::Instant> = HashMap::new();
             let mut bound: Vec<(i32, String, Action, bool)> = vec![];
             let register = |bound: &mut Vec<(i32, String, Action, bool)>, retry_only: bool| {
                 let Some(app) = APP.lock().as_ref().and_then(|w| w.upgrade()) else { return };
@@ -219,21 +256,52 @@ pub fn start(app: Arc<App>) {
                 match msg.message {
                     WM_HOTKEY => {
                         let id = msg.wParam as i32;
-                        let act = bound.iter().find(|b| b.0 == id).map(|b| b.2.clone());
-                        let app = APP.lock().as_ref().and_then(|w| w.upgrade());
-                        if let (Some(a), Some(app)) = (act, app) {
-                            // switching can take a moment (plans, NvAPI); keep the queue free
-                            std::thread::spawn(move || match a {
-                                Action::Switch(kind, id) => super::switch(&app, &kind, &id, "hotkey"),
-                                Action::Overlay => crate::rtss::toggle(&app),
-                                Action::ResetStats => crate::rtss::reset_stats(),
-                                Action::Limiter => crate::rtss::toggle_limiter(&app),
-                                Action::Open => app.toggle_window(),
-                            });
+                        pending.remove(&id);
+                        // the poll already ran this press (the message came late)
+                        if by_poll.get(&id).is_some_and(|t| t.elapsed().as_millis() < 600) {
+                            continue;
+                        }
+                        by_message.insert(id, std::time::Instant::now());
+                        run(bound.iter().find(|b| b.0 == id).map(|b| b.2.clone()));
+                    }
+                    WM_APP_RELOAD => {
+                        register(&mut bound, false);
+                        held.clear();
+                        pending.clear();
+                    }
+                    WM_TIMER if msg.wParam == poll_timer => {
+                        if game_checked.elapsed().as_millis() >= 1000 {
+                            game_checked = std::time::Instant::now();
+                            let game = crate::hw::game::foreground_game().is_some();
+                            if game != fast {
+                                fast = game;
+                                // the same id replaces the timer's interval
+                                SetTimer(std::ptr::null_mut(), poll_timer, if fast { 30 } else { 1000 }, None);
+                                held.clear();
+                                pending.clear();
+                            }
+                        }
+                        if !fast {
+                            continue;
+                        }
+                        for (id, k, a, ok) in bound.iter() {
+                            if !*ok {
+                                continue; // another program owns this key
+                            }
+                            let Some((m, vk)) = parse(k) else { continue };
+                            let down = combo_down(m, vk);
+                            let was = held.insert(*id, down).unwrap_or(false);
+                            if down && !was && !by_message.get(id).is_some_and(|t| t.elapsed().as_millis() < 300) {
+                                pending.insert(*id, std::time::Instant::now());
+                            }
+                            if pending.get(id).is_some_and(|t| t.elapsed().as_millis() >= 100) {
+                                pending.remove(id);
+                                by_poll.insert(*id, std::time::Instant::now());
+                                run(Some(a.clone()));
+                            }
                         }
                     }
-                    WM_APP_RELOAD => register(&mut bound, false),
-                    WM_TIMER => {
+                    WM_TIMER if msg.wParam == retry_timer => {
                         if bound.iter().any(|b| !b.3) {
                             register(&mut bound, true);
                         }
