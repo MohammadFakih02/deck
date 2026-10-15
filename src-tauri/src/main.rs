@@ -2019,6 +2019,7 @@ fn main() {
                 std::process::exit(0);
             }
             app.start();
+            std::thread::spawn(elevation::ensure_quit_task);
             handle_args(&handle, &std::env::args().collect::<Vec<_>>());
             if app.settings.lock().remote_on {
                 remote::start(app.clone(), remote_state.clone());

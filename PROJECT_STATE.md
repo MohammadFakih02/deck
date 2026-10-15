@@ -1,10 +1,16 @@
 # Deck — project state
 
-Handoff notes so work can resume later. Last updated: 2026-10-15 (v2.5.0).
+Handoff notes so work can resume later. Last updated: 2026-10-15 (v2.5.1).
 
 **Start with `DECK.md`** (full overview: features, hardware, files, build/test, status). This file is the dated history.
 
 > **RULE: before every commit, update the docs.** Add today's dated entry here, add user-visible changes to `CHANGELOG.md`, update `DECK.md` / `README.md` when facts change, and stage them in the same commit. The pre-commit hook enforces it; never bypass it. No personal data in these files (that goes in the git-ignored `PRIVATE_NOTES.md`).
+
+## 2026-10-15: v2.5.1 — setup and uninstaller can close an elevated Deck
+
+- Report (screenshot from a friend): uninstalling says "Deck is running! Click OK to kill it", then "Failed to kill Deck. Please close it first then try again". Cause: Deck runs elevated (its logon task); the NSIS setup/uninstaller runs as the normal user (`installMode: currentUser`), and Tauri's template kills with a user-level `taskkill`, which Windows refuses for an elevated process. `hooks.nsh` already had a PREUNINSTALL hook (Claude Code cleanup) but nothing closed Deck.
+- Fix: `elevation::QUIT_TASK` (`\Deck\Quit`, no trigger, runs `deck.exe --quit` elevated). A normal user may start a task. `hooks.nsh` macro `DeckQuitIfRunning` (PREINSTALL and PREUNINSTALL, both run just before the template's own running-app check) starts the task and polls `tasklist` up to 8 s. `setup()` creates the task; `ensure_quit_task()` (thread at startup, admin only) adds it to installs that predate it and re-points it when Deck moved. A clean `--quit` also hands the fans back to the BIOS.
+- Test: `quit_task_runs_quit_without_trigger`. Built with `cargo tauri build --bundles nsis` (2 jobs, idle priority, CS2 was running).
 
 ## 2026-10-15: v2.5.0 — PC to PC, Claude Code sync, share links, RivaTuner tray
 

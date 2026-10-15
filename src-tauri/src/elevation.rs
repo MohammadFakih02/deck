@@ -110,10 +110,34 @@ pub fn run_task(name: &str) -> bool {
 /// The trigger-less task the Start menu shortcut and `--relaunch` use to start Deck elevated.
 pub const OPEN_TASK: &str = "\\Deck\\Open";
 
-/// Creates both Deck tasks for `exe`. Called from `Deck.exe --setup-task` (elevated).
+/// The trigger-less task Deck's setup and uninstaller start to close an elevated Deck: they run
+/// as a normal user, which may start this task but may not end an elevated process.
+pub const QUIT_TASK: &str = "\\Deck\\Quit";
+
+fn create_quit_task(exe: &Path) -> Result<(), String> {
+    create_task(QUIT_TASK, &task_xml(&exe.display().to_string(), "--quit", false, "Closes Deck (used by its setup and uninstaller)."))
+}
+
+/// Creates the Deck tasks for `exe`. Called from `Deck.exe --setup-task` (elevated).
 pub fn setup(exe: &Path, autostart: bool) -> Result<(), String> {
     ensure_task(exe, autostart)?;
-    create_task(OPEN_TASK, &task_xml(&exe.display().to_string(), "", false, "Opens Deck with admin rights (used by the Start menu shortcut)."))
+    create_task(OPEN_TASK, &task_xml(&exe.display().to_string(), "", false, "Opens Deck with admin rights (used by the Start menu shortcut)."))?;
+    create_quit_task(exe)
+}
+
+/// Installs made before the Quit task existed get it the next time an elevated Deck starts
+/// (and again when Deck moved to another folder, so the task never points at a missing exe).
+pub fn ensure_quit_task() {
+    if !is_admin() || !task_exists(TASK) {
+        return;
+    }
+    let Ok(exe) = std::env::current_exe() else { return };
+    let want = exe.display().to_string().to_lowercase();
+    let current = Command::new("schtasks.exe").args(["/query", "/tn", QUIT_TASK, "/xml"]).creation_flags(NO_WINDOW).output();
+    let ok = current.map(|o| o.status.success() && String::from_utf8_lossy(&o.stdout).to_lowercase().contains(&esc_xml(&want))).unwrap_or(false);
+    if !ok {
+        let _ = create_quit_task(&exe);
+    }
 }
 
 /// From an unelevated Deck: one UAC prompt runs `Deck.exe --setup-task`, which creates the
@@ -152,5 +176,14 @@ mod tests {
         let x = task_xml("D.exe", "--switch \"cpu:a\"", false, "x");
         assert!(!x.contains("Trigger"));
         assert!(x.contains("--switch &quot;cpu:a&quot;"));
+    }
+
+    #[test]
+    fn quit_task_runs_quit_without_trigger() {
+        let x = task_xml(r"C:\Program Files\Deck\Deck.exe", "--quit", false, "x");
+        assert!(!x.contains("Trigger"));
+        assert!(x.contains("<RunLevel>HighestAvailable</RunLevel>"));
+        assert!(x.contains("<Arguments>--quit</Arguments>"));
+        assert_eq!(QUIT_TASK, "\\Deck\\Quit");
     }
 }

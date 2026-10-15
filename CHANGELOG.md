@@ -2,6 +2,11 @@
 
 All notable changes to Deck. Setups for each version are on the [Releases](https://github.com/MohammadFakih02/deck/releases) page.
 
+## 2.5.1 — 2026-10-15
+
+### Fixed
+- **Setup and uninstaller could not close Deck** ("Failed to kill Deck. Please close it first"): Deck runs with admin rights, the setup does not, so Windows refused to end it. They now close Deck through a new admin task (`\Deck\Quit`), which also hands the fans back to the BIOS. Deck adds the task itself the next time it starts with admin rights.
+
 ## 2.5.0 — 2026-10-15
 
 ### New
