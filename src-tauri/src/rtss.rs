@@ -574,14 +574,16 @@ pub fn rtss_running() -> bool {
 
 /// Starts RTSS (Deck runs as admin; RTSS needs it).
 pub fn start_rtss() -> Result<(), String> {
-    if rtss_running() {
+    // by its window: the shared memory stays while Deck (or a game) still has it open
+    if rtss_windows().0.is_some() {
         return Ok(());
     }
     let exe = rtss_exe().ok_or("RivaTuner Statistics Server is not installed.")?;
     std::process::Command::new(&exe).current_dir(exe.parent().unwrap()).spawn().map(|_| ()).map_err(|e| e.to_string())
 }
 
-/// RivaTuner's windows: its tray icon's owner ("RivaTunerStatisticsServer") and its main window ("RTSS").
+/// RivaTuner's windows: its main window ("RivaTunerStatisticsServer", which also owns the tray
+/// icon) and a helper window ("RTSS") that shows up blank when made visible.
 fn rtss_windows() -> (Option<windows::Win32::Foundation::HWND>, Option<windows::Win32::Foundation::HWND>) {
     use windows::core::BOOL;
     use windows::Win32::Foundation::{HWND, LPARAM};
@@ -634,22 +636,34 @@ pub fn set_tray_icon(show: bool) {
     }
 }
 
-/// Opens RivaTuner's own window (its settings), starting it first if needed.
+/// Opens RivaTuner's own window. RivaTuner draws it properly only when it opens the window itself
+/// (on start or from its tray icon); shown from outside it stays black. The tray icon can't be
+/// clicked from outside either, so a running RivaTuner is restarted: its window opens, and with
+/// the icon switch on, the icon is removed again at once. A game's overlay drops for a moment.
 pub fn open_rtss_window() -> Result<(), String> {
-    use windows::Win32::UI::WindowsAndMessaging::{SetForegroundWindow, ShowWindow, SW_RESTORE};
-    if !rtss_running() {
-        start_rtss()?;
-        for _ in 0..30 {
-            if rtss_windows().1.is_some() {
+    let exe = rtss_exe().ok_or("RivaTuner Statistics Server is not installed.")?;
+    // by its window, not its shared memory: Deck keeps that open, so it outlives RivaTuner
+    if rtss_windows().0.is_some() {
+        let _ = crate::util::run_hidden("taskkill", &["/IM", "RTSS.exe", "/F"]);
+        for _ in 0..25 {
+            if rtss_windows().0.is_none() {
                 break;
             }
             std::thread::sleep(Duration::from_millis(200));
         }
     }
-    let main = rtss_windows().1.ok_or("RivaTuner isn't running")?;
-    unsafe {
-        let _ = ShowWindow(main, SW_RESTORE);
-        let _ = SetForegroundWindow(main);
+    std::process::Command::new(&exe).current_dir(exe.parent().unwrap()).spawn().map_err(|e| e.to_string())?;
+    for _ in 0..50 {
+        if rtss_windows().0.is_some() {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    if APP.get().is_some_and(|a| a.settings.lock().rtss_tray_hidden) {
+        for _ in 0..10 {
+            std::thread::sleep(Duration::from_millis(300));
+            set_tray_icon(false);
+        }
     }
     Ok(())
 }

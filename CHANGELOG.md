@@ -48,7 +48,7 @@ All notable changes to Deck. Setups for each version are on the [Releases](https
   - The Phone page's code has **At home** and **Away (Tailscale)** tabs.
   - Until a phone is on your Tailscale, the Away tab shows how to put it there. Its code opens a "Get Tailscale" page: the App Store on iPhones; on Android the Play Store and a direct download from Tailscale's own site, for countries where the Play Store doesn't offer it. It also shows the account to sign in with.
   - Once the phone is on it, its name shows under the code, connected or offline.
-- **Hide RivaTuner's tray icon** (Overlay → Behaviour): RivaTuner keeps running with no icon in the taskbar corner, not even under the arrow, and Deck keeps it gone when RivaTuner or Explorer restarts. Turn the switch off and the icon comes back straight away. **Open RivaTuner** next to it opens RivaTuner's own settings.
+- **Hide RivaTuner's tray icon** (Overlay → Behaviour): RivaTuner keeps running with no icon in the taskbar corner, not even under the arrow, and Deck keeps it gone when RivaTuner or Explorer restarts. Turn the switch off and the icon comes back straight away. **Open RivaTuner** next to it opens RivaTuner's own settings. It restarts RivaTuner to do that, so a game's overlay blinks for a moment.
 
 ### Fixed
 - **Framerate limit key** (Overlay → Behaviour): turns RivaTuner's framerate limiter on and off in games, like Afterburner's limiter key did, with the limit right next to it and a switch. Afterburner's limiter key is taken over by the Afterburner import.

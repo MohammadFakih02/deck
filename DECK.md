@@ -172,7 +172,7 @@ Every way of switching runs the same code:
 - Deck also publishes Afterburner's `MAHMSharedMemory`, so RTSS OverlayEditor's "MSI Afterburner" data source keeps working.
 - The items and key are set on the **Sensors** page.
 - Settings: `osd_on`, `rtss_autostart`, `rtss_tray_hidden`, `osd_hotkey`, `osd_reset_hotkey`.
-- **RivaTuner's tray icon** (`rtss_tray_hidden`): RivaTuner has no setting for it, so Deck removes the icon itself with `Shell_NotifyIcon(NIM_DELETE)`. RivaTuner's icon belongs to its window titled "RivaTunerStatisticsServer", with that window's handle as the icon id. The rtss loop repeats this every 5 s, because RivaTuner adds the icon back when it or Explorer restarts. Posting `TaskbarCreated` to that window brings the icon back with no restart. **Open RivaTuner** shows its window titled "RTSS", which needs Deck's admin rights.
+- **RivaTuner's tray icon** (`rtss_tray_hidden`): RivaTuner has no setting for it, so Deck removes the icon itself with `Shell_NotifyIcon(NIM_DELETE)`. RivaTuner's icon belongs to its window titled "RivaTunerStatisticsServer", with that window's handle as the icon id. The rtss loop repeats this every 5 s, because RivaTuner adds the icon back when it or Explorer restarts. Posting `TaskbarCreated` to that window brings the icon back with no restart. **Open RivaTuner** restarts RivaTuner. Its window is drawn properly only when RivaTuner opens it itself, on start or from its tray icon; shown from outside it stays black, and the tray icon can't be clicked from outside. A running game's overlay blinks for a moment.
 
 ---
 

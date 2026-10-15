@@ -451,10 +451,10 @@ function ovBehaviourCard(st, s) {
     ovLimiterRow(s),
     ovRow("Average and lows cover", seg([[30, "30 s"], [60, "1 min"], [120, "2 min"], [300, "5 min"]], st.stats_secs, (v) => ovStyle({ stats_secs: v })), "How far back the average, 1% low, lowest and highest look", "ov.stats"),
     ovSwitch("Start RivaTuner with Deck", null, s.rtss_autostart, (v) => setSetting("rtss_autostart", v)),
-    ovSwitch("Hide RivaTuner's tray icon", "RivaTuner keeps running. Open its settings with the button below.", s.rtss_tray_hidden, async (v) => {
+    ovSwitch("Hide RivaTuner's tray icon", "RivaTuner keeps running; open its settings with the button below", s.rtss_tray_hidden, async (v) => {
       try { await invoke("rtss_tray", { hidden: v }); S.state.settings.rtss_tray_hidden = v; } catch (e) { note(String(e)); }
     }),
-    ovRow("RivaTuner's own settings", h("button", { class: "btn sm", onclick: () => invoke("rtss_open").catch((e) => note(String(e))) }, I("external", "sm"), "Open RivaTuner")),
+    ovRow("RivaTuner's own settings", h("button", { class: "btn sm", onclick: () => invoke("rtss_open").catch((e) => note(String(e))) }, I("external", "sm"), "Open RivaTuner"), "RivaTuner restarts so its window opens properly; a game's overlay blinks for a moment"),
     ovSwitch("Share readings like Afterburner", "Lets RivaTuner's overlay editor and stream widgets read the same numbers.", s.mahm_on, (v) => setSetting("mahm_on", v), "ov.mahm"));
 }
 
