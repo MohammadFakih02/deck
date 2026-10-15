@@ -2,7 +2,7 @@
 
 Deck is a single Windows tray app that brings together a launcher, a live dashboard, PowerToys-style tools, full hardware control, and a phone remote. It replaces **MoboCtl** (fans, RGB, cooler display, sensors) and **MSI Afterburner** (GPU tuning). **RivaTuner (RTSS)** stays installed because it draws the in-game overlay.
 
-- **Version:** 2.0.0. Setup: `cargo tauri build --bundles nsis`, attached to each [GitHub release](https://github.com/MohammadFakih02/deck/releases).
+- **Version:** 2.5.0. Setup: `cargo tauri build --bundles nsis`, attached to each [GitHub release](https://github.com/MohammadFakih02/deck/releases).
 - **Stack:** Tauri 2, Rust backend, vanilla JS UI. No frameworks, no build step for the UI.
 - **Source:** https://github.com/MohammadFakih02/deck (public). Machine-specific notes (the maintainer's PC, local paths, personal profiles) live in `PRIVATE_NOTES.md`, which is git-ignored; read it first if it exists.
 - **Detailed history:** session-by-session handoff notes are in `PROJECT_STATE.md`.
@@ -25,7 +25,7 @@ Read this section first. `CLAUDE.md` in this folder points here, so it loads aut
 ### Hard rules
 1. **Never capture the real screen.** Screenshots of Deck's own page over CDP (`cdp.mjs shot`) are fine.
 2. **Don't change hardware while the user may be in a game.** That includes fans, clocks, power plans, audio and display. Check what's running first (look for game processes and fullscreen windows), and ask if unsure. During an agreed test session it's fine; keep every load test under 2 minutes.
-3. **No input hooks, no injection into games.** Use `RegisterHotKey`, cursor polling, WinEvent hooks or `GetAsyncKeyState` only.
+3. **No input hooks, no injection into games.** Use `RegisterHotKey`, cursor polling, WinEvent hooks or `GetAsyncKeyState` only. The one place Deck sends input is the phone's Screen control (SendInput, user-driven), and it pauses while `boost::game_in_front` sees a game.
 4. **Never change the default recording device.** MicDrop owns it.
 5. **Test modes use `DECK_PROFILE=test`** (`%APPDATA%\Deck-test`) and bind to 127.0.0.1. A server on 0.0.0.0 makes a Windows Firewall prompt pop up on the user's screen.
 6. **Git:** Deck is on GitHub (`MohammadFakih02/deck`, branch `main`). Never add a Co-Authored-By Claude line or a "Generated with Claude Code" line. Commit only when asked.
@@ -34,11 +34,11 @@ Read this section first. `CLAUDE.md` in this folder points here, so it loads aut
 7. **Don't modify Claude's own settings files** to grant yourself permissions; the user adds permission rules themselves. `cargo build` is allowed.
 8. **Hotkeys are an exception, not the main interaction.** Prefer menus, the tray and the panel. Hotkeys are only for profile switching and the optional open, overlay and boost keys.
 9. Deleting user data (Clean up for real, purging settings) needs the user's OK first.
-10. **Don't re-propose** NetLimiter-style limits or remote desktop from outside the home network; the user declined both.
+10. **Don't re-propose** NetLimiter-style limits; the user declined them. Away-from-home access goes through Tailscale (never by opening ports to the internet); Sunshine + Moonlight is a possible later option next to RustDesk.
 
 ### Workflow
 - **Build:** `cargo build --release` in `src-tauri`. Set `CARGO_TARGET_DIR` to build elsewhere (the maintainer's value is in `PRIVATE_NOTES.md`). A build takes about 2 minutes. **The UI is embedded in the exe, so UI changes also need a rebuild and reinstall.**
-- **Tests:** `cargo test --release`, run in `src-tauri`; 86 should pass (10 ignored live tests). Check the JS with `node --check ui/js/*.js`.
+- **Tests:** `cargo test --release`, run in `src-tauri`; 118 should pass (29 ignored live tests). Check the JS with `node --check ui/js/*.js`.
 - **Install and run:** Deck runs elevated, so installing needs admin. `Start-Process powershell -Verb RunAs -WindowStyle Hidden -File tools\testing\elev-install.ps1` (one UAC prompt unless UAC is off). That script quits Deck, runs `install.ps1 -NoBuild`, and starts Deck **with the CDP debug port 9222**. Always finish with `tools\testing\restart-normal.ps1`, **run elevated as well** (`Start-Process powershell -Verb RunAs -File ...`; from a normal shell its `--quit` can't reach the elevated Deck, so the debug instance silently keeps running). It quits Deck and runs the `\Deck\Open` task. Then check that port 9222 is no longer listening.
   - In Git Bash, run `powercfg` and `schtasks` with `MSYS_NO_PATHCONV=1`, because Git Bash rewrites `/flags` and `\paths`.
 - **Live testing** (`tools\testing\`):
@@ -84,7 +84,9 @@ Read this section first. `CLAUDE.md` in this folder points here, so it loads aut
 | Window modes | `panel`: a quick panel over a dimmed screen (the default). `app`: a normal window. The pin: in `panel` mode the panel becomes a floating always-on-top window the size of the panel (`PIN_RECT`); in `app` mode the window stays on top. |
 | Look | `theme` (8 themes, `data-theme` on `<html>`), `accent`, `opacity_pinned` / `opacity_unpinned`, `open_anim` (`data-anim`), `low_spec` (class `low-spec`: no transitions or soft shadows, live tick every 3 s). The first-start picker ("Make Deck yours") shows until `setup_picked`. |
 | Defaults | Home tile places and sizes: `HOME_DEFAULT` in `ui/js/layout.js` (used until the user arranges Home). PC tile cards: `pc_cards`. Sidebar: every group folded (`nav_folded`), width 180. |
-| Phone remote | LAN web app / PWA on port **47830** (MicDrop uses 47823). It has a key check and a WebSocket for live state. |
+| Phone remote | LAN web app / PWA on port **47830** (MicDrop uses 47823). It has a key check and a WebSocket for live state. Deck adds its own firewall rule ("Deck phone remote", private + domain) when admin. Away from home: the same page on the PC's Tailscale address (Away tab); `/tailscale` is a get-Tailscale page for the phone. |
+| Screen on your phone | `screencast.rs`, `/screen` WebSocket: the PC's screen in the phone remote (DXGI duplication, GDI fallback, `jpeg-encoder`, ack flow control, 30/60 fps) and, in `control` mode with Control on in the phone, taps/typing via SendInput. `/audio`: the PC's sound (WASAPI loopback, PCM). `remote_screen` off by default. |
+| Remote desktop | RustDesk (`rdesk.rs`, Phone page): Deck installs it, sets direct connections (port 21118), the password and hidden tray icons. Addresses: home IP, Tailscale IP, RustDesk ID. |
 
 ### User rules Deck follows
 - **Menus over shortcuts.** The tray, panel and hot corner are the main way in. Hotkeys exist only for CPU/GPU profile switching and the optional open, overlay and boost keys.
@@ -103,6 +105,7 @@ Read this section first. `CLAUDE.md` in this folder points here, so it loads aut
 | Hardware | **CPU**, **GPU** (every setting in both profile editors has a "?" that explains what it does, why to use it and what changing it does; text in `ui/js/help.js`), **Fans**, **Lighting**, **Cooler display**. A page is hidden when the PC has nothing for it. |
 | Monitor | **Sensors** (opens on All readings), **Overlay** (the in-game overlay settings; can install RivaTuner), **Drives** (S.M.A.R.T. health of every HDD/SSD with history in `drive-health.json`; optional alerts, `drive_alerts`, off by default), **Processes**, **Network** (one screen: live rates with a 1-minute graph, click-to-copy IPs, speed test, ping with Start / Stop (one round when the page opens, then rounds back to back only while started; leaving the page stops it), game-server ping that tests a game the first time it's picked), **This PC** (hidden when the PC has nothing for it, like the hardware pages) |
 | Desktop | **Windows**, with tabs: Open windows (pin on top, see-through, snap, center, close), Snap zones (FancyZones-style), Workspaces. **Display** (refresh rate, DDC/CI brightness, HDR, dark/light schedule that switches only at its set times, so a manual switch holds). **Clipboard** (history of text, images and files, pins, search, "paste as"; skips password managers), **Sound** (default output, master and per-app volume, media sessions) |
+| Bottom / Desktop | **PC to PC** (above Phone; id `transfer`) (AppBeam's engine in `src-tauri/src/beam/`, on by default: send files, folders, installers, apps and setups between PCs running Deck with the same pairing code; tabs Send, Apps, Setup, Received, Settings, Log); **Claude Code sync** under Desktop (id `claudesync`, shown only with `claude_sync_nav` or while on; ClaudeSync's engine in `src-tauri/src/ccsync/`, off by default: Claude Code sessions, memory and settings kept the same on your PCs; tabs Status, Sessions, Projects, Settings, Log) |
 | Power & time | **Keep awake** (shows Windows' own sleep and screen-off times; "until downloads finish" waits for a download to start, then ends a minute after it stops), **Timers & breaks**, **Shut down when…** (time, app closes, downloads finish, CPU idle, network quiet, media stops, away; with a 60 s cancel warning). Downloads and media conditions wait until something downloads or plays; a time missed while the PC was asleep is skipped, not run on wake. |
 | Maintenance | **Disk space** (NTFS drives are read straight from the MFT (`mft.rs`), others with a FindFirstFileEx walk; WizTree-style squarified treemap with File types / Folders views and a back button; Windows' own folders and files are locked against the Recycle Bin), **Clean up** (caches, plus **Clear RAM**), **Startup apps**, **Tools**, with tabs: Screen tools (colour picker, text from screen via OCR, ruler), Locked files, Windows panels |
 | Removed | **Notes** and its Home tile (2026-10-12, at the user's request). Saved notes stay in `settings.json` (`notes`), untouched. The unlinked **File search** route (`files/index`) was removed on 2026-10-14; its settings live in Settings → Clipboard & search. |
@@ -168,7 +171,8 @@ Every way of switching runs the same code:
 - Deck writes its text into one RTSS overlay slot (owner "Deck"). RTSS draws it and fills in FPS and frame time.
 - Deck also publishes Afterburner's `MAHMSharedMemory`, so RTSS OverlayEditor's "MSI Afterburner" data source keeps working.
 - The items and key are set on the **Sensors** page.
-- Settings: `osd_on`, `rtss_autostart`, `osd_hotkey`, `osd_reset_hotkey`.
+- Settings: `osd_on`, `rtss_autostart`, `rtss_tray_hidden`, `osd_hotkey`, `osd_reset_hotkey`.
+- **RivaTuner's tray icon** (`rtss_tray_hidden`): RivaTuner has no setting for it, so Deck removes the icon itself with `Shell_NotifyIcon(NIM_DELETE)`. RivaTuner's icon belongs to its window titled "RivaTunerStatisticsServer", with that window's handle as the icon id. The rtss loop repeats this every 5 s, because RivaTuner adds the icon back when it or Explorer restarts. Posting `TaskbarCreated` to that window brings the icon back with no restart. **Open RivaTuner** shows its window titled "RTSS", which needs Deck's admin rights.
 
 ---
 
@@ -200,8 +204,10 @@ Every way of switching runs the same code:
 | `hw/smart.rs` | Drive health (NVMe log page 2, ATA SMART attributes and thresholds), history and alerts |
 | `support.rs` | The support report (This PC) |
 | `boost.rs` | Game boost (close apps, power plan, priorities, trim; everything restored afterwards) |
+| `beam/` | Transfer (from AppBeam): `net.rs` (UDP beacon 47833 + encrypted TCP 47834, hello `DKT1`; offers, files, resume, projects, requests), `config.rs` (settings, inbox, live state; `off` stops announcing, answering and accepting), `apps.rs` (winget), `setup.rs` + `snapshot.rs` (installers, setup snapshots, Windhawk), `mod.rs` (Deck's glue: `set_on`, `state`, `act`, notifications with Accept/Decline). Deck-only: the standalone AppBeam (47831/47832) doesn't talk to it |
+| `ccsync/` | Claude Sync (from ClaudeSync): `engine.rs` (sync cycles, merge, forks, deletions, locks), `lan.rs` (UDP 47835 + TCP 47836, hello `DKC1`), `hub.rs` (cloud folder `Deck-ClaudeSync-hub`), `canon.rs` + `scan.rs` (path tokens per project), `locks.rs` (the hooks: `%LOCALAPPDATA%\Deck\claude-sync-hook.exe --claude-sync-hook`, a copy of deck.exe so updates aren't blocked), `mod.rs` (glue; imports the standalone app's settings once; refuses to start while `ClaudeSync.exe` runs; `--uninstall-cleanup` from `hooks.nsh`) |
 | `webview_guard.rs` | WebView2 browser flags that prevent blank windows (applied to every window builder) plus the watchdog |
-| Other modules | `sys`, `audio`, `media`, `apps`, `calc`, `files`, `clipboard`, `power`, `winmgr`, `disk`, `cleanup`, `startup`, `display`, `net`, `gameping`, `locksmith`, `games`, `picker`, `hotcorner`, `remote`, `elevation`, `util` |
+| Other modules | `sys`, `audio`, `media`, `apps`, `calc`, `files`, `clipboard`, `power`, `winmgr`, `disk`, `cleanup`, `startup`, `display`, `net`, `gameping`, `locksmith`, `games`, `picker`, `hotcorner`, `remote`, `screencast` (screen view and control for the phone), `rdesk` (RustDesk + Tailscale), `elevation`, `util` |
 | `ui/` | `index.html`, `app.css`, `guard.js`, and `js/` (`core` helpers, `app` nav and boot, `home`, `search`, `pages1-3`, `hw`, `curve`, `profiles`, `help` (the "?" texts), `boost`, `icons`), plus `toast.html` and `zones.html` |
 
 ---
@@ -210,7 +216,7 @@ Every way of switching runs the same code:
 
 ```powershell
 cd src-tauri
-cargo test --release      # 95 tests (+15 ignored live tests)
+cargo test --release      # 118 tests (+29 ignored live tests)
 cargo build --release     # set CARGO_TARGET_DIR to build elsewhere
 ..\install.ps1 -NoBuild   # elevates itself, quits Deck, copies to Program Files, (re)creates the tasks
 ..\uninstall.ps1 [-Purge] # quits Deck (fans back to the BIOS), removes tasks, shortcuts, files and the PawnIO driver if Deck installed it
@@ -245,6 +251,8 @@ cargo build --release     # set CARGO_TARGET_DIR to build elsewhere
 | `backups\afterburner-*` | Afterburner settings saved before Stop tuning |
 | `clipboard\` | Clipboard history |
 | `monitor.csv` | Sensor log, when enabled |
+| `transfer\` | Transfer: `config.json` (pairing code, shared folders, per-PC policy), `inbox.json`, `log.txt`, `outgoing\` (packed app lists and setups) |
+| `claude-sync\` | Claude Sync: `config.json` (sync key, projects), `state.json` (merge bases), `hashcache.json`, `locks.json` + `identity.json` (read by the hooks), `trash\`, `conflicts\`, `claudesync.log` |
 | `C:\ProgramData\Deck\pawnio\` | PawnIO driver files (the service is `DeckPawnIO`) |
 
 ---

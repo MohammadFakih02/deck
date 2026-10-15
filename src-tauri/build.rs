@@ -3,6 +3,9 @@ use std::process::Command;
 
 fn main() {
     rtss32();
+    // Claude Sync tells machines which Deck build is newer
+    let ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    println!("cargo:rustc-env=DECK_BUILD={ts}");
     tauri_build::build()
 }
 

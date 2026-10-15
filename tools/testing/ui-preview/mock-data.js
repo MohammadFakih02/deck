@@ -94,7 +94,53 @@
     { id: "installers", name: "Old installers", desc: "Setup files in Downloads you have already run.", level: "careful", size: 7.9 * GB }] });
   R.cleanup_scan = () => null;
   R.index_info = () => ({ building: false, count: 184233, took: 2.4 });
-  R.remote_info = () => ({ enabled: true, qr: '<svg xmlns="http://www.w3.org/2000/svg" width="180" height="180" viewBox="0 0 9 9"><rect width="9" height="9" fill="#fff"/><path d="M1 1h3v3H1zM5 1h3v3H5zM1 5h3v3H1zM5 5h1v1H5zM7 6h1v2H6V7h1z" fill="#000"/></svg>', clients: 1, origin: "http://192.168.1.42:47830", shared: [{ id: 1, kind: "text", text: "https://youtu.be/dQw4w9WgXcQ", from: "phone", ts: Date.now() - 600e3 }, { id: 2, kind: "file", name: "IMG_2041.jpg", from: "phone", ts: Date.now() - 3600e3, size: 2.4e6, path: "x" }, { id: 3, kind: "text", text: "Meet at 9", from: "pc", ts: Date.now() - 86400e3 }] });
+  R.rdesk_status = () => ({ installed: true, on: true, id: "123456789", direct: true, port: 21118, lan: "192.168.1.42", tray_hidden: true, tailscale: { installed: true, on: true, ip: "100.64.12.34" } });
+  R.rdesk_do = () => R.rdesk_status();
+  // Your PCs: Transfer and Claude Sync
+  const tnow = Date.now();
+  R.transfer_state = () => ({
+    on: true, name: "DESKTOP", code: "K7QM-2XPA-9WTR-HB4N-6ZCE", manual_peers: [], inbox_dir: "C:\\Users\\you\\Downloads\\From my PCs",
+    ask_before_receive: false, trust_install: false, shared_folders: ["C:\\Users\\you\\Projects"], skip_build: true,
+    excludes: "target, node_modules, .git, __pycache__, *.pdb, *.obj, dist, build", dest_exists: "merge", port: 47834,
+    policies: [{ id: "a1", name: "LAPTOP", mode: "ask" }],
+    peers: [{ id: "a1", name: "LAPTOP", ip: "192.168.1.23" }, { id: "b2", name: "OFFICE-PC", ip: "192.168.1.40" }],
+    xfers: [
+      { id: 3, send: true, peer: "LAPTOP", label: "Projects", total: 812000000, done: 351000000, files: 2310, state: "active", error: "", speed: 61200000, secs: 6, note: "" },
+      { id: 2, send: false, peer: "LAPTOP", label: "photos.zip", total: 48200000, done: 48200000, files: 1, state: "done", error: "", speed: 0, secs: 1.4, note: "" },
+      { id: 1, send: true, peer: "OFFICE-PC", label: "Setup.exe", total: 120000000, done: 0, files: 1, state: "declined", error: "", speed: 0, secs: 0, note: "" }],
+    pending: [{ id: 9, peer: "LAPTOP", label: "Firefox Setup.exe", files: 1, total: 63400000, install: true, deletes: 0 }],
+    reqs: [],
+    inbox: [
+      { name: "VLC installer", dir: "C:\\x\\vlc", entry: "vlc.exe", kind: "nsis", kind_label: "Installer", from: "LAPTOP", size: 44000000, files: 1, time: tnow - 3600e3, note: "", gone: false, silent: true, extra: null },
+      { name: "LAPTOP setup", dir: "C:\\x\\setup", entry: null, kind: "setup", kind_label: "Setup snapshot", from: "LAPTOP", size: 5200000, files: 18, time: tnow - 7200e3, note: "", gone: false, silent: false, extra: { look: 14, wallpaper: true, windhawk: "1.6", mods: 4, backup: false } },
+      { name: "6 apps", dir: "C:\\x\\apps", entry: null, kind: "apps", kind_label: "App list", from: "LAPTOP", size: 900, files: 1, time: tnow - 86400e3, note: "Installed 5 of 6; 1 failed (no internet)", gone: false, silent: false, extra: { apps: ["7-Zip", "VLC", "Discord", "Steam", "Notepad++", "Firefox"] } }],
+    scans: [], browse: null, setup_msg: "", logs: ["10:01:02  Transfer started on DESKTOP", "10:01:05  Found LAPTOP on the network (192.168.1.23:47834)"], data: "C:\\Users\\you\\AppData\\Roaming\\Deck\\transfer",
+  });
+  R.transfer_do = () => R.transfer_state();
+  R.transfer_apps = () => ({ apps: [{ id: "x.0", name: "Battle.net", version: "1.0.0", runtime: false }, { id: "x.1", name: "BCUninstaller", version: "1.1.0", runtime: false }, { id: "x.2", name: "CapCut", version: "1.2.0", runtime: false }, { id: "x.3", name: "Claude", version: "1.3.0", runtime: false }, { id: "x.4", name: "Display Driver Uninstaller", version: "1.4.0", runtime: false }, { id: "x.5", name: "FanControl", version: "1.5.0", runtime: false }, { id: "x.6", name: "FastCopy", version: "1.6.0", runtime: false }, { id: "x.7", name: "HandBrake", version: "1.7.0", runtime: false }, { id: "x.8", name: "Inno Setup", version: "1.8.0", runtime: false }, { id: "x.9", name: "Internet Download Manager", version: "1.9.0", runtime: false }, { id: "x.10", name: "JDownloader 2", version: "1.10.0", runtime: false }, { id: "x.11", name: "Microsoft OneDrive", version: "1.11.0", runtime: false }, { id: "x.12", name: "Node.js", version: "1.12.0", runtime: false }, { id: "x.13", name: "OBS Studio", version: "1.13.0", runtime: false }, { id: "x.14", name: "Ollama", version: "1.14.0", runtime: false }, { id: "x.15", name: "Python Install Manager", version: "1.15.0", runtime: false }, { id: "x.16", name: "Steam", version: "1.16.0", runtime: false }, { id: "x.17", name: "Tailscale", version: "1.17.0", runtime: false }, { id: "x.18", name: "VLC media player", version: "1.18.0", runtime: false }, { id: "x.19", name: "7-Zip", version: "1.19.0", runtime: false }, { id: "7zip.7zip", name: "7-Zip", version: "24.08", runtime: false }, { id: "VideoLAN.VLC", name: "VLC media player", version: "3.0.21", runtime: false }, { id: "Microsoft.VCRedist.2015+.x64", name: "Microsoft Visual C++ 2015-2022", version: "14.40", runtime: true }, { id: "Valve.Steam", name: "Steam", version: "2.10", runtime: false }] });
+  R.transfer_setup_preview = () => ({ look: 14, wallpaper: true, windhawk: "1.6", windhawk_installed: true, mods: ["taskbar-labels", "start-menu-styler", "explorer-details", "volume-scroll"] });
+  R.claude_sync_state = () => ({
+    on: true, standalone: false, phase: "Idle", last_cycle: 12000, last_result: "Up to date", last_error: "", lan_port: 47836, local_files: [214, 18, 63], local_bytes: 381000000,
+    received: 42, conflicts: 0, hook_note: "", pending: 0, version: "2.5.0",
+    machines: [{ id: "m1", name: "LAPTOP", via: "network", ago: 30000, files: 290, online: true, version: "2.5.0", cmp: 0 }],
+    projects: [{ alias: "~", home: true, path: "C:\\Users\\you", auto: false, origin: "local", sync: true, exists: true, sessions: 31, elsewhere: [{ machine: "LAPTOP", path: "C:\\Users\\me" }] },
+      { alias: "website", home: false, path: "D:\\code\\website", auto: true, origin: "LAPTOP", sync: true, exists: false, sessions: 4, elsewhere: [{ machine: "LAPTOP", path: "C:\\dev\\website" }] }],
+    open_here: [{ sid: "0b1c2d3e-0000-4000-8000-000000000001", name: "fix login", alias: "website", started: tnow - 600e3, pending: null }],
+    open_elsewhere: [{ sid: "5f6e7d8c-0000-4000-8000-000000000002", name: "", alias: "~", machine: "LAPTOP", started: tnow - 1200e3, taken: false }],
+    sessions: [
+      { sid: "0b1c2d3e-0000-4000-8000-000000000001", title: "Fix the login form", first: "the login button does nothing on mobile", last: "now add a test", prompts: 14, size: 2400000, ago: 60000, alias: "website", here: true, elsewhere: ["LAPTOP"], online: [true], open_here: true, open_there: null, waiting: null },
+      { sid: "5f6e7d8c-0000-4000-8000-000000000002", title: "", first: "plan the trip budget", last: "make it a table", prompts: 6, size: 310000, ago: 900000, alias: "~", here: true, elsewhere: ["LAPTOP"], online: [true], open_here: false, open_there: "LAPTOP", waiting: null }],
+    cfg: { name: "DESKTOP", key: "Q3VX-8MNA-2KPL-7WRT-4HZE-9CBD", lan: true, manual_peers: "", hub: false, hub_dir: "", sessions: true, memory: true, config: true, interval: 20, paused: false, session_lock: true, machine_note: true },
+    onedrive: "C:\\Users\\you\\OneDrive", claude_dir: "C:\\Users\\you\\.claude", data: "C:\\Users\\you\\AppData\\Roaming\\Deck\\claude-sync", logs: ["10:00:01 Claude Sync started"],
+  });
+  R.claude_sync_do = () => R.claude_sync_state();
+  R.pick_many = () => [];
+  R.share_state = () => ({ tailscale: true, funnel: "https://desktop.tailnet.ts.net", funnel_error: "", shares: [
+    { token: "a1", name: "holiday-photos.zip", size: 812000000, expires: Date.now() + 20 * 3600e3, max: 1, done: 0, internet: true, preparing: false, error: "", home: "http://192.168.1.42:47837/s/k3Jd9aQ2xLm8", web: "https://desktop.tailnet.ts.net/deck-share/k3Jd9aQ2xLm8" },
+    { token: "b2", name: "notes.pdf", size: 2400000, expires: Date.now() + 50 * 60e3, max: 0, done: 2, internet: false, preparing: false, error: "", home: "http://192.168.1.42:47837/s/Zp4Wq8Tn1Rv6", web: null }] });
+  R.share_create = () => R.share_state();
+  R.share_stop = () => R.share_state();
+  R.remote_info = () => ({ enabled: true, away: "http://100.64.12.34:47830/#k=preview", away_qr: "", away_get_qr: "", away_peers: [], away_account: "someone@example.com", qr: '<svg xmlns="http://www.w3.org/2000/svg" width="180" height="180" viewBox="0 0 9 9"><rect width="9" height="9" fill="#fff"/><path d="M1 1h3v3H1zM5 1h3v3H5zM1 5h3v3H1zM5 5h1v1H5zM7 6h1v2H6V7h1z" fill="#000"/></svg>', clients: 1, origin: "http://192.168.1.42:47830", shared: [{ id: 1, kind: "text", text: "https://youtu.be/dQw4w9WgXcQ", from: "phone", ts: Date.now() - 600e3 }, { id: 2, kind: "file", name: "IMG_2041.jpg", from: "phone", ts: Date.now() - 3600e3, size: 2.4e6, path: "x" }, { id: 3, kind: "text", text: "Meet at 9", from: "pc", ts: Date.now() - 86400e3 }] });
   R.apps_list = () => applist;
   Object.assign(st, { boost_power: true, boost_cpu: "", boost_gpu: "", boost_priority: true, boost_trim: true, boost_auto_end: true,
     cpu_profiles: [{ id: "c1", name: "Eco" }, { id: "c2", name: "Mid" }, { id: "c3", name: "Max" }], gpu_profiles: [{ id: "g1", name: "AB Profile 5" }, { id: "g2", name: "Quiet" }] });

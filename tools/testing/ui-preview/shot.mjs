@@ -3,10 +3,13 @@
 //   e.g. node shot.mjs sensors - s.png 1260 900 'S.cache.sensTab="readings";render()'
 // Add fake commands to mock.js when a page needs them.
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 const [, , page, sub, out, w = "1260", hgt = "900", extra = ""] = process.argv;
 const port = +(process.env.PORT || 9333);
 setTimeout(() => { console.log("TIMEOUT"); process.exit(2); }, 40000).unref();
-const edge = spawn("C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe", ["--headless=new", `--remote-debugging-port=${port}`, "--allow-file-access-from-files", "--disable-gpu", "--hide-scrollbars", `--user-data-dir=${process.env.TEMP}\deck-prev-edge-${process.pid}`, `--window-size=${w},${hgt}`, "about:blank"], { stdio: "ignore" });
+// Edge, or Chrome where Edge isn't installed (BROWSER=path picks another Chromium browser)
+const browser = process.env.BROWSER || ["C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe", "C:/Program Files/Microsoft/Edge/Application/msedge.exe", "C:/Program Files/Google/Chrome/Application/chrome.exe"].find((p) => existsSync(p));
+const edge = spawn(browser, ["--headless=new", `--remote-debugging-port=${port}`, "--allow-file-access-from-files", "--disable-gpu", "--hide-scrollbars", `--user-data-dir=${process.env.TEMP}\deck-prev-edge-${process.pid}`, `--window-size=${w},${hgt}`, "about:blank"], { stdio: "ignore" });
 let list;
 for (let i = 0; i < 50; i++) { try { list = await (await fetch(`http://127.0.0.1:${port}/json`)).json(); if (list.find((t) => t.type === "page")) break; } catch {} await new Promise((r) => setTimeout(r, 200)); }
 const t = list.find((x) => x.type === "page");

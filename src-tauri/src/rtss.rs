@@ -433,16 +433,25 @@ static RUNNING: AtomicBool = AtomicBool::new(false);
 /// 64-bit Deck can't load: the embedded 32-bit helper (`rtss32/`) sets it and tells RivaTuner.
 /// The 64-bit hooks keep their own copy, set here directly.
 fn set_rtss_osd_visible(visible: bool) {
+    set_rtss_flag(1, visible); // RTSSHOOKSFLAG_OSD_VISIBLE in the RTSS SDK
+}
+
+/// RTSSHOOKSFLAG_LIMITER_DISABLED: RivaTuner's framerate limiter is off while it is set. This is
+/// the switch Afterburner's limiter key flips; the limit itself stays in RivaTuner's profile.
+const LIMITER_DISABLED: u32 = 4;
+
+/// Sets (`on`) or clears one of RivaTuner's switch bits in both hooks.
+fn set_rtss_flag(flag: u32, on: bool) {
     use windows::core::{HSTRING, PCSTR};
     use windows::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
     type SetFlags = unsafe extern "C" fn(u32, u32) -> u32;
-    const OSD_VISIBLE: u32 = 1; // RTSSHOOKSFLAG_OSD_VISIBLE in the RTSS SDK
     let Some(dir) = rtss_exe().and_then(|e| e.parent().map(|p| p.to_path_buf())) else { return };
     if let Some(helper) = rtss32_helper() {
         use std::os::windows::process::CommandExt;
         let _ = std::process::Command::new(helper)
-            .arg(if visible { "on" } else { "off" })
+            .arg(if on { "on" } else { "off" })
             .arg(&dir)
+            .arg(flag.to_string())
             .creation_flags(crate::util::CREATE_NO_WINDOW)
             .status();
     }
@@ -452,8 +461,64 @@ fn set_rtss_osd_visible(visible: bool) {
         Some(std::mem::transmute::<_, SetFlags>(GetProcAddress(m, PCSTR(c"SetFlags".as_ptr() as *const u8))?))
     });
     if let Some(set) = *set {
-        unsafe { set(!OSD_VISIBLE, if visible { OSD_VISIBLE } else { 0 }) };
+        unsafe { set(!flag, if on { flag } else { 0 }) };
     }
+}
+
+/// Whether RivaTuner's framerate limiter is on (the 32-bit hooks' switch, the one its window
+/// shows). None when it can't be read.
+pub fn limiter_on() -> Option<bool> {
+    use std::os::windows::process::CommandExt;
+    let dir = rtss_exe()?.parent()?.to_path_buf();
+    let code = std::process::Command::new(rtss32_helper()?).arg("status").arg(&dir).arg(LIMITER_DISABLED.to_string()).creation_flags(crate::util::CREATE_NO_WINDOW).status().ok()?.code()?;
+    matches!(code, 10 | 11).then_some(code == 10)
+}
+
+/// The limit in RivaTuner's global profile (frames a second, 0 = none set).
+pub fn limit_fps() -> u32 {
+    let Some(f) = profiles_dir().map(|d| d.join("Global")) else { return 0 };
+    let text = std::fs::read(&f).map(|b| from_ansi(&b)).unwrap_or_default();
+    let mut in_sec = false;
+    for l in text.lines() {
+        let l = l.trim();
+        if l.starts_with('[') {
+            in_sec = l.eq_ignore_ascii_case("[Framerate]");
+        } else if in_sec {
+            if let Some(v) = l.strip_prefix("Limit=") {
+                return v.trim().parse().unwrap_or(0);
+            }
+        }
+    }
+    0
+}
+
+/// Sets the limit in RivaTuner's global profile (a backup of the original is kept like the look's).
+pub fn set_limit_fps(fps: u32) -> Result<(), String> {
+    let dir = profiles_dir().ok_or("RivaTuner isn't installed.")?;
+    let f = dir.join("Global");
+    let bytes = std::fs::read(&f).map_err(|e| e.to_string())?;
+    let text = from_ansi(&bytes);
+    let keep = dir.join("Deck backup");
+    let _ = std::fs::create_dir_all(&keep);
+    if !keep.join("Global").exists() {
+        let _ = std::fs::write(keep.join("Global"), &bytes);
+    }
+    let new = set_ini(&text, &[("Framerate", "Limit", fps.min(1000).to_string()), ("Framerate", "LimitDenominator", "1".into())]);
+    std::fs::write(&f, to_ansi(&new)).map_err(|e| e.to_string())?;
+    request_reload();
+    Ok(())
+}
+
+/// The limiter key: RivaTuner's framerate limiter on or off, like Afterburner's key did.
+pub fn toggle_limiter(app: &App) {
+    if !rtss_running() {
+        let _ = start_rtss();
+    }
+    let on = !limiter_on().unwrap_or(false);
+    set_rtss_flag(LIMITER_DISABLED, !on);
+    let fps = limit_fps();
+    let body = if fps == 0 { "No limit is set yet: set one on the Overlay page.".to_string() } else { format!("Games are held to {fps} FPS.") };
+    app.toast(crate::app::Toast::simple("limiter", if on { "Framerate limit on" } else { "Framerate limit off" }, if on { &body } else { "Games run as fast as they can." }));
 }
 
 /// How RivaTuner's "Show On-Screen Display" switch is set: (the one its window shows and
@@ -514,6 +579,79 @@ pub fn start_rtss() -> Result<(), String> {
     }
     let exe = rtss_exe().ok_or("RivaTuner Statistics Server is not installed.")?;
     std::process::Command::new(&exe).current_dir(exe.parent().unwrap()).spawn().map(|_| ()).map_err(|e| e.to_string())
+}
+
+/// RivaTuner's windows: its tray icon's owner ("RivaTunerStatisticsServer") and its main window ("RTSS").
+fn rtss_windows() -> (Option<windows::Win32::Foundation::HWND>, Option<windows::Win32::Foundation::HWND>) {
+    use windows::core::BOOL;
+    use windows::Win32::Foundation::{HWND, LPARAM};
+    use windows::Win32::UI::WindowsAndMessaging::{EnumWindows, GetWindowTextW, GetWindowThreadProcessId};
+    let Some(pid) = crate::util::run_hidden("tasklist", &["/FI", "IMAGENAME eq RTSS.exe", "/FO", "CSV", "/NH"]).ok().and_then(|o| {
+        String::from_utf8_lossy(&o.stdout).lines().find_map(|l| l.split("\",\"").nth(1).and_then(|x| x.trim_matches('"').parse::<u32>().ok()))
+    }) else {
+        return (None, None);
+    };
+    struct Found(u32, Option<HWND>, Option<HWND>);
+    unsafe extern "system" fn cb(h: HWND, l: LPARAM) -> BOOL {
+        let f = &mut *(l.0 as *mut Found);
+        let mut p = 0;
+        GetWindowThreadProcessId(h, Some(&mut p));
+        if p == f.0 {
+            let mut buf = [0u16; 64];
+            let n = GetWindowTextW(h, &mut buf) as usize;
+            match String::from_utf16_lossy(&buf[..n]).as_str() {
+                "RivaTunerStatisticsServer" => f.1 = Some(h),
+                "RTSS" => f.2 = Some(h),
+                _ => {}
+            }
+        }
+        BOOL(1)
+    }
+    let mut f = Found(pid, None, None);
+    unsafe {
+        let _ = EnumWindows(Some(cb), LPARAM(&mut f as *mut _ as isize));
+    }
+    (f.1, f.2)
+}
+
+/// Removes RivaTuner's tray icon (it keeps running; Deck's Overlay page opens it instead) or
+/// puts it back. RivaTuner numbers its icon after its own window, and re-adds it when told the
+/// taskbar was recreated, so no restart is needed either way. Deck repeats the removal while the
+/// switch is on, since RivaTuner adds the icon again when it or Explorer restarts.
+pub fn set_tray_icon(show: bool) {
+    use windows::core::w;
+    use windows::Win32::Foundation::{LPARAM, WPARAM};
+    use windows::Win32::UI::Shell::{Shell_NotifyIconW, NIM_DELETE, NOTIFYICONDATAW};
+    use windows::Win32::UI::WindowsAndMessaging::{PostMessageW, RegisterWindowMessageW};
+    let (Some(owner), _) = rtss_windows() else { return };
+    unsafe {
+        if show {
+            let _ = PostMessageW(Some(owner), RegisterWindowMessageW(w!("TaskbarCreated")), WPARAM(0), LPARAM(0));
+        } else {
+            let nid = NOTIFYICONDATAW { cbSize: std::mem::size_of::<NOTIFYICONDATAW>() as u32, hWnd: owner, uID: owner.0 as usize as u32, ..Default::default() };
+            let _ = Shell_NotifyIconW(NIM_DELETE, &nid);
+        }
+    }
+}
+
+/// Opens RivaTuner's own window (its settings), starting it first if needed.
+pub fn open_rtss_window() -> Result<(), String> {
+    use windows::Win32::UI::WindowsAndMessaging::{SetForegroundWindow, ShowWindow, SW_RESTORE};
+    if !rtss_running() {
+        start_rtss()?;
+        for _ in 0..30 {
+            if rtss_windows().1.is_some() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(200));
+        }
+    }
+    let main = rtss_windows().1.ok_or("RivaTuner isn't running")?;
+    unsafe {
+        let _ = ShowWindow(main, SW_RESTORE);
+        let _ = SetForegroundWindow(main);
+    }
+    Ok(())
 }
 
 /// Installs RivaTuner from its official source with winget, which downloads Guru3D's own
@@ -921,6 +1059,8 @@ pub fn look_edits(st: &OsdStyle) -> Vec<(&'static str, &'static str, String)> {
         ("OSD", "FrametimeHistoryStyle", st.graph_style.min(3).to_string()),
         ("OSD", "MaximumFrametime", st.graph_max.min(1000).to_string()),
         ("OSD", "EnableFrameColorBar", b(st.color_bar)),
+        // RivaTuner's own statistics line repeats Deck's framerate figures in another style
+        ("OSD", "EnableStat", "0".to_string()),
         ("OSD", "ScaleToFit", b(st.fit)),
         ("OSD", "IntegerFramerate", b(st.int_fps)),
         ("Font", "Face", st.font.clone()),
@@ -1021,6 +1161,7 @@ pub fn start(app: Arc<App>) {
             let mut wrote = false;
             let mut shown = false;
             let mut was_on: Option<bool> = None;
+            let mut tray_at = Instant::now() - Duration::from_secs(60);
             while !STOP.load(Ordering::SeqCst) {
                 let (on, items, ms, mahm, style) = {
                     let s = app.settings.lock();
@@ -1070,6 +1211,10 @@ pub fn start(app: Arc<App>) {
                     unpublish();
                 }
                 drop(_w);
+                if tray_at.elapsed() >= Duration::from_secs(5) && rt.is_some() && app.settings.lock().rtss_tray_hidden {
+                    tray_at = Instant::now();
+                    set_tray_icon(false);
+                }
                 *LAST.lock() = Some((snap, name));
                 drop(rt);
                 // sleep, but wake at once when something changed
@@ -1114,6 +1259,15 @@ mod tests {
         // the per-core entries are named like Afterburner's
         let o = 32 + SOURCES.len() * 1324;
         assert_eq!(&b[o..o + 10], b"CPU1 usage");
+    }
+
+    #[test]
+    #[ignore]
+    fn rtss_tray_icon() {
+        println!("{:?}", super::rtss_windows());
+        super::set_tray_icon(false);
+        std::thread::sleep(std::time::Duration::from_secs(4));
+        super::set_tray_icon(true);
     }
 
     #[test]

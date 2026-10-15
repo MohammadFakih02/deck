@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, interactive-widget=overlays-content">
 <meta name="theme-color" content="#0c0e14">
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/icon.png">
@@ -36,6 +36,8 @@
   .ctl { display: flex; justify-content: center; align-items: center; gap: 22px; margin-top: 12px; }
   .ctl button { background: none; border: 0; width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center; }
   .ctl button:active { background: #ffffff10; }
+  .ctl button { position: relative; }
+  .ctl .sk { position: absolute; bottom: 0; font-size: 10px; opacity: .7; }
   .ctl .pp { width: 62px; height: 62px; background: var(--text); color: var(--bg); }
   .ctl .pp svg { fill: currentColor; stroke: none; width: 22px; height: 22px; }
   .bar { height: 4px; border-radius: 4px; background: #2a3142; overflow: hidden; margin-top: 12px; }
@@ -82,7 +84,7 @@
   .plan { border-color: #ffb54766; background: linear-gradient(135deg, #ffb54714, transparent 70%), var(--tile); }
   .alert { position: fixed; left: 12px; right: 12px; bottom: calc(env(safe-area-inset-bottom) + 12px); background: #1d2331; border: 1px solid #36405a; border-radius: 18px; padding: 14px; box-shadow: 0 20px 50px #000c; z-index: 20; }
   .alert b { display: block; font-size: 16px; }
-  .toastmsg { position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom) + 20px); transform: translateX(-50%) translateY(20px); background: #1d2331; border: 1px solid #36405a; padding: 10px 16px; border-radius: 14px; font-weight: 600; opacity: 0; transition: .2s; pointer-events: none; z-index: 30; max-width: 90vw; text-align: center; }
+  .toastmsg { position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom) + 20px); transform: translateX(-50%) translateY(20px); background: #1d2331; border: 1px solid #36405a; padding: 10px 16px; border-radius: 14px; font-weight: 600; opacity: 0; transition: .2s; pointer-events: none; z-index: 60; max-width: 90vw; text-align: center; }
   .toastmsg.on { opacity: 1; transform: translateX(-50%); }
   .over { position: fixed; inset: 0; background: #0c0e14f2; display: none; place-items: center; text-align: center; padding: 30px; z-index: 40; }
   .over.on { display: grid; }
@@ -95,6 +97,43 @@
   .upbar { height: 6px; border-radius: 6px; background: #2a3142; overflow: hidden; margin-top: 10px; }
   .upbar i { display: block; height: 100%; width: 0; background: var(--good); transition: width .15s; }
   .muted { color: var(--faint); font-size: 13px; }
+  /* Screen view: the PC's screen, full screen on the phone */
+  .scr { position: fixed; inset: 0; background: #000; z-index: 50; display: none; flex-direction: column; overscroll-behavior: none; }
+  .scr.on { display: flex; }
+  .sbar { display: flex; align-items: center; gap: 6px; padding: calc(env(safe-area-inset-top) + 6px) 8px 6px; background: #0c0e14; border-bottom: 1px solid var(--line); flex: none; overflow-x: auto; scrollbar-width: none; }
+  .sbar::-webkit-scrollbar { display: none; }
+  .sbar button, .sbar select { height: 36px; min-width: 36px; padding: 0 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--tile2); color: var(--text); font-weight: 600; font-size: 13px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; flex: none; }
+  .sbar button.on { background: color-mix(in srgb, var(--acc) 30%, transparent); border-color: var(--acc); }
+  .sbar svg { width: 18px; height: 18px; }
+  .spanel { position: absolute; z-index: 3; right: 8px; top: calc(env(safe-area-inset-top) + 54px); width: min(340px, calc(100vw - 16px)); max-height: calc(100% - 70px); overflow-y: auto; display: none; padding: 2px 14px; border-radius: 14px; border: 1px solid var(--line); background: #0c0e14f5; box-shadow: 0 10px 30px #0008; }
+  .spanel.on { display: block; }
+  .scr.imm .spanel { display: none; }
+  .srow { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .srow:last-child { border-bottom: 0; }
+  .srow b { display: block; font-size: 14px; font-weight: 600; }
+  .srow small { display: block; color: var(--faint); font-size: 11.5px; margin-top: 2px; }
+  .srow select { height: 36px; padding: 0 8px; border-radius: 10px; border: 1px solid var(--line); background: var(--tile2); color: var(--text); font-weight: 600; font-size: 13px; flex: none; max-width: 52%; }
+  .sbar .si { color: var(--faint); font-size: 11.5px; font-variant-numeric: tabular-nums; white-space: nowrap; margin: 0 4px; }
+  .sview { flex: 1; position: relative; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; }
+  .sinner { position: absolute; transform-origin: 0 0; will-change: transform; }
+  .sinner canvas { display: block; width: 100%; height: 100%; pointer-events: none; }
+  .scur { position: absolute; width: 0; height: 0; pointer-events: none; display: none; transform-origin: 0 0; }
+  .scur::before { content: ""; position: absolute; left: -1px; top: -1px; width: 14px; height: 21px; background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='21' viewBox='0 0 14 21'%3E%3Cpath d='M1 1v16l4-3.8 3 6.8 3-1.3-3-6.7h5.4z' fill='white' stroke='black' stroke-width='1.2' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat; }
+  .smsg { position: absolute; inset: 0; display: none; place-items: center; text-align: center; padding: 30px; color: var(--dim); background: #000c; }
+  .smsg.on { display: grid; }
+  .skeys { display: none; gap: 6px; padding: 6px 8px calc(env(safe-area-inset-bottom) + 6px); background: #0c0e14; border-top: 1px solid var(--line); overflow-x: auto; flex: none; scrollbar-width: none; }
+  .skeys.on { display: flex; }
+  .skeys::-webkit-scrollbar { display: none; }
+  .skeys button { height: 38px; min-width: 42px; padding: 0 11px; border-radius: 10px; border: 1px solid var(--line); background: var(--tile2); color: var(--text); font-weight: 600; font-size: 13px; flex: none; white-space: nowrap; }
+  /* full screen: no bars, just small floating buttons on the right edge */
+  .sfloat { position: absolute; right: calc(env(safe-area-inset-right) + 6px); top: 50%; transform: translateY(-50%); display: none; flex-direction: column; gap: 8px; z-index: 2; }
+  .scr.imm .sfloat { display: flex; }
+  .scr.imm .sbar, .scr.imm .skeys { display: none; }
+  .sfloat button { width: 40px; height: 40px; border-radius: 50%; border: 1px solid #ffffff30; background: #000a; color: #fff; display: grid; place-items: center; opacity: .55; }
+  .sfloat button:active, .sfloat button.on { opacity: 1; }
+  .sfloat button.on { background: color-mix(in srgb, var(--acc) 60%, #000); }
+  .sfloat svg { width: 18px; height: 18px; }
+  #skb { position: fixed; left: 0; bottom: 0; width: 1px; height: 1px; opacity: 0; border: 0; padding: 0; font-size: 16px; }
 </style>
 </head>
 <body>
@@ -110,6 +149,33 @@
   <input type="file" id="file" multiple style="display:none">
   <div class="upl" id="upl"><div class="r1"><div class="nm" id="upName"></div><span class="pc" id="upPct"></span><button class="ib2" id="upCancel" aria-label="Cancel"></button></div><div class="upbar"><i id="upFill"></i></div></div>
   <div class="over" id="over"><div><h2 id="overT">Connecting to your PC…</h2><p id="overP">Make sure Deck is running and your phone is on the same Wi-Fi.</p></div></div>
+  <div class="scr" id="scr" role="dialog" aria-label="PC screen">
+    <div class="sbar">
+      <button id="sClose" aria-label="Close"></button>
+      <button id="sFull" aria-label="Full screen (hide the bars)" title="Full screen"></button>
+      <button id="sCtl" aria-pressed="false" title="Taps and typing reach the PC only while this is on">Control off</button>
+      <button id="sSnd" aria-pressed="false" title="Play the PC's sound on this phone"></button>
+      <button id="sKb" aria-label="Keyboard" title="Keyboard"></button>
+      <button id="sKeys" aria-label="Keys and shortcuts" title="Keys and shortcuts">Keys</button>
+      <button id="sRight" aria-label="Next tap is a right-click" title="Next tap is a right-click">Right-click</button>
+      <button id="sFit" aria-label="Fit to screen" title="Fit to screen">Fit</button>
+      <select id="sMon" aria-label="Monitor"></select>
+      <button id="sSet" aria-label="Picture and sound settings" aria-expanded="false" title="Settings"></button>
+      <span class="si" id="sInfo"></span>
+    </div>
+    <div class="spanel" id="spanel" role="group" aria-label="Picture and sound settings">
+      <label class="srow"><span><b>Bitrate</b><small>Auto follows your connection</small></span><select id="sB"><option value="0">Auto</option><option value="30000">30 Mb/s</option><option value="15000">15 Mb/s</option><option value="8000">8 Mb/s</option><option value="4000">4 Mb/s</option><option value="2000">2 Mb/s</option><option value="1000">1 Mb/s</option><option value="500">0.5 Mb/s</option><option value="custom">Type…</option></select></label>
+      <label class="srow"><span><b>Frame rate</b><small>Pictures a second</small></span><select id="sF"><option value="15">15 fps</option><option value="24">24 fps</option><option value="30">30 fps</option><option value="60">60 fps</option></select></label>
+      <label class="srow"><span><b>On a slow connection</b><small>What to keep when the bitrate is tight</small></span><select id="sP"><option value="smooth">Smooth motion</option><option value="sharp">Sharp picture</option></select></label>
+      <label class="srow"><span><b>Picture size</b><small>The largest it may be</small></span><select id="sQ"><option value="sharp">Full size</option><option value="balanced">Medium</option><option value="fast">Small</option></select></label>
+      <label class="srow"><span><b>Video</b><small>H.264 needs far less data</small></span><select id="sV"><option value="auto">H.264</option><option value="jpeg">JPEG</option></select></label>
+      <label class="srow"><span><b>Sound quality</b><small>Low uses the least data</small></span><select id="sSQ"><option value="auto">Auto</option><option value="best">Best</option><option value="good">Good</option><option value="medium">Medium</option><option value="low">Low</option></select></label>
+    </div>
+    <div class="sview" id="sview"><div class="sinner" id="sinner"><canvas id="simg" role="img" aria-label="PC screen"></canvas><div class="scur" id="scur"></div></div><div class="smsg" id="smsg"></div>
+      <div class="sfloat"><button id="fKb" aria-label="Keyboard"></button><button id="fCtl" aria-label="Control on or off"></button><button id="fExit" aria-label="Show the bars"></button></div></div>
+    <div class="skeys" id="skeys"></div>
+    <input id="skb" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" aria-label="Type on the PC">
+  </div>
   <textarea id="copybuf" style="position:fixed;left:-9999px;top:0;opacity:0"></textarea>
 <script>
 const P = {
@@ -128,6 +194,7 @@ const P = {
   dl: '<path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/>', ext: '<path d="M14 3h7v7"/><path d="M10 14L21 3"/><path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"/>',
   up: '<path d="M12 21V9"/><path d="M7 14l5-5 5 5"/><path d="M5 3h14"/>', clip: '<rect x="6" y="4" width="12" height="17" rx="2"/><path d="M9 4V3h6v1"/>',
 };
+P.tune = '<path d="M4 7h9"/><path d="M17 7h3"/><circle cx="15" cy="7" r="2"/><path d="M4 17h3"/><path d="M11 17h9"/><circle cx="9" cy="17" r="2"/>';
 const ic = (n) => `<svg viewBox="0 0 24 24">${P[n] || ""}</svg>`;
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const $ = (id) => document.getElementById(id);
@@ -228,12 +295,15 @@ function render() {
   units = s.units || {};
   let h = "";
   if (pw.plan) h += `<div class="card plan"><div class="h">${ic("power")}Plan<button class="r" data-a="plan_cancel">Cancel</button></div><b>${esc(planText(pw.plan))}</b><div class="muted">${esc(pw.plan.progress || "")}</div></div>`;
+  if (st.screen && st.screen !== "off") h += `<div class="card"><div class="h">${ic("mon")}Screen</div>
+    <button class="btn p" data-a="screen" style="width:100%">${ic("mon")}${st.screen === "control" ? "See and control the PC" : "See the PC's screen"}</button>
+    <div class="muted" style="margin-top:8px">${st.screen === "control" ? "Tap to click, hold for right-click, drag to drag. Two fingers scroll or zoom." : "View only. Pinch to zoom."}</div></div>`;
   if (m && m.title) {
     const pct = m.len > 0 ? Math.min(100, m.pos / m.len * 100) : 0;
     h += `<div class="card"><div class="media"><div class="art" style="${m.art ? `background-image:url('${esc(m.art)}')` : ""}"></div>
       <div style="min-width:0;flex:1"><div class="mt">${esc(m.title)}</div><div class="ma">${esc(m.artist || m.album)}</div><div class="mf">${esc(m.app)}</div></div></div>
       ${m.len > 0 ? `<div class="bar"><i style="width:${pct}%"></i></div>` : ""}
-      <div class="ctl"><button data-media="prev" aria-label="Previous">${ic("prev")}</button><button class="pp" data-media="toggle" aria-label="${m.status === "playing" ? "Pause" : "Play"}">${ic(m.status === "playing" ? "pause" : "play")}</button><button data-media="next" aria-label="Next">${ic("next")}</button></div></div>`;
+      <div class="ctl">${skipBtn(m, "prev")}<button class="pp" data-media="toggle" aria-label="${m.status === "playing" ? "Pause" : "Play"}">${ic(m.status === "playing" ? "pause" : "play")}</button>${skipBtn(m, "next")}</div></div>`;
   }
   const apps = (st.apps || []).filter((a) => a.key !== "system");
   h += `<div class="card"><div class="h">${ic("vol")}Sound${apps.length > 2 ? `<button class="r" data-a="morevol">${showAllVol ? "Fewer" : "All apps"}</button>` : ""}</div>`;
@@ -260,7 +330,8 @@ function render() {
       <button class="chip" data-plan="sleep:60">${ic("moon")}Sleep in 1 h</button>
       <button class="chip" data-plan="shutdown:downloads">${ic("dl")}Off when downloads finish</button>
       <button class="chip" data-plan="sleep:media">${ic("moon")}Sleep when music stops</button></div>`}
-    <div class="stat" style="margin-top:12px"><div><small>CPU</small><b>${Math.round(s.cpu || 0)}%</b></div><div><small>RAM</small><b>${Math.round(s.ram || 0)}%</b></div><div><small>GPU</small><b>${s.gpu && s.gpu.temp != null ? deg(s.gpu.temp) : "–"}</b></div><div><small>Down</small><b style="font-size:13px">${rate(s.down || 0)}</b></div></div></div>`;
+    <div class="stat" style="margin-top:12px"><div><small>CPU</small><b>${s.cpu_t != null && s.cpu_t > 0 ? deg(s.cpu_t) : "–"}</b></div><div><small>RAM</small><b>${Math.round(s.ram || 0)}%</b></div><div><small>GPU</small><b>${s.gpu && s.gpu.temp != null ? deg(s.gpu.temp) : "–"}</b></div><div><small>Down</small><b style="font-size:13px">${rate(s.down || 0)}</b></div></div>
+    <div class="stat" style="margin-top:8px;grid-template-columns:1fr 1fr"><div><small>CPU power</small><b>${s.cpu_w != null ? Math.round(s.cpu_w) + " W" : "–"}</b></div><div><small>GPU power</small><b>${s.gpu_w != null ? Math.round(s.gpu_w) + " W" : "–"}</b></div></div></div>`;
   h += `<div class="card"><div class="h">${ic("timer")}Timers</div><div class="chips">${[5, 10, 15, 25, 60].map((x) => `<button class="chip" data-timer="${x}">${x} min</button>`).join("")}</div>`;
   for (const t of pw.timers || []) {
     const paused = t.paused_left != null;
@@ -298,11 +369,30 @@ setInterval(() => {
   });
 }, 1000);
 
+// Skip buttons: the player's own previous/next; when it has none (a video in a browser), 10 s
+// back/forward. Browsers switch what they report on and off while playing, so the jump buttons
+// stay available rather than following each report.
+const SK = { pos: 0, sent: 0 };
+function skipBtn(m, dir) {
+  const next = dir === "next";
+  if (next ? m.can_next : m.can_prev) return `<button data-media="${dir}" aria-label="${next ? "Next" : "Previous"}">${ic(dir)}</button>`;
+  return `<button data-seek="${next ? 10 : -10}" aria-label="${next ? "Forward" : "Back"} 10 seconds">${ic(dir)}<small class="sk">10</small></button>`;
+}
+
 document.addEventListener("click", (e) => {
   const b = e.target.closest("button");
   if (!b || !st) return;
   const d = b.dataset;
-  if (d.media) send({ a: "media", do: d.media, id: (st.media && st.media.current && st.media.current.id) || "" });
+  if (d.seek) {
+    const m = st.media && st.media.current;
+    if (m) {
+      // quick taps add up: each starts from where the last one was sent, not the PC's slightly late position
+      const from = Date.now() - SK.sent < 2500 ? SK.pos : m.pos;
+      SK.pos = Math.max(0, m.len > 0 ? Math.min(m.len, from + +d.seek) : from + +d.seek);
+      SK.sent = Date.now();
+      send({ a: "media", do: "seek", id: m.id || "", pos: SK.pos });
+    }
+  } else if (d.media) send({ a: "media", do: d.media, id: (st.media && st.media.current && st.media.current.id) || "" });
   else if (d.out) send({ a: "output", id: d.out });
   else if (d.mute) {
     if (d.mute === "__master") send({ a: "master", muted: !st.master.muted });
@@ -328,6 +418,7 @@ document.addEventListener("click", (e) => {
   else if (d.a === "clean") { if (d.confirm && !confirm(d.confirm)) return; send({ a: "clean" }); msg("Cleaning up…"); }
   else if (d.a === "morevol") { showAllVol = !showAllVol; render(); }
   else if (d.a === "clipget") send({ a: "clip_get" });
+  else if (d.a === "screen") { setMode(st.screen); screenOpen(); }
   else if (d.a === "pickfile") $("file").click();
   else if (d.a === "sendcopy" || d.a === "sendopen") {
     const t = $("txt").value.trim();
@@ -356,25 +447,66 @@ let upXhr = null, upStop = false;
 $("upCancel").innerHTML = ic("x");
 $("upCancel").onclick = () => { upStop = true; if (upXhr) upXhr.abort(); };
 
-function upload(f, i, n) {
+// Uploads go in 8 MB pieces the PC keeps as they arrive: a dropped connection (Wi-Fi hiccup,
+// screen off) is retried by itself and continues where it stopped, and picking the same file
+// again later continues too. Speed and time left show while it runs.
+const UP_PIECE = 8 << 20;
+function upId(f) {
+  let h = 5381;
+  for (const c of `${f.name}|${f.size}|${f.lastModified}`) h = (h * 33 + c.charCodeAt(0)) >>> 0;
+  return `${h.toString(16)}-${f.size}`;
+}
+function upDur(s) { s = Math.round(s); return s >= 3600 ? `${Math.floor(s / 3600)} h ${Math.floor(s % 3600 / 60)} min` : s >= 60 ? `${Math.floor(s / 60)} min ${s % 60} s` : `${s} s`; }
+function upReq(method, url, body, onprog) {
   return new Promise((res) => {
     const x = new XMLHttpRequest();
     upXhr = x;
-    $("upName").textContent = n > 1 ? `${f.name} (${i + 1} of ${n})` : f.name;
-    $("upPct").textContent = "0%";
-    $("upFill").style.width = "0";
-    x.open("POST", `/upload?k=${encodeURIComponent(key)}&name=${encodeURIComponent(f.name)}`);
-    x.upload.onprogress = (ev) => {
-      if (!ev.lengthComputable) return;
-      const p = ev.loaded / ev.total * 100;
-      $("upFill").style.width = p + "%";
-      $("upPct").textContent = `${Math.floor(p)}% · ${fmtB(ev.loaded)}`;
-    };
-    x.onload = () => res(x.status === 200 ? "ok" : x.status === 401 ? "This code is old. Scan the QR code again." : `Failed: ${x.responseText || x.status}`);
-    x.onerror = () => res("Upload failed. Is the phone still on the same Wi-Fi?");
-    x.onabort = () => res("cancelled");
-    x.send(f);
+    x.open(method, url);
+    x.timeout = 120000;
+    if (onprog) x.upload.onprogress = (ev) => onprog(ev.loaded);
+    x.onload = () => { let j = null; try { j = JSON.parse(x.responseText); } catch {} res({ status: x.status, j, text: x.responseText }); };
+    x.onerror = x.ontimeout = () => res({ status: 0 });
+    x.onabort = () => res({ status: -1 });
+    x.send(body);
   });
+}
+async function upload(f, i, n) {
+  const id = upId(f), q = `/upload?k=${encodeURIComponent(key)}&name=${encodeURIComponent(f.name)}&id=${id}&size=${f.size}`;
+  $("upName").textContent = n > 1 ? `${f.name} (${i + 1} of ${n})` : f.name;
+  let have = 0, fails = 0, speed = 0, last = { t: performance.now(), b: 0 };
+  const show = (b, note) => {
+    const p = f.size ? b / f.size * 100 : 100;
+    $("upFill").style.width = p + "%";
+    const now = performance.now(), dt = (now - last.t) / 1000;
+    if (dt >= 0.5) { const v = (b - last.b) / dt; speed = speed ? speed * 0.7 + v * 0.3 : v; last = { t: now, b }; }
+    $("upPct").textContent = note || `${Math.floor(p)}% · ${fmtB(b)} of ${fmtB(f.size)}${speed > 1 ? ` · ${fmtB(speed)}/s · ${upDur((f.size - b) / speed)} left` : ""}`;
+  };
+  const ask = async () => { const r = await upReq("GET", q); return r.status === 200 && r.j ? r.j.have : null; };
+  const h0 = await ask();
+  if (h0 === null) return "Upload failed. Is the phone still on the same Wi-Fi?";
+  have = h0;
+  last = { t: performance.now(), b: have };
+  if (have > 0) show(have, `Continuing from ${fmtB(have)}…`);
+  if (f.size === 0) {
+    const r = await upReq("POST", `${q}&off=0`, new Blob([]));
+    return r.status === 200 ? "ok" : `Failed: ${r.text || r.status}`;
+  }
+  while (have < f.size) {
+    if (upStop) return "cancelled";
+    const piece = f.slice(have, Math.min(have + UP_PIECE, f.size));
+    const r = await upReq("POST", `${q}&off=${have}`, piece, (l) => show(have + l));
+    if (r.status === -1) return "cancelled";
+    if (r.status === 200 && r.j) { have = r.j.have; fails = 0; if (r.j.done) return "ok"; continue; }
+    if (r.status === 409 && r.j) { have = r.j.have; continue; }
+    if (r.status === 401) return "This code is old. Scan the QR code again.";
+    if (r.status === 507) return r.text || "The PC's drive is almost full";
+    // the connection dropped: wait a moment, ask what the PC has, and go on from there
+    if (++fails > 40) return "Upload stopped: the PC can't be reached. Pick the file again later to continue where it stopped.";
+    for (let s = Math.min(15, 2 * fails); s > 0 && !upStop; s--) { show(have, `Connection lost · continuing in ${s} s (${fmtB(have)} kept)`); await new Promise((ok) => setTimeout(ok, 1000)); }
+    const h = await ask();
+    if (h !== null) have = h;
+  }
+  return "ok";
 }
 
 $("file").addEventListener("change", async (e) => {
@@ -395,6 +527,931 @@ $("file").addEventListener("change", async (e) => {
   else if (upStop) msg(sent ? `Cancelled after ${sent} file${sent > 1 ? "s" : ""}` : "Cancelled");
   else msg(sent === 1 ? `Sent ${files[0].name}` : `Sent ${sent} files`);
 });
+
+// ---------------------------------------------------------------- Screen view
+// The PC's screen (a separate WebSocket: big pictures never hold up the controls above).
+// Tap = click, hold = right-click, drag = drag, two fingers = scroll (or pinch to zoom; zoomed in,
+// two fingers move the picture), the phone keyboard, and a bar of keys and shortcuts. "View only" on the PC
+// ignores all input: one finger then moves a zoomed picture.
+const SC = { ws: null, open: false, mode: "off", z: 1, tx: 0, ty: 0, bw: 0, bh: 0, iw: 16, ih: 9, frames: 0, bytes: 0, t0: 0, right: false };
+const KEYS = [["Esc", "esc"], ["Tab", "tab"], ["Win", "win"], ["←", "left"], ["↑", "up"], ["↓", "down"], ["→", "right"], ["Del", "delete"], ["⌫", "backspace"], ["Enter", "enter"],
+  ["Copy", "c", ["ctrl"]], ["Paste", "v", ["ctrl"]], ["Undo", "z", ["ctrl"]], ["Select all", "a", ["ctrl"]], ["Alt+Tab", "tab", ["alt"]], ["Desktop", "d", ["win"]],
+  ["Task Manager", "esc", ["ctrl", "shift"]], ["F5", "f5"], ["Home", "home"], ["End", "end"], ["PgUp", "pageup"], ["PgDn", "pagedown"], ["Close app", "f4", ["alt"], "Close the app in front on the PC?"]];
+P.kb = '<rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/>';
+P.full = '<path d="M4 9V4h5"/><path d="M20 9V4h-5"/><path d="M4 15v5h5"/><path d="M20 15v5h-5"/>';
+P.shrink = '<path d="M9 4v5H4"/><path d="M15 4v5h5"/><path d="M9 20v-5H4"/><path d="M15 20v-5h5"/>';
+P.hand = '<path d="M8 13V5.5a1.5 1.5 0 0 1 3 0V12"/><path d="M11 11.5v-2a1.5 1.5 0 0 1 3 0V12"/><path d="M14 10.5a1.5 1.5 0 0 1 3 0V12"/><path d="M17 11.5a1.5 1.5 0 0 1 3 0V16a6 6 0 0 1-6 6h-2a6 6 0 0 1-5-2.7L4.3 15a1.6 1.6 0 0 1 2.6-1.8L8 15"/>';
+P.snd = '<path d="M11 5L6 9H2v6h4l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M19 5a10 10 0 0 1 0 14"/>';
+P.sndoff = '<path d="M11 5L6 9H2v6h4l5 4z"/><path d="M22 9l-6 6"/><path d="M16 9l6 6"/>';
+// Taps and typing reach the PC only while Control is on: it starts off every time, so watching
+// can't click anything by accident.
+const ctl = () => SC.mode === "control" && SC.ctlOn;
+function ssend(o) { if (SC.ws && SC.ws.readyState === 1) SC.ws.send(JSON.stringify(o)); }
+
+// Full screen and sideways: the PC's screen is wide, and Android allows the turn only in full
+// screen. Asked for again every time: the phone's Back button or a swipe ends full screen.
+function goFull() {
+  try {
+    const turn = () => screen.orientation && screen.orientation.lock("landscape").catch(() => {});
+    if (!document.fullscreenElement) document.documentElement.requestFullscreen({ navigationUI: "hide" }).then(turn).catch(() => {});
+    else turn();
+  } catch (e) {}
+}
+function screenOpen() {
+  SC.open = true; SC.z = 1; SC.tx = 0; SC.ty = 0; SC.ctlOn = false; SC.host = null; SC.rate = null;
+  setImmersive(false);
+  $("scr").classList.add("on");
+  document.body.style.overflow = "hidden";
+  goFull();
+  // the phone's Back button closes the Screen view (after leaving full screen) instead of the page
+  try { history.pushState({ deck: "screen" }, ""); } catch (e) {}
+  layoutScreen();
+  screenConnect();
+}
+function screenClose(fromBack) {
+  // closed by its own button: take back the history entry it added for the Back button
+  if (!fromBack && SC.open && history.state && history.state.deck === "screen") { SC.open = false; history.back(); }
+  SC.open = false;
+  $("scr").classList.remove("on");
+  document.body.style.overflow = "";
+  $("skeys").classList.remove("on"); $("sKeys").classList.remove("on");
+  if (SC.ws) { SC.ws.onclose = null; SC.ws.close(); SC.ws = null; }
+  videoStop();
+  soundStop();
+  try { if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock(); } catch (e) {}
+  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+}
+function smsg(t) { $("smsg").textContent = t || ""; $("smsg").classList.toggle("on", !!t); }
+
+// The home network is the fastest way in. A phone that opened the page over Tailscale tries the
+// PC's home address first (1.5 s), and stays on Tailscale when it isn't home.
+function screenHosts() {
+  const port = location.port ? ":" + location.port : "";
+  const lan = st && st.lan ? st.lan + port : null;
+  return lan && lan !== location.host ? [lan, location.host] : [location.host];
+}
+function screenConnect(hosts) {
+  if (!SC.open) return;
+  hosts = hosts || screenHosts();
+  const host = hosts[0];
+  const proto = location.protocol === "https:" ? "wss" : "ws";
+  const w = new WebSocket(`${proto}://${host}/screen?k=${encodeURIComponent(key)}&v=${videoParam()}${/^100\./.test(host) ? "&away=1" : ""}&pad=1`);
+  videoStop(); SC.vmode = "jpeg";
+  w.binaryType = "arraybuffer";
+  SC.ws = w; SC.t0 = Date.now(); SC.frames = 0; SC.bytes = 0; SC.lastDrawn = 0;
+  SC.via = /^100\./.test(host) ? "Tailscale" : "home Wi-Fi";
+  smsg("Connecting to the screen…");
+  // not answering soon (not home): the next address
+  if (hosts.length > 1) setTimeout(() => { if (SC.ws === w && w.readyState === 0) { w.onclose = null; w.close(); screenConnect(hosts.slice(1)); } }, 1500);
+  w.onmessage = (e) => {
+    if (typeof e.data !== "string") {
+      const buf = e.data;
+      SC.frames++; SC.bytes += buf.byteLength;
+      // 8 bytes of capture time, then the JPEG; decoded off the main thread, drawn on a canvas
+      const ts = new DataView(buf).getFloat64(0, true);
+      if (SC.vmode !== "jpeg") videoFrame(buf, ts);
+      else createImageBitmap(new Blob([new Uint8Array(buf, 8)], { type: "image/jpeg" })).then((bmp) => { ssend({ t: "ack" }); present(bmp, ts); }, () => ssend({ t: "ack" }));
+      if ($("smsg").textContent.startsWith("Connecting")) smsg("");
+      if (!SC.host) { SC.host = host; if (soundWanted()) soundStart(); }
+      return;
+    }
+    const v = JSON.parse(e.data);
+    if (v.t === "info") {
+      const mons = v.monitors || [];
+      $("sMon").style.display = mons.length > 1 ? "" : "none";
+      $("sMon").innerHTML = mons.map((m) => `<option value="${m.i}" ${m.i === v.mon ? "selected" : ""}>Screen ${m.i + 1}${m.primary ? " (main)" : ""}</option>`).join("");
+      $("sQ").value = v.quality || "sharp";
+      $("sF").value = String([15, 24, 60].includes(v.fps) ? v.fps : 30);
+      showBitrate(v.kbps || 0);
+      $("sP").value = v.priority === "sharp" ? "sharp" : "smooth";
+    } else if (v.t === "cur") {
+      const c = $("scur");
+      if (v.x < 0) c.style.display = "none";
+      else { c.style.display = "block"; c.style.left = v.x * 100 + "%"; c.style.top = v.y * 100 + "%"; }
+    } else if (v.t === "video") videoMsg(v);
+    else if (v.t === "rate") SC.rate = v;
+    // the PC measuring the line: answered at once
+    else if (v.t === "pad") ssend({ t: "padack", n: v.n });
+    // how many new pictures the PC's screen itself made (Deck can't send more than that)
+    else if (v.t === "diag") { SC.src = Math.round(v.new / 2); }
+    else if (v.t === "msg") smsg(v.text);
+    else if (v.t === "mode") setMode(v.mode);
+    else if (v.t === "note") { if (v.text) msg(v.text); }
+    else if (v.t === "off") { screenClose(); msg("Screen view was turned off on the PC"); }
+  };
+  w.onclose = () => {
+    if (!SC.open || SC.ws !== w) return;
+    if (hosts.length > 1 && !SC.frames) return screenConnect(hosts.slice(1)); // home address refused: Tailscale
+    smsg(st && st.screen === "off" ? "Screen view is off on the PC (Deck → Phone)." : "Reconnecting to the screen…");
+    setTimeout(() => { if (SC.open && SC.ws === w) screenConnect(); }, 2000);
+  };
+}
+
+// Lip sync: with the sound on (and Control off: with it on, taps need the picture right away),
+// each picture waits for the moment its sound comes out of the phone. Both carry the PC's capture
+// time, and the sound side knows when its samples play, so the two clocks' difference cancels.
+function draw(bmp, ts) {
+  // an ImageBitmap, a decoded video frame, or the <video> element of the Media Source path
+  const bw = bmp.displayWidth || bmp.videoWidth || bmp.width, bh = bmp.displayHeight || bmp.videoHeight || bmp.height;
+  if (ts < SC.lastDrawn || !bw) { if (bmp.close) bmp.close(); return; }
+  SC.lastDrawn = ts; SC.drawnAt = performance.now();
+  const c = $("simg");
+  if (c.width !== bw || c.height !== bh) { c.width = bw; c.height = bh; }
+  if (bw !== SC.iw || bh !== SC.ih) { SC.iw = bw; SC.ih = bh; layoutScreen(); }
+  c.getContext("2d").drawImage(bmp, 0, 0, bw, bh);
+  if (bmp.close) bmp.close();
+}
+
+// ---- H.264. WebCodecs where the browser has it (needs a secure page: https or localhost), else
+// the page's own decoder (WebAssembly in a worker: any browser, plain http), else the browser's
+// own player fed through Media Source Extensions.
+// Messages from the PC: 8 bytes capture time, a kind byte, the data (0/1 delta/key picture,
+// 2 MP4 header, 3/4 delta/key fragment); a {"t":"video"} message announces each stream.
+const CAN_WC = !!(window.VideoDecoder && window.EncodedVideoChunk);
+const CAN_SW = !!(window.WebAssembly && window.Worker);
+const CAN_MSE = !!(window.MediaSource && MediaSource.isTypeSupported && MediaSource.isTypeSupported('video/mp4; codecs="avc1.4d401f"'));
+function videoChoice() { try { return localStorage.getItem("deck_video") || "auto"; } catch (e) { return "auto"; } }
+function videoParam() { return videoChoice() === "jpeg" ? "jpeg" : CAN_WC ? "h264w" : CAN_SW ? "h264s" : CAN_MSE ? "h264m" : "jpeg"; }
+function videoStop() {
+  // pictures still waiting here were never shown: give their credits back, or the PC stalls
+  { let n = (SC.mq || []).filter((m) => m.ack).length + (SC.sb && SC.sb.acks ? 1 : 0) + (SC.wk ? SC.owed || 0 : 0); while (n-- > 0 && SC.ws && SC.vmode !== "jpeg") ssend({ t: "ack" }); }
+  if (SC.wk) { SC.wk.terminate(); SC.wk = null; clearInterval(SC.swTimer); }
+  if (SC.cv) { SC.cv.remove(); SC.cv = SC.gl = null; }
+  SC.swq = 0; SC.owed = 0; SC.wq = []; SC.swLast = 0;
+  try { if (SC.dec) SC.dec.close(); } catch (e) {}
+  SC.dec = null;
+  if (SC.vel) { try { SC.vel.pause(); SC.vel.removeAttribute("src"); SC.vel.load(); SC.vel.remove(); } catch (e) {} }
+  $("simg").style.opacity = "";
+  SC.vel = SC.ms = SC.sb = null; SC.mq = []; SC.vcfg = null;
+}
+function videoMsg(v) {
+  if (v.v === "pending") return;
+  // JPEG though this phone asked for H.264, for no reason: Video is set to JPEG on the PC; the
+  // setting shows that (else it says H.264 over a JPEG picture)
+  if (v.v === "jpeg" && !v.why && videoParam() !== "jpeg") { $("sV").value = "jpeg"; try { localStorage.setItem("deck_video", "jpeg"); } catch (e) {} }
+  if (v.v === "jpeg") { videoStop(); SC.vmode = "jpeg"; SC.hw = null; if (v.why) msg("Using JPEG video: " + v.why); return; }
+  // a size change: the running Media Source player takes the new header and carries on (no blank)
+  const same = v.v === "mse" && SC.vmode === "mse" && SC.sb && SC.ms && SC.ms.readyState === "open";
+  SC.vmode = v.v; SC.vcfg = v; SC.hw = v.hw; SC.needKey = true;
+  // nothing on screen 4 s later: this phone can't show the video; use JPEG from now on
+  const t0 = performance.now(), w = SC.ws;
+  setTimeout(() => {
+    if (SC.ws !== w || !SC.open || (SC.drawnAt || 0) > t0) return;
+    try { localStorage.setItem("deck_video", "jpeg"); } catch (e) {}
+    $("sV").value = "jpeg"; ssend({ t: "codec", v: "jpeg" });
+    msg("H.264 didn't show on this phone; using JPEG");
+    w.onclose = null; w.close(); SC.ws = null; screenConnect();
+  }, 4000);
+  if (v.v === "wc") wcStart(v); else if (v.v === "sw") swStart(v); else if (!same) mseStart(v);
+}
+function videoFrame(buf, ts) {
+  const kind = new DataView(buf).getUint8(8);
+  if (SC.vmode === "sw") swFrame(buf, ts, kind);
+  else if (SC.vmode === "wc") {
+    const key = kind === 1;
+    if (!SC.dec || (SC.needKey && !key)) { ssend({ t: "ack" }); return; }
+    SC.needKey = false;
+    try { SC.dec.decode(new EncodedVideoChunk({ type: key ? "key" : "delta", timestamp: Math.round(ts * 1000), data: new Uint8Array(buf, 9) })); }
+    catch (e) { ssend({ t: "ack" }); wcRestart(); }
+  } else {
+    if (kind === 2) { SC.init = new Uint8Array(buf.slice(9)); SC.mq.push({ d: SC.init }); }
+    else {
+      // answered on arrival: the PC's pacing and bitrate follow the connection, not the player
+      ssend({ t: "ack" }); SC.nin = (SC.nin || 0) + 1;
+      if (kind === 3 && SC.needKey) return;
+      if (kind === 4) SC.needKey = false;
+      SC.mq.push({ d: new Uint8Array(buf, 9), key: kind === 4 });
+    }
+    msePump();
+  }
+}
+function wcStart(v) {
+  try { if (SC.dec) SC.dec.close(); } catch (e) {}
+  const dec = new VideoDecoder({
+    output: (f) => {
+      ssend({ t: "ack" });
+      const ts = f.timestamp / 1000;
+      // frames held for lip sync would starve the decoder: keep a copy instead
+      if (synced()) createImageBitmap(f).then((b) => { f.close(); present(b, ts); }, () => f.close());
+      else draw(f, ts);
+    },
+    error: () => wcRestart(),
+  });
+  try { dec.configure({ codec: v.codec, optimizeForLatency: true }); } catch (e) { return wcRestart(true); }
+  SC.dec = dec;
+}
+function wcRestart(giveUp) {
+  if (giveUp) { SC.vmode = "jpeg"; msg("This phone can't decode the video; using JPEG"); try { localStorage.setItem("deck_video", "jpeg"); } catch (e) {} return; }
+  SC.needKey = true; ssend({ t: "idr" });
+  if (SC.vcfg) wcStart(SC.vcfg);
+}
+// ---- H.264 decoded by the page itself (h264dec-2.js: a Web Worker with a WebAssembly decoder):
+// works on plain http in any browser. Each picture is drawn as soon as it's decoded, like the
+// JPEG pictures (no player with its own clock to stall or replay). Pictures are answered on
+// arrival (the Wi-Fi round trip doesn't limit the frame rate) unless 3 already wait for the
+// decoder: then once decoded, so a phone that decodes slowly is sent fewer pictures instead of a
+// growing queue.
+function swStart(v) {
+  SC.needKey = true; SC.vsize = [v.w, v.h];
+  if (SC.vmax && v.w > SC.vmax) ssend({ t: "vmax", w: SC.vmax });
+  swCanvas();
+  if (!SC.wk) {
+    const wk = new Worker("/h264dec-2.js");
+    SC.wk = wk; SC.wkReady = false; SC.wq = []; SC.swq = 0; SC.owed = 0;
+    wk.onmessage = (e) => swOut(wk, e.data);
+    wk.onerror = () => { if (SC.wk === wk) swFail("the decoder didn't load"); };
+    SC.sws = { nin: 0, nout: 0, ms: 0, err: 0, bad: 0 };
+    clearInterval(SC.swTimer);
+    SC.swTimer = setInterval(() => {
+      if (SC.wk !== wk) return;
+      const s = SC.sws, busy = s.ms / 3000;
+      // decoding takes most of the time, or pictures queue for it: narrower pictures (a phone
+      // 78% busy at 1280 px already had 8 waiting and a 300 ms delay)
+      s.bad = busy > 0.7 || SC.swq >= 4 ? s.bad + 1 : 0;
+      if (s.bad >= 2 && SC.vsize[0] > 480) {
+        SC.vmax = [1024, 854, 640, 480].find((x) => x < SC.vsize[0]);
+        ssend({ t: "vmax", w: SC.vmax }); s.bad = 0;
+      }
+      s.nin = s.nout = s.ms = s.err = 0;
+    }, 3000);
+  } else if (SC.wkReady) SC.wk.postMessage({ t: "reset" });
+  else SC.wq.push({ t: "reset" });
+}
+function swFail(why) {
+  videoStop(); SC.vmode = "jpeg";
+  msg("This phone can't decode the H.264 video; using JPEG");
+  try { localStorage.setItem("deck_video", "jpeg"); } catch (e) {}
+  $("sV").value = "jpeg";
+  if (SC.ws) { const w = SC.ws; w.onclose = null; w.close(); SC.ws = null; screenConnect(); }
+}
+function swFrame(buf, ts, kind) {
+  const key = kind === 1;
+  SC.sws.nin++;
+  if (SC.needKey && !key) { ssend({ t: "ack" }); return; }
+  SC.needKey = false;
+  const m = { t: "d", d: buf, o: 9, ts, key };
+  if (SC.swq < 3) ssend({ t: "ack" }); else SC.owed = (SC.owed || 0) + 1;
+  SC.swq++;
+  if (SC.wkReady) SC.wk.postMessage(m, [buf]); else SC.wq.push(m);
+}
+function swOut(wk, m) {
+  if (wk !== SC.wk) return;
+  if (m.t === "ready") {
+    SC.wkReady = true;
+    for (const q of SC.wq) wk.postMessage(q, q.d ? [q.d] : []);
+    SC.wq = [];
+    return;
+  }
+  if (m.t === "fail") return swFail(m.why);
+  SC.swq--;
+  if (SC.owed > 0) { SC.owed--; ssend({ t: "ack" }); }
+  if (m.t === "e") {
+    // a picture that didn't decode (a broken stream): go on from a new key picture
+    SC.sws.err++;
+    const now = performance.now();
+    if (now - (SC.keyAt || 0) > 1000) { SC.keyAt = now; SC.needKey = true; ssend({ t: "idr" }); }
+    return;
+  }
+  SC.sws.nout++; SC.sws.ms += m.ms;
+  if (synced()) {
+    const wait = m.ts + SA.off - performance.now();
+    if (wait > 3 && wait < 1500) { setTimeout(() => swDraw(m), wait); return; }
+  } else {
+    const wait = swDue(m.ts) - performance.now();
+    if (wait > 2) { setTimeout(() => swDraw(m), wait); return; }
+  }
+  swDraw(m);
+}
+// When a picture is due: its capture time, plus the quickest any picture took lately (the two
+// clocks' difference and the usual trip), plus the lateness most pictures stay under (90 %),
+// so a Wi-Fi hiccup doesn't show as a stutter. At most 120 ms (40 ms while controlling the PC).
+function swDue(ts) {
+  const now = performance.now(), j = SC.jit || (SC.jit = { d: [], base: 0, add: 0, at: 0 });
+  j.d.push([now, now - ts]);
+  while (j.d.length && now - j.d[0][0] > 4000) j.d.shift();
+  if (now - j.at > 500) {
+    j.at = now;
+    const ds = j.d.map((x) => x[1]).sort((a, b) => a - b);
+    j.base = ds[0];
+    j.add = Math.min(ctl() ? 40 : 120, ds[Math.floor(ds.length * 0.9)] - ds[0]);
+  }
+  return ts + j.base + j.add;
+}
+function swCanvas() {
+  if (SC.cv) return;
+  const c = document.createElement("canvas");
+  c.style.cssText = "position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none";
+  $("sinner").insertBefore(c, $("sinner").firstChild);
+  $("simg").style.opacity = "0";
+  SC.cv = c; SC.gl = glSetup(c);
+  c.addEventListener("webglcontextlost", (e) => { e.preventDefault(); if (SC.cv === c) { c.remove(); SC.cv = SC.gl = null; } });
+}
+function swDraw(m) {
+  swShow(m);
+  // the buffer goes back to the decoder for the next picture
+  if (SC.wk && m.y.byteLength) SC.wk.postMessage({ t: "buf", y: m.y }, [m.y]);
+}
+function swShow(m) {
+  if (!SC.wk || m.ts < (SC.swLast || 0)) return;
+  // decoded pictures are whole macroblocks (854 px comes out 864): the stream's own size is shown;
+  // a picture from before a size change is left out
+  const [vw, vh] = SC.vsize;
+  if (m.w < vw || m.h < vh || m.w - vw >= 16 || m.h - vh >= 16) return;
+  SC.swLast = m.ts;
+  swCanvas();
+  const c = SC.cv;
+  if (c.width !== vw || c.height !== vh) { c.width = vw; c.height = vh; }
+  if (vw !== SC.iw || vh !== SC.ih) { SC.iw = vw; SC.ih = vh; layoutScreen(); }
+  if (SC.gl) glDraw(SC.gl, m, vw, vh); else cpuDraw(c, m, vw, vh);
+  SC.drawnAt = performance.now();
+}
+// YUV 4:2:0 (BT.709, limited range: what the PC encodes) to the screen, on the graphics chip
+function glSetup(c) {
+  const gl = c.getContext("webgl", { alpha: false, antialias: false, depth: false }) || c.getContext("experimental-webgl");
+  if (!gl) return null;
+  const sh = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); return s; };
+  const p = gl.createProgram();
+  gl.attachShader(p, sh(gl.VERTEX_SHADER, "attribute vec2 a;varying vec2 t;uniform vec2 s;void main(){t=vec2((a.x+1.)*.5*s.x,(1.-a.y)*.5*s.y);gl_Position=vec4(a,0.,1.);}"));
+  gl.attachShader(p, sh(gl.FRAGMENT_SHADER, "precision mediump float;varying vec2 t;uniform sampler2D y,u,v;void main(){float Y=1.16438*(texture2D(y,t).r-.0627),U=texture2D(u,t).r-.50196,V=texture2D(v,t).r-.50196;gl_FragColor=vec4(Y+1.79274*V,Y-.21325*U-.53291*V,Y+2.1124*U,1.);}"));
+  gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) return null;
+  gl.useProgram(p);
+  gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+  const a = gl.getAttribLocation(p, "a");
+  gl.enableVertexAttribArray(a); gl.vertexAttribPointer(a, 2, gl.FLOAT, false, 0, 0);
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+  const tex = ["y", "u", "v"].map((n, i) => {
+    const t = gl.createTexture();
+    gl.activeTexture(gl.TEXTURE0 + i); gl.bindTexture(gl.TEXTURE_2D, t);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.uniform1i(gl.getUniformLocation(p, n), i);
+    return t;
+  });
+  return { gl, tex, s: gl.getUniformLocation(p, "s") };
+}
+function glDraw(g, m, vw, vh) {
+  const gl = g.gl, W = m.w, H = m.h, d = new Uint8Array(m.y), q = W * H / 4;
+  [[d.subarray(0, W * H), W, H], [d.subarray(W * H, W * H + q), W / 2, H / 2], [d.subarray(W * H + q, W * H + 2 * q), W / 2, H / 2]].forEach(([px, w, h], i) => {
+    gl.activeTexture(gl.TEXTURE0 + i); gl.bindTexture(gl.TEXTURE_2D, g.tex[i]);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, w, h, 0, gl.LUMINANCE, gl.UNSIGNED_BYTE, px);
+  });
+  gl.uniform2f(g.s, vw / W, vh / H);
+  gl.viewport(0, 0, vw, vh);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+}
+// no WebGL: the same sums in JavaScript (slower, but it works)
+function cpuDraw(c, m, vw, vh) {
+  const ctx = c.getContext("2d"), img = ctx.createImageData(vw, vh), o = img.data, d = new Uint8Array(m.y), W = m.w, cu = W * m.h, cv = cu + W * m.h / 4;
+  for (let r = 0, k = 0; r < vh; r++) {
+    for (let x = 0; x < vw; x++, k += 4) {
+      const Y = 1.16438 * (d[r * W + x] - 16), ci = (r >> 1) * (W >> 1) + (x >> 1), U = d[cu + ci] - 128, V = d[cv + ci] - 128;
+      o[k] = Y + 1.79274 * V; o[k + 1] = Y - 0.21325 * U - 0.53291 * V; o[k + 2] = Y + 2.1124 * U; o[k + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+}
+function mseStart(v) {
+  videoStop();
+  SC.vcfg = v; SC.needKey = true; SC.mq = []; SC.keys = []; SC.skip = 0; SC.init = null;
+  // the cushion of pictures kept ahead: grows each time the player runs out, shrinks slowly while it doesn't
+  SC.tgt = 0.15; SC.dry = 0; SC.dryAt = performance.now();
+  // a width this phone was found too slow for, earlier on this page
+  if (SC.vmax && v.w > SC.vmax) ssend({ t: "vmax", w: SC.vmax });
+  const vid = document.createElement("video");
+  vid.muted = true; vid.playsInline = true; vid.setAttribute("playsinline", "");
+  // shown itself, under the (clear) canvas: Firefox won't copy a video's frames onto a canvas
+  vid.style.cssText = "position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none";
+  $("sinner").insertBefore(vid, $("sinner").firstChild);
+  $("simg").style.opacity = "0";
+  const ms = new MediaSource();
+  SC.vel = vid; SC.ms = ms;
+  vid.src = URL.createObjectURL(ms);
+  ms.addEventListener("sourceopen", () => {
+    if (SC.ms !== ms || SC.sb) return;
+    try {
+      const sb = ms.addSourceBuffer(`video/mp4; codecs="${v.codec}"`);
+      // pictures play one after another, each for its own duration (the PC's capture timing)
+      sb.mode = "sequence";
+      sb.addEventListener("updateend", () => {
+        // behind: straight onto the new key picture (never back: that replays old pictures)
+        if (sb.seekTo != null) { const t = sb.seekTo; sb.seekTo = null; vid.currentTime = t + 0.002; }
+        msePump();
+      });
+      sb.addEventListener("error", () => { mseRebuild(vid); });
+      SC.sb = sb;
+      msePump();
+    } catch (e) { SC.vmode = "jpeg"; msg("This phone can't play H.264 here; using JPEG"); try { localStorage.setItem("deck_video", "jpeg"); } catch (e2) {} }
+  }, { once: true });
+  vid.addEventListener("error", () => { mseRebuild(vid); });
+  // Ran out (the PC sends pictures even for a still screen, so this is the connection or the
+  // phone): a bigger cushion from now on, and a fresh key picture to go on from. Firefox empties
+  // its decoder when it runs out and would otherwise decode again from the last key picture,
+  // seconds back, showing those old pictures on the way.
+  vid.addEventListener("waiting", () => {
+    if (SC.vel !== vid || !SC.sb || !vid.buffered.length) return;
+    const now = performance.now();
+    SC.dry++; SC.dryAt = now;
+    SC.tgt = Math.min(0.8, SC.tgt + 0.1);
+    if (now - (SC.keyAt || 0) > 2000) {
+      SC.keyAt = now; SC.needKey = true; SC.afterDry = true; ssend({ t: "idr" });
+      // pictures still waiting here would be decoded from that old key picture too: dropped (headers kept)
+      SC.mq = SC.mq.filter((m) => m.key || !("key" in m));
+    }
+  });
+  vid.play().catch(() => {});
+  let last = -1, rate = 1;
+  const loop = () => {
+    if (SC.vel !== vid) return;
+    const b = vid.buffered, now = performance.now();
+    if (now - SC.dryAt > 10000 && SC.tgt > 0.12) { SC.tgt = Math.max(0.12, SC.tgt - 0.03); SC.dryAt = now; }
+    if (b.length) {
+      const ahead = b.end(b.length - 1) - vid.currentTime, t = SC.tgt;
+      // far behind (the phone was busy): the PC is asked for a key picture to jump to
+      if (SC.skip && now - SC.skip > 4000) SC.skip = 0;
+      if (ahead > t + 1.5 && !SC.skip) { SC.skip = now; ssend({ t: "idr" }); }
+      // otherwise the cushion is kept by playing a touch slower or faster
+      let r = rate;
+      if (ahead > t + 1) r = 1.3;
+      else if (ahead > t + 0.25) r = 1.08;
+      else if (ahead < t * 0.5) r = 0.9;
+      else if (ahead < t) r = 0.97;
+      else if ((rate > 1 && ahead < t + 0.1) || (rate < 1 && ahead > t + 0.05)) r = 1;
+      if (r !== rate) { rate = r; vid.playbackRate = r; }
+      if (vid.paused) vid.play().catch(() => {});
+    }
+    if (vid.readyState >= 2 && vid.currentTime !== last) {
+      last = vid.currentTime; SC.drawnAt = now;
+      if (vid.videoWidth && (vid.videoWidth !== SC.iw || vid.videoHeight !== SC.ih)) { SC.iw = vid.videoWidth; SC.ih = vid.videoHeight; layoutScreen(); }
+    }
+    requestAnimationFrame(loop);
+  };
+  requestAnimationFrame(loop);
+  // the phone's player dropping many pictures (it can't decode them in time): the PC is asked for
+  // narrower ones (some phones can't keep up with 1280 px in the browser's player)
+  let ticks = 0, bad = 0, lastDrop = 0, lastTot = 0;
+  const st = setInterval(() => {
+    if (SC.vel !== vid) return clearInterval(st);
+    const b = vid.buffered;
+    const q = vid.getVideoPlaybackQuality ? vid.getVideoPlaybackQuality() : {};
+    const dd = (q.droppedVideoFrames || 0) - lastDrop, dt = (q.totalVideoFrames || 0) - lastTot;
+    lastDrop = q.droppedVideoFrames || 0; lastTot = q.totalVideoFrames || 0;
+    bad = ++ticks > 1 && dt >= 20 && dd / dt > 0.15 ? bad + 1 : 0;
+    if (bad >= 2 && vid.videoWidth > 480) {
+      SC.vmax = [1024, 854, 640, 480].find((x) => x < vid.videoWidth);
+      ssend({ t: "vmax", w: SC.vmax }); bad = 0;
+    }
+    SC.nin = 0; SC.dry = 0;
+  }, 3000);
+}
+// the player broke (a decode error): a new one, fed the stream's header again, from a new key picture
+function mseRebuild(vid) {
+  if (SC.vel !== vid || !SC.vcfg) return;
+  const now = performance.now();
+  SC.rebuilds = (SC.rebuilds || []).filter((t) => now - t < 30000).concat(now);
+  if (SC.rebuilds.length > 3) {
+    videoStop(); SC.vmode = "jpeg"; msg("This phone can't play the H.264 video; using JPEG");
+    try { localStorage.setItem("deck_video", "jpeg"); } catch (e) {}
+    $("sV").value = "jpeg";
+    if (SC.ws) { const w = SC.ws; w.onclose = null; w.close(); SC.ws = null; screenConnect(); }
+    return;
+  }
+  const init = SC.init;
+  mseStart(SC.vcfg);
+  if (init) { SC.init = init; SC.mq.push({ d: init }); }
+  ssend({ t: "idr" });
+}
+function msePump() {
+  const sb = SC.sb, vid = SC.vel;
+  if (!sb || !vid || sb.updating || !SC.mq.length) return;
+  // pictures long shown leave the buffer, but only up to a key picture: removing part of a run
+  // of pictures removes everything that depends on it too, up to the next key picture
+  const b = vid.buffered, ct = vid.currentTime;
+  if (b.length && ct - b.start(0) > 20) {
+    const k = SC.keys.filter((x) => x <= ct - 3 && x > b.start(0) + 0.5).pop();
+    if (k != null) { SC.keys = SC.keys.filter((x) => x >= k); try { sb.remove(0, k - 0.05); return; } catch (e) {} }
+    else if (performance.now() - (SC.keyAsk || 0) > 8000) { SC.keyAsk = performance.now(); ssend({ t: "idr" }); }
+  }
+  const m = SC.mq.shift();
+  if (m.key) {
+    // after running out (pictures were left out until this key picture): it goes right after
+    // what's there, with no gap (abort() restarts the sequence's timing at the end)
+    if (SC.afterDry) { SC.afterDry = false; try { sb.abort(); } catch (e) {} }
+    // where this key picture lands: right after what's there (sequence mode)
+    const at = b.length ? b.end(b.length - 1) : 0;
+    SC.keys.push(at);
+    if (SC.skip && at - ct > 0.5) { sb.seekTo = at; SC.skip = 0; }
+  }
+  try { sb.appendBuffer(m.d); } catch (e) { SC.needKey = true; ssend({ t: "idr" }); }
+}
+const synced = () => !!(SA.ctx && SA.off != null && !ctl());
+function present(bmp, ts) {
+  if (synced()) {
+    const wait = ts + SA.off - performance.now();
+    if (wait > 3 && wait < 1500) { setTimeout(() => draw(bmp, ts), wait); return; }
+  }
+  draw(bmp, ts);
+}
+function showBitrate(k) {
+  const sel = $("sB");
+  if (k && ![...sel.options].some((o) => o.value === String(k))) {
+    const o = document.createElement("option");
+    o.value = String(k); o.textContent = `${+(k / 1000).toFixed(2)} Mb/s`;
+    sel.insertBefore(o, sel.querySelector('option[value="custom"]'));
+  }
+  sel.value = String(k);
+}
+
+function setMode(m) {
+  SC.mode = m;
+  if (m !== "control") SC.ctlOn = false;
+  const c = ctl();
+  $("sCtl").style.display = $("fCtl").style.display = m === "control" ? "" : "none";
+  $("sCtl").textContent = c ? "Control on" : "Control off";
+  $("sCtl").classList.toggle("on", c); $("sCtl").setAttribute("aria-pressed", String(c));
+  $("fCtl").classList.toggle("on", c);
+  for (const id of ["sKb", "sKeys", "sRight", "fKb"]) $(id).style.display = c ? "" : "none";
+  if (!c) { $("skeys").classList.remove("on"); $("sKeys").classList.remove("on"); if (document.activeElement === skb) skb.blur(); }
+}
+function toggleControl() {
+  SC.ctlOn = !SC.ctlOn;
+  setMode(SC.mode);
+  msg(SC.ctlOn ? "Control on: taps and typing reach the PC" : "Control off: just watching");
+}
+function setImmersive(on) {
+  SC.imm = on;
+  $("scr").classList.toggle("imm", on);
+  setTimeout(layoutScreen, 30);
+}
+
+// ---- sound: the PC's sound on the phone (its own WebSocket, so pictures never delay it)
+// Packets are joined into one continuous stream: resampled here to the phone's own rate with the
+// state carried from packet to packet (Chrome resampling each 10 ms piece on its own clicked at
+// every seam), each piece starting on the exact sample where the last ended, and the PC's and the
+// phone's slightly different clocks evened out by nudging the speed (±0.5 %, inaudible) instead of
+// dropping or skipping sound. A cushion against Wi-Fi hiccups and the phone's own audio chunks
+// starts at 120 ms (from 60 a home Wi-Fi had 5 dropouts in the first half minute while it grew),
+// grows after a dropout by as long as the sound was missing, and shrinks 10 ms every 30 s without
+// one. Just watching it may reach 1 s (phone Wi-Fi drops out for up to ~0.7 s now and then; the
+// pictures wait for the sound, so they stay in step); while controlling the PC 0.3 s at most. Sound that got ahead of the cushion is caught up by skipping silent moments
+// (inaudible) and by reading up to 1 % faster.
+const SA = { ws: null, ctx: null, frame: 0, buf: 0.08, min: 0.08, calm: 0, played: false, off: null, q: null, wantQ: null, pos: 0, tail: [0, 0], speed: 1, drops: 0 };
+function soundWanted() { try { return localStorage.getItem("deck_sound") === "1"; } catch (e) { return false; } }
+function soundChoice() { try { return localStorage.getItem("deck_sound_q") || "auto"; } catch (e) { return "auto"; } }
+// Auto: uncompressed when there's plenty of room, compressed (a quarter) on a few Mb/s, 24 kHz
+// stereo (~200 kb/s) from 0.6 Mb/s, and 16 kHz mono (~70 kb/s) below
+function soundAuto() {
+  const k = SC.rate && SC.rate.kbps;
+  // away, the PC's upload carries it (often 1 Mb/s): the smallest
+  if (!k) return SC.via === "Tailscale" ? "medium" : "best";
+  return k >= 8000 ? "best" : k >= 2000 ? "good" : k >= 600 ? "medium" : "low";
+}
+const ASTEPS = [7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 19, 21, 23, 25, 28, 31, 34, 37, 41, 45, 50, 55, 60, 66, 73, 80, 88, 97, 107, 118, 130, 143, 157, 173, 190, 209, 230, 253, 279, 307, 337, 371, 408, 449, 494, 544, 598, 658, 724, 796, 876, 963, 1060, 1166, 1282, 1411, 1552, 1707, 1878, 2066, 2272, 2499, 2749, 3024, 3327, 3660, 4026, 4428, 4871, 5358, 5894, 6484, 7132, 7845, 8630, 9493, 10442, 11487, 12635, 13899, 15289, 16818, 18500, 20350, 22385, 24623, 27086, 29794, 32767];
+const AIDX = [-1, -1, -1, -1, 2, 4, 6, 8, -1, -1, -1, -1, 2, 4, 6, 8];
+function adpcm(code, st) {
+  const step = ASTEPS[st.i];
+  let vp = step >> 3;
+  if (code & 4) vp += step; if (code & 2) vp += step >> 1; if (code & 1) vp += step >> 2;
+  st.p = code & 8 ? Math.max(-32768, st.p - vp) : Math.min(32767, st.p + vp);
+  st.i = Math.min(88, Math.max(0, st.i + AIDX[code]));
+  return st.p / 32768;
+}
+// a packet: capture time, format (0 PCM, 1 ADPCM), channels, rate, [ADPCM states], samples
+function soundDecode(buf) {
+  const dv = new DataView(buf), fmt = dv.getUint8(8), ch = dv.getUint8(9), rate = dv.getUint32(10, true);
+  let L, R;
+  if (fmt === 0) {
+    const pcm = new Int16Array(buf, 14, (buf.byteLength - 14) >> 1), n = pcm.length / ch;
+    if (!n) return null;
+    L = new Float32Array(n); R = ch === 2 ? new Float32Array(n) : L;
+    for (let i = 0; i < n; i++) { L[i] = pcm[i * ch] / 32768; if (ch === 2) R[i] = pcm[i * ch + 1] / 32768; }
+  } else {
+    const sts = []; let o = 14;
+    for (let c = 0; c < ch; c++) { sts.push({ p: dv.getInt16(o, true), i: Math.min(88, dv.getUint8(o + 2)) }); o += 4; }
+    const bytes = new Uint8Array(buf, o), n = ch === 2 ? bytes.length : bytes.length * 2;
+    if (!n) return null;
+    L = new Float32Array(n);
+    if (ch === 2) {
+      R = new Float32Array(n);
+      for (let i = 0; i < n; i++) { L[i] = adpcm(bytes[i] & 15, sts[0]); R[i] = adpcm(bytes[i] >> 4, sts[1]); }
+    } else {
+      R = L;
+      for (let i = 0; i < bytes.length; i++) { L[2 * i] = adpcm(bytes[i] & 15, sts[0]); L[2 * i + 1] = adpcm(bytes[i] >> 4, sts[0]); }
+    }
+  }
+  return { L, R, rate, ts: dv.getFloat64(0, true) };
+}
+// Linear resampling to the phone's rate, continuing from the last packet (SA.tail is its last
+// sample, SA.pos the read position counted from it).
+function resample(L, R, step) {
+  const n = L.length, out = Math.max(0, Math.ceil((n - SA.pos) / step));
+  const oL = new Float32Array(out), oR = new Float32Array(out);
+  let pos = SA.pos, k = 0;
+  const at = (a, t, i) => (i === 0 ? t : a[i - 1]);
+  for (; k < out && pos < n; k++, pos += step) {
+    const i = Math.floor(pos), f = pos - i;
+    oL[k] = at(L, SA.tail[0], i) * (1 - f) + at(L, SA.tail[0], i + 1) * f;
+    oR[k] = at(R, SA.tail[1], i) * (1 - f) + at(R, SA.tail[1], i + 1) * f;
+  }
+  SA.pos = pos - n;
+  SA.tail = [L[n - 1], R[n - 1]];
+  return [oL.subarray(0, k), oR.subarray(0, k)];
+}
+function soundStart() {
+  soundStop();
+  try { SA.ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: "interactive" }); } catch (e) { msg("This browser can't play sound here"); return; }
+  // Android plays sound in chunks (often 20-40 ms, Chrome's baseLatency): the cushion has to
+  // cover a couple of those as well as Wi-Fi's hiccups, or it runs dry right at a chunk boundary
+  SA.min = Math.max(0.06, 2 * (SA.ctx.baseLatency || 0.01) + 0.03);
+  // (it shrinks back to the starting 120 ms, not below: at 110 ms a home Wi-Fi ran dry)
+  SA.floor = Math.max(SA.min, 0.12);
+  SA.frame = 0; SA.buf = SA.floor; SA.lastArr = 0; SA.srcs = []; SA.lastCt = null; SA.lastWall = 0; SA.played = false; SA.calm = SA.ctx.currentTime; SA.off = null; SA.pos = 0; SA.tail = [0, 0]; SA.speed = 1; SA.drops = 0;
+  SA.q = soundChoice() === "auto" ? soundAuto() : soundChoice();
+  const proto = location.protocol === "https:" ? "wss" : "ws";
+  const w = new WebSocket(`${proto}://${SC.host || location.host}/audio?k=${encodeURIComponent(key)}&q=${SA.q}`);
+  w.binaryType = "arraybuffer";
+  SA.ws = w;
+  // how long this page stalls (sound pieces are handled here, between the pictures)
+  clearInterval(SA.stallT); SA.tick = 0; SA.stallMax = 0;
+  SA.stallT = setInterval(() => {
+    const t = performance.now(), late = SA.tick ? t - SA.tick - 50 : 0;
+    SA.tick = t; SA.stallMax = Math.max(SA.stallMax || 0, late);
+    SA.stalls = (SA.stalls || []).filter((x) => t - x[0] < 1000).concat([[t, late]]);
+    SA.stall1 = Math.max(...SA.stalls.map((x) => x[1]));
+  }, 50);
+  w.onmessage = (e) => {
+    if (typeof e.data === "string") return;
+    const ctx = SA.ctx; if (!ctx) return;
+    const arrived = performance.now();
+    const pk = soundDecode(e.data);
+    if (!pk) { SA.lastArr = arrived; return; }
+    SA.gapMax = Math.max(SA.gapMax || 0, arrived - (SA.lastArr || arrived));
+    const rate = ctx.sampleRate, now = Math.round(ctx.currentTime * rate);
+    // how far the sound clock moved since the last piece, against real time: on some phones it
+    // jumps ahead now and then (a 188 ms wait emptied a 360 ms cushion)
+    const clockMs = SA.lastCt == null ? 0 : (ctx.currentTime - SA.lastCt) * 1000, wallMs = arrived - (SA.lastWall || arrived);
+    SA.lastCt = ctx.currentTime; SA.lastWall = arrived;
+    let lead = SA.frame - now; // samples queued ahead of what's playing
+    if (!SA.frame || lead < 0) {
+      // ran dry: a dropout (or the first packet, or sound starting after silence)
+      if (SA.played && lead > -rate / 2) {
+        SA.drops++;
+        const jumped = clockMs - wallMs > 40;
+        // a bigger cushion only helps when the sound came late; the clock jumping isn't helped by one
+        if (!jumped) { SA.buf = Math.min(soundCap(), SA.buf + Math.max(0.04, -lead / rate + 0.02)); SA.calm = ctx.currentTime; }
+      }
+      SA.frame = now + Math.round(SA.buf * rate); lead = SA.frame - now;
+    } else if (lead > (SA.buf + 0.2) * rate) {
+      // far behind (the phone stalled, or control was turned on): catch up once rather than stay
+      // late; what was queued stops (else it would play on top of what follows)
+      for (const [src] of SA.srcs) { try { src.stop(); } catch (e) {} }
+      SA.srcs = [];
+      SA.frame = now + Math.round(SA.buf * rate); lead = SA.frame - now;
+    } else if (lead > (SA.buf + 0.04) * rate) {
+      // behind: a silent piece is left out (nothing to hear is lost)
+      let peak = 0;
+      for (let i = 0; i < pk.L.length; i += 4) peak = Math.max(peak, Math.abs(pk.L[i]), Math.abs(pk.R[i]));
+      if (peak < 0.002) { SA.skipped = (SA.skipped || 0) + 1; SA.lastArr = arrived; return; }
+    }
+    if (SA.buf > soundCap()) SA.buf = soundCap();
+    if (ctx.currentTime - SA.calm > 30 && SA.buf > SA.floor) { SA.buf = Math.max(SA.floor, SA.buf - 0.01); SA.calm = ctx.currentTime; }
+    // even out the two clocks: read a touch faster when too much is queued, slower when too little
+    SA.speed = 1 + Math.max(-0.01, Math.min(0.01, (lead / rate - SA.buf) * 0.1));
+    const [oL, oR] = resample(pk.L, pk.R, pk.rate / rate * SA.speed);
+    if (!oL.length) return;
+    const ab = ctx.createBuffer(2, oL.length, rate);
+    ab.copyToChannel(oL, 0); ab.copyToChannel(oR, 1);
+    const src = ctx.createBufferSource();
+    src.buffer = ab; src.connect(ctx.destination); src.start(SA.frame / rate);
+    SA.srcs = SA.srcs.filter((x) => x[1] > now); SA.srcs.push([src, SA.frame + oL.length]);
+    // when these samples actually leave the speaker, on this phone's clock: the pictures follow it
+    const heard = performance.now() + (lead / rate + (ctx.outputLatency || 0) + (ctx.baseLatency || 0)) * 1000;
+    SA.off = SA.off == null ? heard - pk.ts : SA.off * 0.95 + (heard - pk.ts) * 0.05;
+    SA.frame += oL.length; SA.played = true; SA.lastArr = arrived;
+  };
+  w.onclose = () => { if (SA.ws === w && SC.open) setTimeout(() => { if (SA.ws === w && SC.open) soundStart(); }, 2000); };
+  soundUi(true);
+}
+function soundStop() {
+  clearInterval(SA.stallT);
+  if (SA.ws) { const w = SA.ws; SA.ws = null; w.onclose = null; w.close(); }
+  if (SA.ctx) { SA.ctx.close().catch(() => {}); SA.ctx = null; }
+  soundUi(false);
+}
+function soundUi(on) {
+  $("sSQ").closest(".srow").style.display = on ? "" : "none";
+  $("sSnd").innerHTML = ic(on ? "snd" : "sndoff") + (on ? "Sound on" : "Sound off");
+  $("sSnd").classList.toggle("on", on); $("sSnd").setAttribute("aria-pressed", String(on));
+}
+// the most the cushion may grow to: watching, 1 s; controlling the PC, 0.3 s
+function soundCap() { return ctl() ? 0.3 : 1; }
+function soundDelay() { const c = SA.ctx; return c ? Math.round((SA.buf + (c.baseLatency || 0) + (c.outputLatency || 0)) * 1000) : 0; }
+
+// fit the picture into the view, then zoom/pan on top
+function layoutScreen() {
+  const v = $("sview"), cw = v.clientWidth, ch = v.clientHeight;
+  if (!cw || !ch) return;
+  const s = Math.min(cw / SC.iw, ch / SC.ih);
+  SC.bw = SC.iw * s; SC.bh = SC.ih * s;
+  const inner = $("sinner");
+  inner.style.width = SC.bw + "px"; inner.style.height = SC.bh + "px";
+  inner.style.left = (cw - SC.bw) / 2 + "px"; inner.style.top = (ch - SC.bh) / 2 + "px";
+  applyZoom();
+}
+function applyZoom() {
+  const v = $("sview");
+  if (SC.z <= 1) { SC.z = 1; SC.tx = 0; SC.ty = 0; }
+  else {
+    // keep the picture covering the view where it can
+    const ox = (v.clientWidth - SC.bw) / 2, oy = (v.clientHeight - SC.bh) / 2;
+    const minX = Math.min(0, v.clientWidth - ox - SC.bw * SC.z), maxX = Math.max(0, -ox);
+    const minY = Math.min(0, v.clientHeight - oy - SC.bh * SC.z), maxY = Math.max(0, -oy);
+    SC.tx = Math.min(maxX, Math.max(minX, SC.tx)); SC.ty = Math.min(maxY, Math.max(minY, SC.ty));
+  }
+  $("sinner").style.transform = `translate(${SC.tx}px, ${SC.ty}px) scale(${SC.z})`;
+  $("scur").style.transform = `scale(${1 / SC.z})`;
+  $("sFit").style.display = SC.z > 1 ? "" : "none";
+}
+window.addEventListener("resize", () => { if (SC.open) layoutScreen(); });
+
+// where a finger is, as 0..1 across and down the PC's screen
+function spot(x, y) {
+  const r = $("simg").getBoundingClientRect();
+  return { x: Math.min(1, Math.max(0, (x - r.left) / r.width)), y: Math.min(1, Math.max(0, (y - r.top) / r.height)) };
+}
+
+const ptrs = new Map();
+let g = null; // the current gesture
+let moveQ = null, moveRaf = 0;
+function queueMove(p) { moveQ = p; if (!moveRaf) moveRaf = requestAnimationFrame(() => { moveRaf = 0; if (moveQ) ssend({ t: "mm", ...moveQ }); moveQ = null; }); }
+function click(p, b) { ssend({ t: "md", b, ...p }); ssend({ t: "mu", b, ...p }); }
+
+$("sview").addEventListener("pointerdown", (e) => {
+  $("sview").setPointerCapture(e.pointerId);
+  ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (ptrs.size === 1) {
+    g = { kind: "one", x0: e.clientX, y0: e.clientY, tx0: SC.tx, ty0: SC.ty, moved: false, dragging: false, done: false };
+    if (ctl()) g.timer = setTimeout(() => {
+      if (g && g.kind === "one" && !g.moved) { click(spot(g.x0, g.y0), 1); g.done = true; if (navigator.vibrate) navigator.vibrate(15); }
+    }, 550);
+  } else if (ptrs.size === 2) {
+    if (g && g.timer) clearTimeout(g.timer);
+    if (g && g.dragging) ssend({ t: "mu", b: 0, ...spot(e.clientX, e.clientY) });
+    const [a, b] = [...ptrs.values()];
+    g = { kind: "two", d0: Math.hypot(a.x - b.x, a.y - b.y) || 1, cx0: (a.x + b.x) / 2, cy0: (a.y + b.y) / 2, z0: SC.z, tx0: SC.tx, ty0: SC.ty, mode: null, lastY: (a.y + b.y) / 2, lastX: (a.x + b.x) / 2, accY: 0, accX: 0 };
+  }
+});
+$("sview").addEventListener("pointermove", (e) => {
+  if (!ptrs.has(e.pointerId) || !g) return;
+  ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (g.kind === "one") {
+    const dx = e.clientX - g.x0, dy = e.clientY - g.y0;
+    if (!g.moved && Math.hypot(dx, dy) > 10) { g.moved = true; clearTimeout(g.timer); }
+    if (!g.moved || g.done) return;
+    if (!ctl()) {
+      if (SC.z > 1) { SC.tx = g.tx0 + dx; SC.ty = g.ty0 + dy; applyZoom(); }
+      return;
+    }
+    if (!g.dragging) { g.dragging = true; ssend({ t: "md", b: 0, ...spot(g.x0, g.y0) }); }
+    queueMove(spot(e.clientX, e.clientY));
+  } else if (g.kind === "two" && ptrs.size >= 2) {
+    const [a, b] = [...ptrs.values()];
+    const d = Math.hypot(a.x - b.x, a.y - b.y), cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2;
+    if (!g.mode) {
+      const ratio = d / g.d0, shift = Math.hypot(cx - g.cx0, cy - g.cy0);
+      if (Math.abs(ratio - 1) > 0.12) g.mode = "zoom";
+      else if (shift > 14) g.mode = SC.z > 1 || !ctl() ? "zoom" : "scroll";
+      else return;
+    }
+    if (g.mode === "zoom") {
+      const v = $("sview").getBoundingClientRect(), ox = v.left + (v.width - SC.bw) / 2, oy = v.top + (v.height - SC.bh) / 2;
+      const px = (g.cx0 - ox - g.tx0) / g.z0, py = (g.cy0 - oy - g.ty0) / g.z0; // the picture spot under the fingers
+      SC.z = Math.min(6, Math.max(1, g.z0 * d / g.d0));
+      SC.tx = cx - ox - px * SC.z; SC.ty = cy - oy - py * SC.z;
+      applyZoom();
+    } else {
+      // fingers down = page up, like a phone; 120 = one wheel notch
+      g.accY += (cy - g.lastY) * 4; g.accX += (cx - g.lastX) * 4; g.lastY = cy; g.lastX = cx;
+      const wy = Math.trunc(g.accY), wx = Math.trunc(g.accX);
+      if (Math.abs(wy) >= 24 || Math.abs(wx) >= 24) { ssend({ t: "wh", dy: wy, dx: -wx }); g.accY -= wy; g.accX -= wx; }
+    }
+  }
+});
+function pointerEnd(e) {
+  if (!ptrs.has(e.pointerId)) return;
+  ptrs.delete(e.pointerId);
+  if (!g) return;
+  if (g.kind === "one") {
+    clearTimeout(g.timer);
+    if (ctl() && !g.done) {
+      const p = spot(e.clientX, e.clientY);
+      if (g.dragging) { if (moveQ) ssend({ t: "mm", ...moveQ }); moveQ = null; ssend({ t: "mu", b: 0, ...p }); }
+      else if (!g.moved) {
+        click(p, SC.right ? 1 : 0);
+        if (SC.right) { SC.right = false; $("sRight").classList.remove("on"); }
+      }
+    }
+    g = null;
+  } else if (ptrs.size === 0) g = null;
+  else if (g.kind === "two") g = { kind: "rest" }; // one finger left after a two-finger gesture: ignore it
+}
+$("sview").addEventListener("pointerup", pointerEnd);
+$("sview").addEventListener("pointercancel", pointerEnd);
+$("sview").addEventListener("contextmenu", (e) => e.preventDefault());
+
+// typing: the phone keyboard writes into a hidden box; what's added is typed on the PC
+const SENT = "​​";
+const skb = $("skb");
+skb.value = SENT;
+skb.addEventListener("input", () => {
+  const v = skb.value;
+  if (v.length < SENT.length) for (let i = v.length; i < SENT.length; i++) ssend({ t: "key", k: "backspace" });
+  else {
+    const add = v.startsWith(SENT) ? v.slice(SENT.length) : v.replace(/​/g, "");
+    if (add) ssend({ t: "txt", s: add });
+  }
+  skb.value = SENT;
+});
+skb.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); ssend({ t: "key", k: "enter" }); } });
+$("skeys").innerHTML = KEYS.map(([l], i) => `<button data-sk="${i}">${esc(l)}</button>`).join("");
+$("skeys").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-sk]"); if (!b) return;
+  const [, k, mods, ask] = KEYS[+b.dataset.sk];
+  if (ask && !confirm(ask)) return;
+  ssend({ t: "key", k, mods: mods || [] });
+});
+$("sClose").innerHTML = ic("x"); $("sClose").onclick = () => screenClose();
+// the stream's settings, in one panel (the bar keeps the actions)
+function setPanel(on) { $("spanel").classList.toggle("on", on); $("sSet").classList.toggle("on", on); $("sSet").setAttribute("aria-expanded", String(on)); }
+$("sSet").innerHTML = ic("tune") + "Settings";
+$("sSet").onclick = () => setPanel(!$("spanel").classList.contains("on"));
+// a touch on the picture closes it
+$("sview").addEventListener("pointerdown", () => setPanel(false), true);
+// Back: out of full screen (the browser does that one), then out of Deck's bar-less view, then
+// the Screen view; the page itself stays
+window.addEventListener("popstate", () => {
+  if (!SC.open) return;
+  if (SC.imm) { setImmersive(false); try { history.pushState({ deck: "screen" }, ""); } catch (e) {} }
+  else screenClose(true);
+});
+// full screen ended some other way (Back, a swipe): show the bars again, so the Full screen
+// button is there and works
+document.addEventListener("fullscreenchange", () => { if (!document.fullscreenElement && SC.imm) setImmersive(false); setTimeout(layoutScreen, 50); });
+$("sFull").innerHTML = ic("full"); $("sFull").onclick = () => { goFull(); setImmersive(true); };
+$("fExit").innerHTML = ic("shrink"); $("fExit").onclick = () => setImmersive(false);
+$("sCtl").onclick = toggleControl;
+$("fCtl").innerHTML = ic("hand"); $("fCtl").onclick = toggleControl;
+$("fKb").innerHTML = ic("kb"); $("fKb").onclick = () => { skb.value = SENT; skb.focus(); };
+soundUi(false);
+$("sSnd").onclick = () => {
+  const on = !SA.ws;
+  try { localStorage.setItem("deck_sound", on ? "1" : "0"); } catch (e) {}
+  if (on) soundStart(); else soundStop();
+};
+$("sKb").innerHTML = ic("kb"); $("sKb").onclick = () => { skb.value = SENT; skb.focus(); };
+$("sKeys").onclick = () => { $("skeys").classList.toggle("on"); $("sKeys").classList.toggle("on"); setTimeout(layoutScreen, 50); };
+$("sRight").onclick = () => { SC.right = !SC.right; $("sRight").classList.toggle("on", SC.right); };
+$("sFit").onclick = () => { SC.z = 1; applyZoom(); };
+$("sMon").onchange = () => ssend({ t: "mon", i: +$("sMon").value });
+$("sQ").onchange = () => ssend({ t: "q", q: $("sQ").value });
+$("sF").onchange = () => ssend({ t: "fps", fps: +$("sF").value });
+$("sP").onchange = () => ssend({ t: "prio", v: $("sP").value });
+$("sB").onchange = () => {
+  let k = $("sB").value;
+  if (k === "custom") {
+    const t = prompt("Bitrate in Mb/s (for example 1.5). Empty for Auto.", "");
+    const x = parseFloat(String(t || "").replace(",", "."));
+    k = t && x > 0 ? Math.round(Math.min(200, Math.max(0.3, x)) * 1000) : 0;
+    showBitrate(k);
+  }
+  ssend({ t: "kbps", kbps: +k });
+};
+$("sV").value = videoChoice();
+$("sV").onchange = () => {
+  try { localStorage.setItem("deck_video", $("sV").value); } catch (e) {}
+  ssend({ t: "codec", v: $("sV").value === "jpeg" ? "jpeg" : "auto" });
+  // a new connection picks the decoder
+  if (SC.ws) { const w = SC.ws; w.onclose = null; w.close(); SC.ws = null; setTimeout(() => screenConnect(), 150); }
+};
+try { $("sSQ").value = soundChoice(); } catch (e) {}
+$("sSQ").onchange = () => { try { localStorage.setItem("deck_sound_q", $("sSQ").value); } catch (e) {} if (SA.ws) soundStart(); };
+// Auto sound quality follows the connection, switching only after it held for two checks
+setInterval(() => {
+  if (!SA.ws || soundChoice() !== "auto") return;
+  const q = soundAuto();
+  if (q === SA.q) { SA.wantQ = null; return; }
+  if (SA.wantQ === q) { SA.wantQ = null; soundStart(); } else SA.wantQ = q;
+}, 3000);
+setInterval(() => {
+  if (!SC.open) return;
+  const s = (Date.now() - SC.t0) / 1000;
+  const r = SC.rate;
+  if (s > 1) $("sInfo").textContent = `${(SC.frames / s).toFixed(0)} fps${SC.src != null ? ` (screen ${SC.src})` : ""} · ${(SC.bytes * 8 / s / 1e6).toFixed(1)} Mb/s · ${SC.via || ""}`
+    + (r ? ` · ${r.w} px${r.codec === "h264" ? ` H.264${SC.hw == null ? "" : SC.hw ? " (GPU)" : " (CPU)"} ${SC.vmode === "mse" ? "MSE" : ""}` : ` q${r.q}`}${r.auto && r.line ? ` · line ${(r.line / 1000).toFixed(2)} Mb/s` : ""}${r.auto ? ` · Auto ${(r.kbps / 1000).toFixed(1)} Mb/s` : ""}` : "")
+    + (SA.ctx ? ` · sound ${SA.q} ${soundDelay()} ms${SA.drops ? ` · ${SA.drops} dropout${SA.drops > 1 ? "s" : ""}` : ""}${synced() ? " · in sync" : ""}` : "");
+  SC.t0 = Date.now(); SC.frames = 0; SC.bytes = 0;
+}, 2000);
 
 if ("serviceWorker" in navigator && window.isSecureContext) navigator.serviceWorker.register("/sw.js").catch(() => {});
 connect();

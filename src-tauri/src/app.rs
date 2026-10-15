@@ -57,6 +57,8 @@ pub struct App {
     pub toasts: Mutex<Vec<Toast>>,
     pub shared: Mutex<Vec<Shared>>,
     pub remote_clients: AtomicUsize,
+    /// phones with the Screen view open
+    pub screen_viewers: AtomicUsize,
     pub visible: AtomicBool,
 
     pub sys: crate::sys::Sys,
@@ -97,6 +99,7 @@ impl App {
             toasts: Mutex::new(Vec::new()),
             shared: Mutex::new(Vec::new()),
             remote_clients: AtomicUsize::new(0),
+            screen_viewers: AtomicUsize::new(0),
             visible: AtomicBool::new(false),
             sys: crate::sys::Sys::new(),
             media: crate::media::Media::new(),
@@ -300,6 +303,12 @@ impl App {
         self.emit("toggle-deck", json!({}));
     }
 
+    /// Tells only Deck's own page that part of the state changed (not the phone: Transfer progress
+    /// changes several times a second).
+    pub fn ui_changed(&self, topic: &str) {
+        self.emit("changed", json!({ "topic": topic }));
+    }
+
     /// Tells the UI and the phone that part of the state changed.
     pub fn changed(&self, topic: &str) {
         self.emit("changed", json!({ "topic": topic }));
@@ -332,6 +341,13 @@ impl App {
     /// A toast button was pressed (on the PC or the phone).
     pub fn toast_action(&self, id: &str, action: &str) {
         self.dismiss_toast(id);
+        if let Some(n) = id.strip_prefix("xfer:").and_then(|s| s.parse::<u64>().ok()) {
+            match action {
+                "show" => self.show_page("transfer"),
+                a => crate::beam::answer(n, a),
+            }
+            return;
+        }
         if id == "plan" {
             match action {
                 "cancel" => {

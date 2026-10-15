@@ -176,6 +176,8 @@ pub struct Import {
     pub startup: Option<String>,
     pub osd: Vec<String>,
     pub osd_hotkey: Option<String>,
+    /// Afterburner's framerate limiter key
+    pub limiter_hotkey: Option<String>,
     pub notes: Vec<String>,
 }
 
@@ -218,6 +220,9 @@ pub fn import_from(gpu_cfg: &str, main_cfg: Option<&str>) -> Import {
                 }
             }
         }
+        if let Some(h) = msec.as_ref().and_then(|s| s.get("LimiterToggleHotkey").copied()).and_then(hotkey) {
+            out.limiter_hotkey = Some(h);
+        }
         match msec.as_ref().and_then(|s| s.get("OSDToggleHotkey").copied()) {
             Some(v) if v.trim_start_matches('0').trim_end_matches(['h', 'H']).is_empty() => {}
             Some(v) => match hotkey(v) {
@@ -246,7 +251,7 @@ pub fn import(pci: &str) -> Result<Import, String> {
 pub fn summary(i: &Import) -> Value {
     json!({
         "profiles": i.profiles.iter().map(|p| json!({"id": p.id, "name": p.name, "summary": super::gpu_summary(p), "hotkey": p.hotkey})).collect::<Vec<_>>(),
-        "startup": i.startup, "osd": i.osd, "osd_hotkey": i.osd_hotkey, "notes": i.notes,
+        "startup": i.startup, "osd": i.osd, "osd_hotkey": i.osd_hotkey, "limiter_hotkey": i.limiter_hotkey, "notes": i.notes,
     })
 }
 

@@ -3,6 +3,8 @@
 mod app;
 mod apps;
 mod audio;
+mod beam;
+mod ccsync;
 mod boost;
 mod calc;
 mod cleanup;
@@ -26,10 +28,14 @@ mod picker;
 mod power;
 mod profcmd;
 mod profiles;
+mod rdesk;
+mod h264;
+mod screencast;
 mod remote;
 mod osd;
 mod rtss;
 mod settings;
+mod share;
 mod startup;
 mod sys;
 mod util;
@@ -428,7 +434,7 @@ fn set_setting(handle: AppHandle, app: A, remote: State<Arc<Remote>>, key: Strin
             }
         }
         "theme_auto" | "light_at" | "dark_at" | "theme_mode" => display::theme_schedule_changed(&app),
-        "hotkeys_on" | "osd_hotkey" | "osd_reset_hotkey" | "open_hotkey" => profiles::hotkeys::reload(),
+        "hotkeys_on" | "osd_hotkey" | "osd_reset_hotkey" | "limiter_hotkey" | "open_hotkey" => profiles::hotkeys::reload(),
         "mode" if app.is_visible() => {
             // re-open in the new mode
             let h = handle.clone();
@@ -974,13 +980,32 @@ async fn who_uses(path: String) -> R<Vec<locksmith::Holder>> {
     locksmith::who_uses(&path)
 }
 
+/// A file dialog owned by Deck's window, so it opens in front of it (Deck can be always on top,
+/// and a dialog without an owner then lands behind it).
+fn file_dialog(handle: &AppHandle, title: String) -> tauri_plugin_dialog::FileDialogBuilder<tauri::Wry> {
+    let d = handle.dialog().file().set_title(title);
+    match handle.get_webview_window("main") {
+        Some(w) => d.set_parent(&w),
+        None => d,
+    }
+}
+
 #[tauri::command]
 async fn pick(handle: AppHandle, folder: bool, title: Option<String>) -> R<Option<String>> {
     DIALOG.store(true, Ordering::Relaxed);
-    let d = handle.dialog().file().set_title(title.unwrap_or_else(|| "Choose".into()));
+    let d = file_dialog(&handle, title.unwrap_or_else(|| "Choose".into()));
     let r = if folder { d.blocking_pick_folder() } else { d.blocking_pick_file() };
     DIALOG.store(false, Ordering::Relaxed);
     Ok(r.and_then(|f| f.into_path().ok()).map(|p| p.to_string_lossy().to_string()))
+}
+
+/// Several files at once (Transfer's "Send files").
+#[tauri::command]
+async fn pick_many(handle: AppHandle, title: Option<String>) -> R<Vec<String>> {
+    DIALOG.store(true, Ordering::Relaxed);
+    let r = file_dialog(&handle, title.unwrap_or_else(|| "Choose".into())).blocking_pick_files();
+    DIALOG.store(false, Ordering::Relaxed);
+    Ok(r.unwrap_or_default().into_iter().filter_map(|f| f.into_path().ok()).map(|p| p.to_string_lossy().to_string()).collect())
 }
 
 #[tauri::command]
@@ -1181,6 +1206,87 @@ fn remote_info(app: A, remote: State<Arc<Remote>>) -> Value {
 }
 
 #[tauri::command]
+async fn rdesk_status() -> Value {
+    tauri::async_runtime::spawn_blocking(rdesk::status).await.unwrap_or(Value::Null)
+}
+
+/// RustDesk actions from the Phone page: install, on, password, direct, tray, open, tailscale.
+#[tauri::command]
+async fn rdesk_do(what: String, on: Option<bool>, text: Option<String>) -> R<Value> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let on = on.unwrap_or(true);
+        match what.as_str() {
+            "install" => rdesk::install(),
+            "on" => rdesk::set_on(on),
+            "password" => rdesk::set_password(&text.unwrap_or_default()),
+            "direct" => rdesk::set_direct(on),
+            "tray" => rdesk::set_tray_hidden(on),
+            "open" => rdesk::open_rustdesk(),
+            "tailscale" => {
+                rdesk::open_tailscale();
+                Ok(())
+            }
+            _ => Err("Unknown action".into()),
+        }?;
+        Ok(rdesk::status())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// One-time share links (PC to PC → Share link).
+#[tauri::command]
+fn share_state() -> Value {
+    share::state()
+}
+
+#[tauri::command]
+async fn share_create(path: String, hours: u64, max: u32, internet: bool) -> R<Value> {
+    tauri::async_runtime::spawn_blocking(move || share::create(&path, hours, max, internet)).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn share_stop(token: String) -> R<Value> {
+    tauri::async_runtime::spawn_blocking(move || share::stop(&token)).await.map_err(|e| e.to_string())
+}
+
+/// Transfer page: everything it shows.
+#[tauri::command]
+fn transfer_state() -> Value {
+    beam::state()
+}
+
+/// Transfer page actions (send, answer, browse, request, apps, setup, received items, settings).
+#[tauri::command]
+async fn transfer_do(app: A<'_>, what: String, args: Option<Value>) -> R<Value> {
+    let app = app.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || beam::act(&app, &what, &args.unwrap_or(Value::Null))).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn transfer_apps() -> Value {
+    beam::apps_state()
+}
+
+#[tauri::command]
+async fn transfer_setup_preview() -> Value {
+    tauri::async_runtime::spawn_blocking(beam::setup_preview).await.unwrap_or(Value::Null)
+}
+
+/// Claude Sync page: everything it shows.
+#[tauri::command]
+async fn claude_sync_state(app: A<'_>) -> R<Value> {
+    let app = app.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || ccsync::state(&app)).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn claude_sync_do(app: A<'_>, what: String, args: Option<Value>) -> R<Value> {
+    let app = app.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || ccsync::act(&app, &what, &args.unwrap_or(Value::Null))).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 fn remote_reset_token(app: A, remote: State<Arc<Remote>>) -> Value {
     app.settings.lock().remote_token = util::random_token(22);
     app.save_settings();
@@ -1206,7 +1312,7 @@ async fn share_to_phone(handle: AppHandle, app: A<'_>, kind: String, text: Optio
     let item = match kind.as_str() {
         "file" => {
             DIALOG.store(true, Ordering::Relaxed);
-            let picked = handle.dialog().file().set_title("Send a file to your phone").blocking_pick_file();
+            let picked = file_dialog(&handle, "Send a file to your phone".into()).blocking_pick_file();
             DIALOG.store(false, Ordering::Relaxed);
             let Some(p) = picked.and_then(|f| f.into_path().ok()) else { return Ok(()) };
             shared_file(p)
@@ -1476,12 +1582,17 @@ fn dump_hw() {
 }
 
 #[cfg(debug_assertions)]
-/// Runs the phone server alone for 20 s on port 47839 with a test profile.
+/// Runs the phone server alone for 20 s (DECK_SELFTEST_SECS) on port 47839 with a test profile
+/// (DECK_SELFTEST_SCREEN: Screen view on).
 /// Nothing on the PC is changed by it.
 fn selftest_remote() {
     std::env::set_var("DECK_PROFILE", "test");
     let app = App::new();
     app.settings.lock().remote_port = 47839;
+    // DECK_SELFTEST_SCREEN: the Screen view on (it's off in a new profile), for stream tests
+    if std::env::var("DECK_SELFTEST_SCREEN").is_ok() {
+        app.settings.lock().remote_screen = "view".into();
+    }
     let tmp = std::env::temp_dir().join("deck-share-test.txt");
     let _ = std::fs::write(&tmp, "hello from the PC");
     remote::push_shared(&app, shared_file(tmp));
@@ -1492,7 +1603,7 @@ fn selftest_remote() {
     println!("TOKEN {}", app.settings.lock().remote_token);
     use std::io::Write;
     let _ = std::io::stdout().flush();
-    std::thread::sleep(std::time::Duration::from_secs(20));
+    std::thread::sleep(std::time::Duration::from_secs(std::env::var("DECK_SELFTEST_SECS").ok().and_then(|v| v.parse().ok()).unwrap_or(20)));
     println!("TIMERS {}", app.power.timers.lock().len());
     println!("SHARED {}", app.shared.lock().len());
 }
@@ -1564,6 +1675,29 @@ fn percent_decode(s: &str) -> String {
 }
 
 fn main() {
+    // Claude Code's hook (Claude Sync): answers in milliseconds, never starts Deck
+    if std::env::args().any(|a| a == "--claude-sync-hook") {
+        std::process::exit(ccsync::hook_main());
+    }
+    // the uninstaller (hooks.nsh): Claude Code must not keep calling a hook program that is gone
+    if std::env::args().any(|a| a == "--uninstall-cleanup") {
+        ccsync::uninstall_cleanup();
+        std::process::exit(0);
+    }
+    // PC to PC from the command line (scripts, Claude Code): prints, then exits
+    {
+        let args: Vec<String> = std::env::args().collect();
+        if beam::cli::wanted(&args) {
+            std::process::exit(beam::cli::main(&args));
+        }
+    }
+    // Transfer: applying a received Windhawk setup needs admin when Deck runs without it
+    for (flag, undo) in [("--transfer-apply-windhawk", false), ("--transfer-undo-windhawk", true)] {
+        let args: Vec<String> = std::env::args().collect();
+        if let Some(d) = args.iter().position(|a| a == flag).and_then(|i| args.get(i + 1)) {
+            std::process::exit(beam::snapshot::windhawk_elevated(std::path::Path::new(d), undo));
+        }
+    }
     #[cfg(debug_assertions)]
     {
         let arg = |a: &str| std::env::args().any(|x| x == a);
@@ -1889,6 +2023,29 @@ fn main() {
             if app.settings.lock().remote_on {
                 remote::start(app.clone(), remote_state.clone());
             }
+            // one-time share links still open from before
+            {
+                let app = app.clone();
+                std::thread::spawn(move || share::init(app));
+            }
+            // your other PCs: Transfer (on by default) and Claude Sync (off by default)
+            {
+                let app = app.clone();
+                std::thread::spawn(move || {
+                    let (t, c) = {
+                        let s = app.settings.lock();
+                        (s.transfer_on, s.claude_sync_on)
+                    };
+                    beam::set_on(&app, t);
+                    if c {
+                        if let Err(e) = ccsync::set_on(&app, true) {
+                            app.toast(app::Toast::simple("claude-sync", "Claude Code sync didn't start", &e));
+                        }
+                    } else {
+                        ccsync::cleanup_when_off();
+                    }
+                });
+            }
             let autostart = app.settings.lock().autostart;
             sync_autostart(&handle, autostart);
 
@@ -1930,7 +2087,7 @@ fn main() {
             display_state, set_refresh, set_brightness, set_hdr, set_dark, locate,
             net_info, net_public_ip, net_ping, net_speed, net_speed_cancel, game_ping_games, game_ping, index_rebuild, index_info,
             boost_state, boost_apps, boost_run, boost_pick,
-            screen_tool, remote_info, remote_reset_token, share_to_phone, shared_remove,
+            screen_tool, remote_info, remote_reset_token, rdesk_status, rdesk_do, transfer_state, transfer_do, pick_many, share_state, share_create, share_stop, transfer_apps, transfer_setup_preview, claude_sync_state, claude_sync_do, share_to_phone, shared_remove,
             elevate_setup,
             hwcmd::hw_state, hwcmd::drive_health, hwcmd::hw_live, hwcmd::hw_hist, hwcmd::hw_table, hwcmd::hw_table_reset, hwcmd::hw_apply, hwcmd::hw_lights_off,
             hwcmd::hw_display_off, hwcmd::hw_report, hwcmd::hw_test_lights, hwcmd::hw_clear_ram, hwcmd::hw_mem, hwcmd::hw_import_moboctl, hwcmd::hw_open_folder,
@@ -1940,7 +2097,7 @@ fn main() {
             profcmd::gpu_state, profcmd::gpu_live, profcmd::gpu_curve, profcmd::gpu_save, profcmd::gpu_delete, profcmd::gpu_try,
             profcmd::gpu_stock, profcmd::ab_preview, profcmd::ab_import, profcmd::ab_stop_tuning, profcmd::ab_undo_stop, profcmd::gpu_apply_held,
             profcmd::icons_list, profcmd::icon_custom, profcmd::icon_preview, profcmd::shortcuts_repair, profcmd::hotkey_check,
-            profcmd::rtss_state, profcmd::rtss_start, profcmd::rtss_install, profcmd::rtss_reset_stats, profcmd::rtss_restore_look,
+            profcmd::rtss_state, profcmd::rtss_start, profcmd::rtss_open, profcmd::rtss_tray, profcmd::rtss_install, profcmd::rtss_reset_stats, profcmd::rtss_restore_look, profcmd::rtss_limiter,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Deck");

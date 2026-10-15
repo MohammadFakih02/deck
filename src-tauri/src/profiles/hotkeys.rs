@@ -102,6 +102,8 @@ pub enum Action {
     Overlay,
     /// starts the framerate figures over
     ResetStats,
+    /// RivaTuner's framerate limiter on/off
+    Limiter,
     /// opens / closes Deck (works even when profile keys are switched off)
     Open,
 }
@@ -119,6 +121,7 @@ pub fn wanted(app: &App) -> Vec<(String, Action)> {
         }
         v.push((s.osd_hotkey.clone(), Action::Overlay));
         v.push((s.osd_reset_hotkey.clone(), Action::ResetStats));
+        v.push((s.limiter_hotkey.clone(), Action::Limiter));
     }
     v.into_iter().filter_map(|(k, a)| parse(&k).map(|(m, vk)| (format(m, vk), a))).collect()
 }
@@ -133,6 +136,7 @@ pub fn taken_by(app: &App, key: &str, except_id: &str) -> Option<String> {
         .or_else(|| s.gpu_profiles.iter().filter(|p| p.id != except_id).find(|p| same(&p.hotkey)).map(|p| format!("GPU profile {}", p.name)))
         .or_else(|| (except_id != "overlay" && same(&s.osd_hotkey)).then(|| "the overlay key".to_string()))
         .or_else(|| (except_id != "overlay_reset" && same(&s.osd_reset_hotkey)).then(|| "the key that resets the framerate figures".to_string()))
+        .or_else(|| (except_id != "limiter" && same(&s.limiter_hotkey)).then(|| "the framerate limit key".to_string()))
         .or_else(|| (except_id != "open" && same(&s.open_hotkey)).then(|| "the key that opens Deck".to_string()))
 }
 
@@ -223,6 +227,7 @@ pub fn start(app: Arc<App>) {
                                 Action::Switch(kind, id) => super::switch(&app, &kind, &id, "hotkey"),
                                 Action::Overlay => crate::rtss::toggle(&app),
                                 Action::ResetStats => crate::rtss::reset_stats(),
+                                Action::Limiter => crate::rtss::toggle_limiter(&app),
                                 Action::Open => app.toggle_window(),
                             });
                         }

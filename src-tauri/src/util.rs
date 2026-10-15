@@ -256,6 +256,51 @@ pub fn base64(data: &[u8]) -> String {
     out
 }
 
+/// Standard base64 back to bytes (padding and line breaks allowed); None for anything else.
+pub fn unbase64(s: &str) -> Option<Vec<u8>> {
+    let val = |c: u8| -> Option<u32> {
+        Some(match c {
+            b'A'..=b'Z' => c - b'A',
+            b'a'..=b'z' => c - b'a' + 26,
+            b'0'..=b'9' => c - b'0' + 52,
+            b'+' => 62,
+            b'/' => 63,
+            _ => return None,
+        } as u32)
+    };
+    let clean: Vec<u8> = s.bytes().filter(|c| !c.is_ascii_whitespace()).collect();
+    let body = clean.strip_suffix(b"==").or_else(|| clean.strip_suffix(b"=")).unwrap_or(&clean);
+    let mut out = Vec::with_capacity(body.len() * 3 / 4);
+    for c in body.chunks(4) {
+        let mut n = 0u32;
+        for (i, &b) in c.iter().enumerate() {
+            n |= val(b)? << (18 - 6 * i);
+        }
+        let bytes = [(n >> 16) as u8, (n >> 8) as u8, n as u8];
+        match c.len() {
+            4 => out.extend_from_slice(&bytes),
+            3 => out.extend_from_slice(&bytes[..2]),
+            2 => out.push(bytes[0]),
+            _ => return None,
+        }
+    }
+    Some(out)
+}
+
+#[cfg(test)]
+mod base64_tests {
+    #[test]
+    fn round_trips() {
+        for n in 0..40usize {
+            let data: Vec<u8> = (0..n).map(|i| (i * 37 + 11) as u8).collect();
+            assert_eq!(super::unbase64(&super::base64(&data)).as_deref(), Some(&data[..]), "{n} bytes");
+        }
+        assert_eq!(super::unbase64("aGVs
+bG8="), Some(b"hello".to_vec()));
+        assert_eq!(super::unbase64("a$=="), None);
+    }
+}
+
 #[cfg(test)]
 mod free_space_tests {
     #[test]

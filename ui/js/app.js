@@ -5,18 +5,19 @@ const NAV = [
   [null, [["home", null, "Home", "home"], ["boost", null, "Game boost", "zap"]]],
   ["Hardware", [["cpu", null, "CPU", "chip"], ["gpu", null, "GPU", "gpu"], ["fans", null, "Fans", "fan"], ["lighting", null, "Lighting", "bulb"], ["lcd", null, "Cooler display", "monitor"], ["thispc", null, "This PC", "info"]]],
   ["Monitor", [["sensors", null, "Sensors", "gauge"], ["overlay", null, "Overlay", "gamepad"], ["drives", null, "Drives", "disk"], ["system", "processes", "Processes", "cpu"], ["system", "network", "Network", "wifi"]]],
-  ["Desktop", [["windows", null, "Windows", "windows"], ["system", "display", "Display", "monitor"], ["clipboard", null, "Clipboard", "clipboard"], ["audio", null, "Sound", "volume"]]],
+  ["Desktop", [["windows", null, "Windows", "windows"], ["system", "display", "Display", "monitor"], ["clipboard", null, "Clipboard", "clipboard"], ["audio", null, "Sound", "volume"], ["claudesync", null, "Claude Code sync", "terminal"]]],
   ["Maintenance", [["files", "space", "Disk space", "disk"], ["files", "cleanup", "Clean up", "broom"], ["system", "startup", "Startup apps", "rocket"], ["tools", null, "Tools", "tools"]]],
   ["Power & time", [["power", "awake", "Keep awake", "coffee"], ["power", "timers", "Timers & breaks", "timer"], ["power", "plan", "Shut down when…", "power"]]],
 ];
 /** Hardware pages only show when this PC has something for them (the backend says which). */
 const HW_PAGES = ["cpu", "gpu", "fans", "lighting", "lcd", "sensors"];
-const navShown = (page) => !HW_PAGES.includes(page) || !S.state?.hw || S.state.hw.pages.includes(page);
+const navShown = (page) => page === "claudesync" ? !!(S.state?.settings?.claude_sync_nav || S.state?.settings?.claude_sync_on)
+  : !HW_PAGES.includes(page) || !S.state?.hw || S.state.hw.pages.includes(page);
 /** Each group's own icon, in the same column as the pages' icons. */
 const NAV_GROUP_ICON = { Hardware: "sliders", Monitor: "activity", Desktop: "layout", Maintenance: "shield", "Power & time": "clock" };
-const NAV_END = [["phone", null, "Phone", "smartphone"], ["settings", null, "Settings", "gear"]];
+const NAV_END = [["transfer", null, "PC to PC", "swap"], ["phone", null, "Phone", "smartphone"], ["settings", null, "Settings", "gear"]];
 /** Which part of a page opens when only the page is given. */
-const DEFAULT_SUB = { windows: "open", files: "space", system: "processes", power: "awake", tools: "screen" };
+const DEFAULT_SUB = { transfer: "send", claudesync: "status", windows: "open", files: "space", system: "processes", power: "awake", tools: "screen" };
 const curSub = () => S.sub || DEFAULT_SUB[S.page] || null;
 
 function navBadge(page, sub) {
@@ -25,6 +26,7 @@ function navBadge(page, sub) {
   if (page === "power" && sub === "awake" && p?.awake_active) return h("span", { class: "badge" }, "On");
   if (page === "power" && sub === "plan" && p?.plan) return h("span", { class: "badge warn" }, "Set");
   if (page === "phone" && S.state?.remote?.clients) return h("span", { class: "badge" }, S.state.remote.clients);
+  if (page === "transfer" && S.cache.tx && ((S.cache.tx.pending || []).length + (S.cache.tx.reqs || []).length)) return h("span", { class: "badge warn" }, "Waiting");
   if (page === "boost" && S.live?.boost?.on) return h("span", { class: "badge" }, "On");
   return null;
 }

@@ -642,13 +642,12 @@ pub fn lines(items: &[String], st: &OsdStyle, s: &Snap, app: &str) -> Vec<Line> 
         // numbers right-aligned, units left-aligned, one column per position (monospace fonts line up)
         let cols = out.iter().map(|l| l.parts.len()).max().unwrap_or(0);
         for c in 0..cols {
-            let w = out.iter().filter_map(|l| l.parts.get(c)).filter(|p| p.rtss.is_none()).map(|p| p.text.chars().count()).max().unwrap_or(0);
+            let w = out.iter().filter_map(|l| l.parts.get(c)).map(|p| p.text.trim().chars().count()).max().unwrap_or(0);
             let uw = out.iter().filter_map(|l| l.parts.get(c)).map(|p| p.unit.chars().count()).max().unwrap_or(0);
             for l in &mut out {
                 if let Some(p) = l.parts.get_mut(c) {
-                    if p.rtss.is_none() {
-                        p.text = format!("{:>w$}", p.text, w = w);
-                    }
+                    // a figure RivaTuner fills in itself gets the spaces its current value needs
+                    p.text = format!("{:>w$}", p.text.trim(), w = w);
                     if !p.unit.is_empty() {
                         p.unit = format!("{:<uw$}", p.unit, uw = uw);
                     }
@@ -698,13 +697,15 @@ fn render_part(p: &Part, g: &str, st: &OsdStyle) -> String {
         1 => 3,
         _ => base,
     };
-    let v = p.rtss.map(|t| t.to_string()).unwrap_or_else(|| p.text.clone());
+    let lead = p.text.len() - p.text.trim_start().len();
+    let v = p.rtss.map(|t| format!("{}{t}", " ".repeat(lead))).unwrap_or_else(|| p.text.clone());
     o += &format!("<C{c}>{v}<C>");
     if !p.unit.is_empty() {
         match st.units.as_str() {
             "off" => {}
             "normal" => o += &format!("<C0> {}<C>", p.unit),
-            _ => o += &format!("<C0><S0>{}<S><C>", p.unit),
+            // a small gap (a space at the unit's size) so the unit doesn't touch the number
+            _ => o += &format!("<C0><S0> {}<S><C>", p.unit),
         }
     }
     o
@@ -756,7 +757,7 @@ pub fn text_width(ls: &[Line], st: &OsdStyle) -> usize {
             let parts: usize = l
                 .parts
                 .iter()
-                .map(|p| (if p.pre.is_empty() { 0 } else { n(&p.pre) + 1 }) + n(&p.text) + if st.units == "off" { 0 } else { n(&p.unit) })
+                .map(|p| (if p.pre.is_empty() { 0 } else { n(&p.pre) + 1 }) + n(&p.text) + if st.units == "off" || p.unit.is_empty() { 0 } else { n(&p.unit) + 1 })
                 .sum();
             label + parts + 2 * l.parts.len().saturating_sub(1)
         })
@@ -1001,11 +1002,11 @@ mod tests {
         assert_eq!(u32::from_le_bytes(b[20..24].try_into().unwrap()), 128, "Deck's own points, autoscaled");
         assert_eq!(u32::from_le_bytes(b[32..36].try_into().unwrap()), 3);
         assert_eq!(f32::from_le_bytes(b[40..44].try_into().unwrap()), 7.0);
-        // fitted: as wide as "GPU  65°C  98%" (the longest line)
+        // fitted: as wide as "GPU  65 °C  98 %" (the longest line; a unit and its gap count as characters)
         st.graph_fit = true;
         let b = graph_object(&st, width, &[]);
         assert_eq!(i32::from_le_bytes(b[8..12].try_into().unwrap()), -(width as i32));
-        assert_eq!(width, "GPU  65°C  98%".chars().count(), "units count as characters");
+        assert_eq!(width, "GPU  65 °C  98 %".chars().count(), "units count as characters");
         st.graph_style = 1;
         st.graph_max = 20;
         let b = graph_object(&st, width, &[]);
@@ -1100,9 +1101,9 @@ mod tests {
         assert_eq!(ls[1].parts.len(), 2);
         let t = render(&ls, &st);
         assert!(t.starts_with("<C0=FF9A40><C1=FFFFFF><C2=FF5A5A><C3=FFC85A>"));
-        assert!(t.contains("<C0>GPU<C>  <C1>65<C><C0><S0>°C<S><C>  <C1>98<C><C0><S0>%<S><C>"));
+        assert!(t.contains("<C0>GPU<C>  <C1>65<C><C0><S0> °C<S><C>  <C1>98<C><C0><S0> %<S><C>"));
         assert!(t.contains("<C2>92<C>"), "92 °C is over the 90 limit");
-        assert!(t.contains("<C1><FR><C><C0><S0>FPS<S><C>"));
+        assert!(t.contains("<C1><FR><C><C0><S0> FPS<S><C>"));
     }
 
     #[test]

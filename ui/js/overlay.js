@@ -39,7 +39,7 @@ const OV_LOOKS = [
     ["time", "cpu_temp", "cpu_usage", "cpu_clock", "cpu_power", "thread_table", "ram", "proc_ram", "commit", "fps", "fps_min", "fps_avg", "fps_max", "fps_1low", "fps_01low", "gpu_temp", "gpu_usage", "gpu_power_pct", "gpu_clock", "gpu_power", "gpu_fan", "gpu_mem", "gpu_memclock", "frametime"],
     { layout: "grouped", labels: true, align: true, units: "small", columns: true, fps_lines: true, group_colors: true, group_values: false, heat: false,
       label_color: "FF8A1E", value_color: "FF8A1E", warm_color: "FFC85A", warn_color: "FF4D4D", cpu_color: "1E90FF", ram_color: "1E90FF", gpu_color: "2ECC71", fps_color: "E0707A", info_color: "FF8A1E",
-      clock_12h: true, clock_secs: true, graph: true, graph_w: 48, graph_h: 6, shadow: true, box_on: false, zoom: 2, corner: "tr", margin_x: 8, margin_y: 8, font: "Unispace", bold: false }],
+      clock_12h: true, clock_secs: true, graph: true, graph_w: 48, graph_h: 2, shadow: true, box_on: false, zoom: 2, corner: "tr", margin_x: 8, margin_y: 8, font: "Unispace", bold: false }],
   ["Just the framerate", "A big FPS number in the corner",
     ["fps"], { layout: "line", labels: false, units: "small", columns: false, group_colors: false, heat: false, zoom: 4, corner: "tl", margin_x: 12, margin_y: 12, graph: false, box_on: true, box_opacity: 45 }],
   ["Compact row", "GPU, CPU, memory and framerate on one line",
@@ -133,8 +133,10 @@ function ovPreview(st, r) {
     h("div", { class: "ov-scene" }), bar, body,
     OV_CORNERS.map(([c, name]) => h("button", { class: "ov-pad " + c + (st.corner === c ? " on" : ""), title: name, "aria-label": "Put the overlay " + name.toLowerCase(), onclick: () => ovStyle({ corner: c }) })));
   const v = (k, val) => screen.style.setProperty(k, val);
-  v("--lc", "#" + st.label_color); v("--vc", "#" + st.value_color); v("--wc", "#" + st.warn_color); v("--w1", "#" + st.warm_color);
-  Object.entries(OV_SLOT_COLOR).forEach(([slot, key]) => v("--g" + slot, "#" + st[key]));
+  // the colours the overlay gets: a saved colour that isn't 6 hex digits falls back like it does there
+  const col = (key) => "#" + (/^#?[0-9a-f]{6}$/i.test(st[key] || "") ? st[key].replace("#", "") : OV_DEF[key]);
+  v("--lc", col("label_color")); v("--vc", col("value_color")); v("--wc", col("warn_color")); v("--w1", col("warm_color"));
+  Object.entries(OV_SLOT_COLOR).forEach(([slot, key]) => v("--g" + slot, col(key)));
   v("--z", st.zoom);
   v("--mx", Math.max(3, st.margin_x / 4) + "px");
   v("--my", Math.max(3, st.margin_y / 4) + "px");
@@ -146,12 +148,12 @@ function ovPreview(st, r) {
     const nodes = lines.map((l) => h("div", { class: "ov-ln" + (gc ? " g" + l.slot : "") },
       l.label ? h("span", { class: "ov-l" }, l.label + "  ") : null,
       l.parts.map((p, i) => h("span", { class: "ov-p t" + p.tone },
-        p.pre ? h("span", { class: "ov-l" }, p.pre + " ") : null,
+        p.pre ? h("span", { class: "ov-pre" }, p.pre + " ") : null,
         h("span", { class: "ov-v" }, p.t),
-        p.u ? h("span", { class: "ov-u " + st.units }, (st.units === "normal" ? " " : "") + p.u) : null,
+        p.u ? h("span", { class: "ov-u " + st.units }, " " + p.u) : null,
         i < l.parts.length - 1 ? "  " : null))));
     if (st.graph && nodes.length) {
-      const g = h("div", { class: "ov-graph" + (st.graph_fit ? " fit" : ""), style: { width: st.graph_fit ? "" : st.graph_w * 1.6 + "px", height: st.graph_h * 4 + "px" } });
+      const g = h("div", { class: "ov-graph" + (st.graph_fit ? " fit" : "") + (gc ? " g7" : ""), style: { width: st.graph_fit ? "" : st.graph_w * 1.6 + "px", height: st.graph_h * 4 + "px" } });
       g.innerHTML = ovGraphSvg(st, (S.cache.rtss || {}).frametime);
       nodes.push(g);
     }
@@ -423,6 +425,20 @@ function ovWarnCard(st) {
     st.warn ? sliderRow("Framerate under", st.warn_fps, 0, 240, 5, st.warn_fps ? " FPS" : " off", (v) => ovStyle({ warn_fps: v })) : null);
 }
 
+/** RivaTuner's framerate limiter: its key (like Afterburner's), on/off now, and the limit. */
+function ovLimiterRow(s) {
+  const l = S.cache.limiter;
+  if (!l) invoke("rtss_limiter", { what: "state" }).then((r) => { S.cache.limiter = r; if (S.page === "overlay") render(); }).catch(() => {});
+  const act = async (what, fps) => { try { S.cache.limiter = await run("rtss_limiter", { what, fps }); } catch {} render(); };
+  const fps = h("input", { type: "number", min: 0, max: 1000, step: 1, value: l?.fps ?? "", style: { width: "74px" }, "aria-label": "Limit in frames a second", title: "0 = no limit",
+    onchange: (e) => act("set", Math.max(0, Math.min(1000, +e.target.value || 0))) });
+  return ovRow("Framerate limit", h("div", { class: "row wrap", style: { gap: "8px", justifyContent: "flex-end" } },
+    fps, h("span", { class: "dim" }, "FPS"),
+    l && l.on != null ? toggle(!!l.on, () => act("toggle")) : null,
+    hotkeyField(s.limiter_hotkey, "limiter", (k) => setSetting("limiter_hotkey", k).then(render))),
+    "RivaTuner's limiter: holds every game to this framerate. The key turns it on and off in game, like Afterburner's limiter key", "ov.limiter");
+}
+
 function ovBehaviourCard(st, s) {
   return h("div", { class: "card col" },
     h("div", { class: "tile-head" }, I("gear"), h("span", null, "Behaviour")),
@@ -432,8 +448,13 @@ function ovBehaviourCard(st, s) {
       hotkeyField(s.osd_reset_hotkey, "overlay_reset", (k) => setSetting("osd_reset_hotkey", k).then(render)),
       h("button", { class: "btn sm ghost", onclick: () => invoke("rtss_reset_stats").then(() => note("Framerate figures start over")) }, I("refresh", "sm"), "Now")),
       "Average, lows, lowest, highest and the graph. Handy at the start of a match or benchmark run", "ov.reset"),
+    ovLimiterRow(s),
     ovRow("Average and lows cover", seg([[30, "30 s"], [60, "1 min"], [120, "2 min"], [300, "5 min"]], st.stats_secs, (v) => ovStyle({ stats_secs: v })), "How far back the average, 1% low, lowest and highest look", "ov.stats"),
     ovSwitch("Start RivaTuner with Deck", null, s.rtss_autostart, (v) => setSetting("rtss_autostart", v)),
+    ovSwitch("Hide RivaTuner's tray icon", "RivaTuner keeps running. Open its settings with the button below.", s.rtss_tray_hidden, async (v) => {
+      try { await invoke("rtss_tray", { hidden: v }); S.state.settings.rtss_tray_hidden = v; } catch (e) { note(String(e)); }
+    }),
+    ovRow("RivaTuner's own settings", h("button", { class: "btn sm", onclick: () => invoke("rtss_open").catch((e) => note(String(e))) }, I("external", "sm"), "Open RivaTuner")),
     ovSwitch("Share readings like Afterburner", "Lets RivaTuner's overlay editor and stream widgets read the same numbers.", s.mahm_on, (v) => setSetting("mahm_on", v), "ov.mahm"));
 }
 

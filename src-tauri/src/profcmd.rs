@@ -340,6 +340,11 @@ pub fn ab_import(app: A, startup: bool, osd: bool) -> R<usize> {
         }
         if osd && !i.osd.is_empty() {
             s.osd_items = i.osd;
+            if let Some(h) = i.limiter_hotkey.clone() {
+                if s.limiter_hotkey.is_empty() {
+                    s.limiter_hotkey = h;
+                }
+            }
             if let Some(h) = i.osd_hotkey {
                 s.osd_hotkey = h;
             }
@@ -415,6 +420,22 @@ pub fn rtss_state() -> Value {
     crate::rtss::status()
 }
 
+/// RivaTuner's framerate limiter: "state", "toggle", or "set" a limit (`fps`). Returns { on, fps }.
+#[tauri::command]
+pub async fn rtss_limiter(app: A<'_>, what: String, fps: Option<u32>) -> R<Value> {
+    let app = app.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        match what.as_str() {
+            "toggle" => crate::rtss::toggle_limiter(&app),
+            "set" => crate::rtss::set_limit_fps(fps.unwrap_or(0))?,
+            _ => {}
+        }
+        Ok(json!({ "on": crate::rtss::limiter_on(), "fps": crate::rtss::limit_fps() }))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 pub fn rtss_restore_look() -> R<usize> {
     crate::rtss::restore_look()
@@ -429,6 +450,21 @@ pub fn rtss_reset_stats() {
 #[tauri::command]
 pub fn rtss_start() -> R<()> {
     crate::rtss::start_rtss()
+}
+
+/// Opens RivaTuner's own window.
+#[tauri::command]
+pub async fn rtss_open() -> R<()> {
+    tauri::async_runtime::spawn_blocking(crate::rtss::open_rtss_window).await.map_err(|e| e.to_string())?
+}
+
+/// Removes RivaTuner's tray icon (it keeps running) or brings it back.
+#[tauri::command]
+pub async fn rtss_tray(app: A<'_>, hidden: bool) -> R<()> {
+    let app = app.inner().clone();
+    app.settings.lock().rtss_tray_hidden = hidden;
+    app.save_settings();
+    tauri::async_runtime::spawn_blocking(move || crate::rtss::set_tray_icon(!hidden)).await.map_err(|e| e.to_string())
 }
 
 /// Downloads and installs RivaTuner (winget, from Guru3D): takes up to a minute.

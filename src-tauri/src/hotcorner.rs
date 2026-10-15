@@ -9,7 +9,17 @@ use windows::Win32::Foundation::{POINT, RECT};
 use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromPoint, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST};
 use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON, VK_RBUTTON};
 use windows::Win32::UI::Shell::{SHQueryUserNotificationState, QUNS_BUSY, QUNS_PRESENTATION_MODE, QUNS_RUNNING_D3D_FULL_SCREEN};
-use windows::Win32::UI::WindowsAndMessaging::{GetClassNameW, GetCursorPos, GetForegroundWindow, GetWindowLongW, GetWindowRect, GWL_STYLE, WS_CAPTION};
+use windows::Win32::UI::WindowsAndMessaging::{GetClassNameW, GetCursorPos, GetForegroundWindow, GetWindowLongW, GetWindowRect, GetWindowThreadProcessId, GWL_STYLE, WS_CAPTION};
+
+/// Screenshot tools whose "drag a box" overlay sends the pointer into screen corners.
+const SNIP_TOOLS: &[&str] = &["screenclippinghost", "snippingtool", "sharex", "lightshot", "greenshot", "flameshot", "snagit32", "snagiteditor", "picpick", "screenpresso"];
+
+/// A screenshot tool's overlay (Win+Shift+S, Snipping Tool, ShareX…) is in front.
+fn snipping_in_front() -> bool {
+    let mut pid = 0u32;
+    unsafe { GetWindowThreadProcessId(GetForegroundWindow(), Some(&mut pid)) };
+    crate::util::process_path(pid).map(|p| SNIP_TOOLS.contains(&crate::util::exe_stem(&p).to_lowercase().as_str())).unwrap_or(false)
+}
 
 /// A fullscreen game, video or presentation is in front.
 pub fn fullscreen_in_front() -> bool {
@@ -97,15 +107,21 @@ pub fn start(app: Arc<App>, trigger: impl Fn() + Send + 'static) {
                 if fired {
                     continue;
                 }
-                // dragging something, or a mouse button held: not a request
+                // dragging something, or a mouse button held: not a request. A click or drag that
+                // starts or ends in the corner (a screenshot box) keeps it quiet until the pointer
+                // leaves the corner, so resting there after letting go doesn't open Deck.
                 let held = unsafe { (GetAsyncKeyState(VK_LBUTTON.0 as i32) as u16 & 0x8000) != 0 || (GetAsyncKeyState(VK_RBUTTON.0 as i32) as u16 & 0x8000) != 0 };
                 if held {
                     entered = None;
+                    fired = true;
                     continue;
                 }
                 let t = *entered.get_or_insert_with(Instant::now);
                 if t.elapsed() >= Duration::from_millis(dwell) {
                     fired = true;
+                    if snipping_in_front() {
+                        continue;
+                    }
                     if !allow_fs && !app.is_visible() && fullscreen_in_front() {
                         continue;
                     }

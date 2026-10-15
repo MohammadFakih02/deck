@@ -497,6 +497,12 @@ const HELP = {
     why: "Measure just one match, one benchmark run or one setting, without the loading screen or the menu in the numbers.",
     change: "The key works in games while profile shortcuts are on. The figures also start over by themselves when you switch to another game.",
   },
+  "ov.limiter": {
+    t: "Framerate limit",
+    what: "RivaTuner holds every game to this many frames a second while the limiter is on. The switch and the key turn it on and off; the number is kept in RivaTuner's global profile.",
+    why: "Less heat, noise and power in games that run far faster than your screen, smoother frame pacing, or a low limit while you're away from the game.",
+    change: "The key works in games while profile shortcuts are on, like Afterburner's limiter key did. Games with their own RivaTuner profile can have their own limit there.",
+  },
   "ov.color_bar": {
     t: "Frame time bar",
     what: "A thin coloured strip along the edge of the screen that changes colour on every frame.",

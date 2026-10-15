@@ -182,8 +182,28 @@ pub struct Settings {
     // ---- screen tools
     pub colors: Vec<String>,
 
+    // ---- your other PCs
+    /// Transfer: send files, folders, installers, apps and setups between your PCs (Deck on both)
+    pub transfer_on: bool,
+    /// Claude Sync: Claude Code's sessions, memory and settings kept the same on your PCs (off by default)
+    pub claude_sync_on: bool,
+    /// Claude Code sync shows in the sidebar (hidden by default; always shown while it is on)
+    pub claude_sync_nav: bool,
+
     // ---- phone
     pub remote_on: bool,
+    /// the phone remote's Screen view: off (default), view, or control (taps and typing reach the PC)
+    pub remote_screen: String,
+    /// its largest picture: "sharp" = Full (the screen's own size, the default), "balanced" = Medium (1280 px), "fast" = Small (960 px)
+    pub remote_screen_quality: String,
+    /// its pictures a second at most: 15, 24, 30 (default) or 60
+    pub remote_screen_fps: u32,
+    /// its bitrate in kb/s: 0 = Auto (measures the connection and follows it), else a fixed limit
+    pub remote_screen_kbps: u32,
+    /// under a bitrate limit: "smooth" keeps the frame rate (blurrier), "sharp" keeps the picture clear (fewer frames)
+    pub remote_screen_priority: String,
+    /// "auto" (H.264 where the phone can decode it) or "jpeg"
+    pub remote_screen_codec: String,
     pub remote_port: u16,
     pub remote_token: String,
 
@@ -224,10 +244,14 @@ pub struct Settings {
     pub osd_ms: u32,
     /// hotkey that shows / hides the overlay
     pub osd_hotkey: String,
+    /// turns RivaTuner's framerate limiter on and off (Afterburner's limiter key)
+    pub limiter_hotkey: String,
     /// hotkey that starts the average, lows, lowest and highest over (like Afterburner's benchmark reset)
     pub osd_reset_hotkey: String,
     /// start RivaTuner Statistics Server together with Deck
     pub rtss_autostart: bool,
+    /// RivaTuner keeps running without its tray icon (the Overlay page opens it)
+    pub rtss_tray_hidden: bool,
     /// notifications when a drive gets worse (off unless asked for: no surprise pop-ups)
     pub drive_alerts: bool,
     /// publish Afterburner's monitoring shared memory for other tools
@@ -303,7 +327,16 @@ impl Default for Settings {
             ping_hosts: vec!["1.1.1.1".into(), "8.8.8.8".into(), "discord.com".into()],
             notes: Vec::new(),
             colors: Vec::new(),
+            transfer_on: true,
+            claude_sync_on: false,
+            claude_sync_nav: false,
             remote_on: true,
+            remote_screen: "off".into(),
+            remote_screen_quality: "sharp".into(),
+            remote_screen_fps: 30,
+            remote_screen_kbps: 0,
+            remote_screen_priority: "smooth".into(),
+            remote_screen_codec: "auto".into(),
             remote_port: 47830,
             remote_token: String::new(),
             boost_close: HashMap::new(),
@@ -325,8 +358,10 @@ impl Default for Settings {
             osd_items: crate::osd::DEFAULT_ITEMS.iter().map(|s| s.to_string()).collect(),
             osd_ms: 1000,
             osd_hotkey: String::new(),
+            limiter_hotkey: String::new(),
             osd_reset_hotkey: String::new(),
             rtss_autostart: false,
+            rtss_tray_hidden: false,
             drive_alerts: false,
             mahm_on: true,
             osd_style: crate::osd::OsdStyle::default(),

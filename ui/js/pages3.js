@@ -69,9 +69,110 @@ async function lockCheck(folder, path) {
 
 // ------------------------------------------------------------------ phone
 
+/** The "Away" tab. The phone reaches the PC only once it's on the user's Tailscale network (else
+ *  the code loads forever), so until a phone is there it first shows how to put it there: a code
+ *  that opens the Tailscale app in the phone's store, and the account to sign in with. */
+function awayView(r) {
+  const phones = (r.away_peers || []).filter((p) => /android|ios/i.test(p.os || ""));
+  const account = r.away_account ? h("b", { style: { userSelect: "text", wordBreak: "break-all" } }, r.away_account) : "the same account as this PC";
+  if (!phones.length && !S.cache.awaySkipSetup) return [
+    h("div", { class: "chip warn" }, I("alert", "sm"), "Your phone isn't on Tailscale yet"),
+    r.away_get_qr ? h("div", { class: "qr", html: r.away_get_qr }) : null,
+    h("ol", { class: "dim", style: { margin: 0, paddingLeft: "18px", textAlign: "left", lineHeight: 1.6 } },
+      h("li", null, "Scan this to get Tailscale on the phone"),
+      h("li", null, "Sign in with ", account),
+      h("li", null, "Turn it on (allow the VPN), then come back here for the connect code")),
+    h("button", { class: "btn sm ghost", onclick: () => { S.cache.awaySkipSetup = true; render(); } }, "My phone is set up: show the code")];
+  return [
+    h("div", { class: "qr", html: r.away_qr }),
+    h("div", { class: "dim" }, "Works anywhere while the phone is connected in the Tailscale app, signed in with ", account, "."),
+    phones.length ? h("div", { class: "row wrap", style: { justifyContent: "center" } }, phones.map((p) => h("span", { class: "chip " + (p.online ? "good" : ""), title: p.online ? "Connected to Tailscale" : "Not connected to Tailscale right now" }, I("smartphone", "sm"), `${p.name}${p.online ? "" : " · offline"}`))) : null];
+}
+
+/** The Screen view's bitrate: Auto (measures the connection), a fixed limit, or one typed in. */
+function bitrateSelect(k) {
+  const opts = [[0, "Auto"], [30000, "30 Mb/s"], [15000, "15 Mb/s"], [8000, "8 Mb/s"], [4000, "4 Mb/s"], [2000, "2 Mb/s"], [1000, "1 Mb/s"], [500, "0.5 Mb/s"]];
+  if (!opts.some(([v]) => v === k)) opts.push([k, `${+(k / 1000).toFixed(2)} Mb/s`]);
+  return h("select", { "aria-label": "Bitrate", onchange: async (e) => {
+    let v = e.target.value;
+    if (v === "custom") {
+      const x = parseFloat(String(await promptBox("Bitrate", "Mb/s, for example 1.5 (empty for Auto)", "", "Set") || "").replace(",", "."));
+      v = x > 0 ? Math.round(Math.min(200, Math.max(0.3, x)) * 1000) : 0;
+    }
+    setSetting("remote_screen_kbps", +v);
+  } }, ...opts.map(([v, l]) => h("option", { value: String(v), selected: v === k }, l)), h("option", { value: "custom" }, "Type…"));
+}
+
+/** Phone page: the PC's screen in the phone remote (view, or view and control). */
+function screenCard(r) {
+  const s = S.state.settings;
+  const mode = s.remote_screen || "off", q = s.remote_screen_quality || "sharp";
+  const seg = (val, opts, key) => h("div", { class: "seg" }, opts.map(([v, l]) => h("button", { class: val === v ? "on" : "", onclick: () => setSetting(key, v) }, l)));
+  const n = r.screen_viewers || 0;
+  return h("div", { class: "card col" },
+    h("div", { class: "tile-head" }, I("smartphone"), h("span", null, "Screen on your phone"), h("span", { class: "grow" }),
+      n ? h("span", { class: "chip good" }, I("eye", "sm"), `${n} watching`) : null),
+    h("div", { class: "dim" }, "See this PC's screen in the phone remote, at home or away (Tailscale). With control, taps click and the phone's keyboard types on the PC."),
+    h("div", { class: "rd-row" }, h("span", { class: "dim" }, "Allow"), seg(mode, [["off", "Off"], ["view", "View only"], ["control", "View and control"]], "remote_screen")),
+    mode !== "off" ? h("div", { class: "rd-row" }, h("span", { class: "dim" }, "Picture size"), seg(q, [["sharp", "Full"], ["balanced", "Medium"], ["fast", "Small"]], "remote_screen_quality")) : null,
+    mode !== "off" ? h("div", { class: "rd-row" }, h("span", { class: "dim" }, "Smoothness"), seg([15, 24, 60].includes(s.remote_screen_fps) ? s.remote_screen_fps : 30, [[15, "15"], [24, "24"], [30, "30"], [60, "60 fps"]], "remote_screen_fps")) : null,
+    mode !== "off" ? h("div", { class: "rd-row" }, h("span", { class: "dim" }, "Bitrate"), bitrateSelect(s.remote_screen_kbps || 0)) : null,
+    mode !== "off" ? h("div", { class: "rd-row" }, h("span", { class: "dim" }, "When it's tight"), seg(s.remote_screen_priority === "sharp" ? "sharp" : "smooth", [["smooth", "Smooth (blurrier)"], ["sharp", "Sharp (fewer frames)"]], "remote_screen_priority")) : null,
+    mode !== "off" ? h("div", { class: "rd-row" }, h("span", { class: "dim" }, "Video"), seg(s.remote_screen_codec === "jpeg" ? "jpeg" : "auto", [["auto", "H.264 (light on data)"], ["jpeg", "JPEG"]], "remote_screen_codec")) : null,
+    mode !== "off" ? h("div", { class: "faint", style: { fontSize: "12px" } }, "Video: H.264 needs far less data (a 1 Mb/s line can show 30 fps), so it is the default; JPEG is the plain fallback. Picture size: Full keeps small text readable. Auto bitrate measures the connection and follows it (down to slow DSL); a fixed one never goes over. Nothing is sent while the screen doesn't change.") : null);
+}
+
+/** Phone page: remote desktop through RustDesk, with Tailscale for away from home. */
+function rdeskCard() {
+  const d = S.cache.rdesk;
+  const busy = S.cache.rdeskBusy;
+  const act = async (what, args = {}, ok) => {
+    S.cache.rdeskBusy = what; render();
+    try { S.cache.rdesk = await run("rdesk_do", { what, ...args }, ok); } catch { /* run() showed it */ }
+    S.cache.rdeskBusy = null; render();
+  };
+  const el = h("div", { class: "card col" }, h("div", { class: "tile-head" }, I("monitor"), h("span", null, "Remote desktop app (RustDesk)")));
+  if (!d) return (el.append(h("div", { class: "faint" }, "Checking…")), el);
+  if (!d.installed) {
+    el.append(
+      h("div", { class: "dim" }, "See this PC's screen and use its mouse and keyboard from your phone or another computer, at home or away. Uses RustDesk (free, open source); Deck installs and sets it up."),
+      h("div", { class: "row" }, h("button", { class: "btn primary", disabled: !!busy, onclick: () => act("install", {}, "RustDesk is installed. Set a password next.") }, I("download"), busy === "install" ? "Installing…" : "Install RustDesk")));
+    return el;
+  }
+  const ts = d.tailscale || {};
+  const row = (label, ...rest) => h("div", { class: "rd-row" }, h("span", { class: "dim" }, label), ...rest);
+  const value = (v) => [h("b", { class: "num grow", style: { userSelect: "text" } }, v), h("button", { class: "icon-btn sm", title: "Copy", "aria-label": "Copy", onclick: () => copyAnswer(v) }, I("copy", "sm"))];
+  const sw = (label, on, what, tip) => h("label", { class: "rd-row", title: tip || "" }, h("span", { class: "grow" }, label), toggle(on, (v) => act(what, { on: v })));
+  el.append(sw("Allow remote desktop", d.on, "on", "Off stops RustDesk completely, also after a restart"));
+  if (d.on) {
+    el.append(
+      d.direct ? row("At home", ...value(d.lan || "–")) : null,
+      d.direct ? row("Away from home", ...(ts.on && ts.ip ? value(ts.ip)
+        : [h("span", { class: "grow faint" }, ts.installed ? "Tailscale isn't signed in" : "Needs Tailscale (free)"),
+          h("button", { class: "btn sm", onclick: () => act("tailscale") }, I("external", "sm"), ts.installed ? "Sign in" : "Get it")])) : null,
+      d.id ? row("RustDesk ID", ...value(d.id)) : null,
+      sw("Connect by address", d.direct, "direct", "Phones connect straight to this PC (home network or Tailscale), not through RustDesk's servers"),
+      sw("Hide tray icons", d.tray_hidden, "tray", "RustDesk and Tailscale keep working; their state shows here instead"),
+      h("div", { class: "row wrap" },
+        h("button", { class: "btn", disabled: !!busy, onclick: async () => { const pw = await promptBox("Remote desktop password", "At least 8 characters. Asked when you connect.", "", "Set"); if (pw) act("password", { text: pw }, "Password set"); } }, I("lock"), "Set password"),
+        h("button", { class: "btn ghost", onclick: () => act("open") }, I("external"), "Open RustDesk")),
+      h("details", { class: "fold-card" },
+        h("summary", { style: { cursor: "pointer", fontWeight: 600 } }, "Connect from your phone"),
+        h("ol", { class: "dim", style: { margin: "6px 0 0", paddingLeft: "18px", lineHeight: 1.7 } },
+          h("li", null, "Install ", h("b", null, "RustDesk"), " from the Play Store or App Store"),
+          h("li", null, "Type the ", h("b", null, "At home"), " address (or ", h("b", null, "Away from home"), " when out) in the box at the top, then connect"),
+          h("li", null, "Enter the password you set here"),
+          h("li", null, "Away from home the phone needs ", h("b", null, "Tailscale"), " too, signed in with the same account"))));
+  }
+  return el;
+}
+
+
 Pages.phone = {
   async load() {
     S.cache.remote = await invoke("remote_info");
+    // RustDesk's state takes a moment (it asks RustDesk and Tailscale): fill it in when it comes
+    invoke("rdesk_status").then((d) => { S.cache.rdesk = d; if (S.page === "phone") render(); });
   },
   render() {
     const r = S.cache.remote || {};
@@ -81,8 +182,10 @@ Pages.phone = {
       h("label", { class: "row", style: { alignSelf: "stretch", justifyContent: "space-between" } },
         h("b", null, "Allow phone connection"),
         toggle(s.remote_on, async (v) => { await setSetting("remote_on", v); setTimeout(async () => { S.cache.remote = await invoke("remote_info"); render(); }, 400); })),
-      r.enabled && r.qr ? h("div", { class: "qr", html: r.qr }) : h("div", { class: "empty" }, r.error || "The phone connection is off."),
-      r.enabled ? h("div", { class: "dim" }, "Scan with your phone's camera. Phone and PC must be on the same Wi-Fi.") : null,
+      r.enabled && r.away ? h("div", { class: "seg" }, ["home", "away"].map((k) => h("button", { class: (S.cache.phoneAway ? "away" : "home") === k ? "on" : "", onclick: () => { S.cache.phoneAway = k === "away"; render(); } }, k === "home" ? "At home" : "Away (Tailscale)"))) : null,
+      ...(r.enabled && S.cache.phoneAway && r.away ? awayView(r) : [
+        r.enabled && r.qr ? h("div", { class: "qr", html: r.qr }) : h("div", { class: "empty" }, r.error || "The phone connection is off."),
+        r.enabled ? h("div", { class: "dim" }, "Scan with your phone's camera. Phone and PC must be on the same Wi-Fi.") : null]),
       // while it's off there's nothing to connect to or re-code
       r.enabled ? h("div", { class: "row" }, h("span", { class: "chip " + (r.clients ? "good" : "") }, I("smartphone"), r.clients ? `${r.clients} phone${r.clients > 1 ? "s" : ""} connected` : "No phone connected")) : null,
       !r.enabled ? null : h("button", { class: "btn sm ghost", title: "Old QR codes stop working", onclick: async () => { if (await confirmBox("Make a new code?", "Phones using the old code are disconnected and need to scan again.", "New code")) { S.cache.remote = await invoke("remote_reset_token"); render(); } } }, I("refresh", "sm"), "Make a new code"));
@@ -118,7 +221,7 @@ Pages.phone = {
           h("button", { class: "icon-btn sm danger", title: "Remove from list", onclick: async () => { await invoke("shared_remove", { id: x.id }); S.cache.remote = await invoke("remote_info"); render(); } }, I("x", "sm")))))) : h("div", { class: "faint" }, "Nothing yet. Things you send from the phone are copied to the PC clipboard; files land in Downloads\\From phone."));
     el.append(h("div", { style: { display: "grid", gridTemplateColumns: "300px minmax(0, 1fr)", gap: "14px", alignItems: "start" } },
       h("div", { class: "col", style: { gap: "14px" } }, left, install),
-      h("div", { class: "col", style: { gap: "14px" } }, send, inbox)));
+      h("div", { class: "col", style: { gap: "14px" } }, send, screenCard(r), rdeskCard(), inbox)));
     return el;
   },
   live: true,
@@ -186,7 +289,9 @@ Pages.settings = {
     add(h("div", { class: "section" }, h("h2", null, "Sidebar")));
     add(h("div", { class: "settings-card" },
       row("Order", "Drag a group's name, or a page inside its group, up or down in the sidebar. Folded groups stay folded after a restart.",
-        h("button", { class: "btn sm", disabled: s.nav_order ? null : "", onclick: async () => { await set("nav_order")(null); sideSig = ""; renderSide(); } }, I("undo", "sm"), "Reset the order"))));
+        h("button", { class: "btn sm", disabled: s.nav_order ? null : "", onclick: async () => { await set("nav_order")(null); sideSig = ""; renderSide(); } }, I("undo", "sm"), "Reset the order")),
+      row("Show Claude Code sync", "For people who use Claude Code on more than one PC. It sits under Desktop, and stays there while it's switched on.",
+        toggle(!!s.claude_sync_nav || !!s.claude_sync_on, async (v) => { await set("claude_sync_nav")(v); sideSig = ""; renderSide(); }))));
 
     cur = "general";
     add(h("div", { class: "section" }, h("h2", null, "Colour")));

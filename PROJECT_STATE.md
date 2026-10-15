@@ -1,10 +1,78 @@
 # Deck — project state
 
-Handoff notes so work can resume later. Last updated: 2026-10-14 (v2.0.0).
+Handoff notes so work can resume later. Last updated: 2026-10-15 (v2.5.0).
 
 **Start with `DECK.md`** (full overview: features, hardware, files, build/test, status). This file is the dated history.
 
 > **RULE: before every commit, update the docs.** Add today's dated entry here, add user-visible changes to `CHANGELOG.md`, update `DECK.md` / `README.md` when facts change, and stage them in the same commit. The pre-commit hook enforces it; never bypass it. No personal data in these files (that goes in the git-ignored `PRIVATE_NOTES.md`).
+
+## 2026-10-15: v2.5.0 — PC to PC, Claude Code sync, share links, RivaTuner tray
+
+- Released as **2.5.0** (2.0.1 was never released; its changes are part of 2.5.0).
+- **RivaTuner tray icon:** the user didn't want it moved under the tray arrow (Windows' `NotifyIconSettings\IsPromoted`), but removed. RivaTuner has no setting for this; its strings only show `StartMinimized` and `SendToTrayOnClose`. Found by trying: the icon belongs to the window titled "RivaTunerStatisticsServer", and its id is that window's handle. Explorer accepts `NIM_DELETE` from another process. `rtss::set_tray_icon(false)` removes it and the rtss loop repeats this every 5 s while `rtss_tray_hidden` is on. `set_tray_icon(true)` posts `TaskbarCreated` to that window, and RivaTuner adds the icon back. Checked on the laptop: the icon is removed, RivaTuner keeps running, and Deck removes it again within 2 s after RivaTuner re-added it. `rtss_open` shows the "RTSS" window; checked from an elevated shell, not from a non-elevated one, where UIPI blocks it. Commands `rtss_tray` and `rtss_open`; ignored test `rtss_tray_icon`.
+- Removed the phone's temporary debug logging (`vlog`, and the PC's `deck-phone.log` handler).
+
+- **AppBeam and ClaudeSync are now part of Deck** (user's request: integrate them properly, Claude Sync off by default; chosen: native pages, Deck-only protocol). Engines copied into `src-tauri/src/beam/` and `src-tauri/src/ccsync/` with `crate::` paths rewritten; their egui UIs replaced by `ui/js/pcs.js` (sidebar: **PC to PC** above Phone; **Claude Code sync** under Desktop, hidden unless `claude_sync_nav` (Settings → Sidebar) or it is on). Deck-only: new ports (47833/47834, 47835/47836), hellos `DKT1`/`DKC1`, Claude Sync's key derivation string and hub folder renamed, so the standalone apps never mix with Deck's.
+- Glue: `beam::set_on/state/act` and `ccsync::set_on/state/act` behind the commands `transfer_state`, `transfer_do`, `transfer_apps`, `transfer_setup_preview`, `claude_sync_state`, `claude_sync_do`, `pick_many`. Settings `transfer_on` (true) and `claude_sync_on` (false). Off = the `off` flag: no beacon, no answers, the accept loop drops connections; Claude Sync off also removes its hooks (`Engine::switch_off`). Offers and requests show as sticky toasts `xfer:<id>` with Accept/Decline (`App::toast_action`). `App::ui_changed` refreshes Deck's page without telling the phone. Firewall: `remote::allow_between_pcs` adds "Deck between your PCs" (program, any protocol, private/domain).
+- Claude Code hooks: `deck.exe --claude-sync-hook` is handled first thing in `main()` (no Tauri); the hook runs a copy, `%LOCALAPPDATA%\Deck\claude-sync-hook.exe`, so a running hook never blocks an update. `is_ours` matches `--claude-sync-hook` only, so the standalone ClaudeSync's hooks are left alone (checked). NSIS `hooks.nsh` runs `--uninstall-cleanup` (not on updates) so Claude Code isn't left calling a missing program; `uninstall.ps1` does too and removes both firewall rules.
+- `serde_json` now has `preserve_order` (Claude Code's settings.json keeps its key order when the hooks are edited); every test still passes.
+- Tests: 118 pass (+27 ignored). New ignored loopback tests (`cargo test --release -- --ignored two_engines`): Transfer (5 MB file byte for byte, project folder without build output, request from a shared folder, an engine switched off isn't found) and Claude Sync (a session made on A arrives on B with A's home path rewritten to B's; no hooks while their settings are off; off gives phase "Off"). The hook checked with the real exe: blocked session exit 2 with Deck's message, others 0, no Deck started. UI checked with the preview harness (all tabs; `shot.mjs` now falls back to Chrome when Edge isn't installed). NOT tested yet: two real PCs (the laptop needs this Deck), the cloud folder, a real winget install, applying a setup, the NSIS uninstall hook (needs a full `cargo tauri build`).
+- Later the same day: PC to PC trust (`Config.trusted`, `trusts()`, settings version `v` 1 turns `ask_before_receive` on; deletions always asked; toast "Trust this PC…" opens the page, whose select answers `trust_7|30|182|always`); "nobody answered in time" instead of "declined"; Tailscale peers tried by both engines (`rdesk::tailscale_pcs`, home address kept when also found by beacon, quiet errors); wrong-code log lines once per 10 min per address; the sync event gets a DACL (Everyone, medium label) so the hook can wake an elevated Deck (not tested at runtime); command line `beam/cli.rs` (`quiet` engine: no beacon, no listener; inbox.json merged, Deck reloads it on change) tested end to end against this PC's Deck (prompt, accept, file arrived); Claude Code skill `beam/skill.md` installed by a switch. Framerate limit key: `rtss-osd32 on|off|status <dir> 4` flips RTSSHOOKSFLAG_LIMITER_DISABLED (checked on the real RivaTuner: off→on→off), `limiter_hotkey`, `rtss_limiter` command, limit read/written in `Profiles\Global [Framerate] Limit`.
+- Overlay preview colours (user report: some colours look right in game but not in the preview): the preview now follows `osd.rs render()` exactly: prefix and unit always C0, labels C0 or the group colour, graph C0 or C7, small units 62 % and raised, invalid colours fall back like `hex()`. The frame colour bar's preview was left as is (RTSS's own bar not checked).
+- Phone remote: skip buttons seek 10 s when the player has no previous/next (browsers report `can_next:false`), taps add up; the home page shows CPU/GPU watts (`cpu_w`, `gpu_w` from the hardware engine's table, NVIDIA's reading as fallback) and the CPU package temperature (`cpu_t`).
+
+## 2026-10-14: v2.0.1 — phone fixes, remote desktop, Tailscale
+
+**H.264 for the phone Screen view (added last, uncommitted):** `src-tauri/src/h264.rs` (Media Foundation encoder, BGRA→NV12, Annex-B + fragmented-MP4 writer, `plan()` for width/fps per bitrate) and `screencast.rs` (`Video` enum, `spawn_h264` thread, `spawn_jpeg`, plan hysteresis: narrower after 1 s (3 s for MSE), wider after 10 s (20 s for MSE), sparse-input bitrate scaling because NVENC spends bits per nominal frame, fallback chain encoder → next encoder → JPEG). The phone asks with `/screen?v=h264w|h264m|jpeg` (WebCodecs when `VideoDecoder` exists, MSE otherwise; plain http has no WebCodecs). Message layout: 8-byte capture time, kind byte (0/1 Annex-B delta/key, 2 MP4 header, 3/4 fragment), data; `{"t":"video"}` text announces codec string/size; phone sends `{"t":"idr"}` on decode errors and `{"t":"codec"}` (saved as `remote_screen_codec`: auto/jpeg). Measured here: 1 Mb/s → 987 kb/s at 30 fps/640 px; 15 Mb/s 60 fps → 48 fps/12.8 Mb/s (the screen's own update rate); both decoders verified in headless Chrome (MSE without flags, WebCodecs with `--unsafely-treat-insecure-origin-as-secure`). Without WebCodecs the phone now decodes in the page: `phone/h264dec.js` (served as `/h264dec-2.js`, rename on change: cached a year) is tinyh264 0.0.7 (Apache-2.0, `phone/h264dec.LICENSE.txt`; npm package `es/TinyH264.js` + `es/TinyH264Decoder.js` with their `export default` lines removed) plus Deck's worker messages at the end; `/screen?v=h264s` → `Video::Sw`: Constrained Baseline (`Encoder::open_as(.., true)`, the decoder reads nothing else), Annex-B like WebCodecs, 8 in flight, answered once decoded; WebGL YUV→RGB (BT.709 limited), JS fallback; the phone asks `{"t":"vmax"}` for narrower pictures when decoding takes >70% of the time or 4 pictures wait for it (twice in a row, checked every 3 s). The phone server turns Nagle off (`tap_io` + `set_nodelay`). Checked: `baseline_stream_dump` (ignored test) + a Node run of the worker on both encoders' streams: 90/90 pictures, 45-50 dB PSNR against the source. MSE stays only for browsers without WebAssembly; on Firefox Android it stalled and replayed old pictures even after these fixes (its decoder drains when the buffer runs out, then decodes again from the last key picture). MSE pitfalls found on Firefox Android: `SourceBuffer.remove` also removes everything after the range up to the next key picture, so the phone trims only up to a key picture it recorded (and asks for one after 10 s without); seeking replays from the last key picture, so a phone that fell behind asks for a key picture and seeks onto it, otherwise playbackRate keeps a 0.1-0.3 s cushion; fragment durations are the real capture gaps (a 16.7 ms minimum made media time outrun real time and forced seeks; the last picture before a still screen gets 60 ms); a new `{"t":"video"}` with the player running appends the new init segment to the same SourceBuffer. Both Media Foundation encoders ignored `AVEncMPVGOPSize` set after the output type and made a key picture every 120 pictures; it's now set before and after (test `keys_when_bitrate_changes`). `--selftest-remote` takes `DECK_SELFTEST_SECS`. Sound: WASAPI loopback sends nothing in silence, which the phone counted as dropouts, so the PC now fills the first 1.5 s of silence. Live tests: `cargo test --release -- --ignored encoders_live keys_when_bitrate_changes baseline_stream_dump backwards_time_and_repeats sparse_input_rate real_screen_rate`.
+
+- **Phone QR timed out:** no firewall rule for deck.exe, and an elevated Deck started by the logon task never gets
+  Windows' "Allow access" prompt. `remote::allow_through_firewall` (when admin) adds "Deck phone remote" via netsh
+  (this exe, TCP, private + domain), replacing it when the exe path changed.
+- **File pickers behind Deck:** `main::file_dialog` sets Deck's window as the dialog owner.
+- **Hot corner during screenshots:** `hotcorner::snipping_in_front` (ScreenClippingHost, SnippingTool, ShareX, Lightshot,
+  Greenshot, Flameshot, Snagit, PicPick, Screenpresso) blocks the trigger; a mouse press in the corner sets `fired`
+  so resting there after letting go doesn't open Deck.
+- **Remote desktop (`rdesk.rs`):** RustDesk installed from its newest GitHub MSI (SHA-256 from the API `digest` +
+  Authenticode check), service on/off, permanent password, `direct-server` (port 21118), `hide-tray` + Tailscale
+  `--unattended` + their startup entries off. Admin work goes through `admin_ps` (base64 script; one UAC prompt when
+  Deck isn't admin). Commands `rdesk_status`, `rdesk_do`. Status is cached for Tailscale (20 s).
+- **Screen on your phone (`screencast.rs`):** `/screen?k=` WebSocket (separate from `/ws`). A capture thread per viewer:
+  DXGI duplication of the chosen monitor on the adapter that drives it (matched by HMONITOR; laptops with two GPUs),
+  GPU mip halving + `shrink` to the preset width, GDI (HALFTONE StretchBlt) for the first picture, HDR desktops and
+  failures; GDI pictures are hashed so an unchanged screen sends nothing. JPEG via `image` (feature `jpeg`).
+  Bitrate (`Rate`): `remote_screen_kbps` 0 = Auto, else a limit; `remote_screen_priority` smooth/sharp. JPEG quality
+  follows each picture's share of the budget (log-sized steps), the width jumps to the one whose pictures fit when quality
+  bottoms out or a picture is 3x too big, and back up to what the budget carries (`width_for`, a bytes-per-pixel model).
+  Smooth: wanted fps, q down to 4, down to 160 px (1 Mb/s 30 fps ≈ 320 px). Sharp: plans `sharp_fps` (kbps/1500, 2-10),
+  q ≥ 60, native size first, not below 480 px; q ≥ 80 encodes 4:4:4. Presets: "sharp" = Full (≤ 2560 px, default),
+  "balanced" = Medium 1280, "fast" = Small 960. fps 15/24/30/60. Phone sound: one continuous stream (JS linear
+  resampler carrying state, sample-exact scheduling, ±0.5 % speed for clock drift, cushion 40-300 ms)., a byte bucket (0.25 s) keeps the average under the limit, and budget left unused raises quality.
+  Auto (`Rate::tune`, every 0.5 s): `Feedback` times each picture until the phone's ack; delay > 1.8x the connection's
+  own + 80 ms (or a picture stuck > 1 s) cuts to 0.75x / 0.9x of what got through; delay near the baseline raises 15-30 %.
+  Measured: 2 Mb/s smooth 25 fps at 640 px, sharp 12 fps; 1 Mb/s 12 fps at 480 px (JPEG's floor); Auto on the LAN reaches
+  35 Mb/s in ~10 s. Pictures and sound packets start with their capture time (f64 ms on QPC: DXGI `LastPresentTime`,
+  WASAPI's QPC position); the phone delays pictures to when their sound plays (`SA.off`) while Control is off.
+  Sound packets: format byte (0 PCM, 1 IMA ADPCM), channels, rate, ADPCM states; `?q=best|good|low` on `/audio`.
+  Pipeline: capture thread → two `screencast-jpeg` threads (alternate pictures) → `screencast-send` puts them back in order;
+  the frame gap counts from the start of a grab (counting from its end capped 60 fps at ~45). Bytes are reserved in the
+  bucket at grab time. `{"t":"diag"}` every 2 s: grabs / new / waits (credit, encoder, gap, bucket); the phone shows
+  the screen's own rate from it. Smooth quality floor by width (25 at ≥854 px, 12 at ≥480, 4 below); 4:4:4 only for Sharp.
+  Flow control: 4 frames in flight, one credit back per phone "ack". Presets sharp 1920/q85, balanced 1280/q75, fast
+  960/q60; `remote_screen_fps` 30/60 sets the gap. JPEG by `jpeg-encoder` (AVX2, BGRA in): 3.7 ms at 1280 px (the
+  `image` crate took 12.4 ms). Frames wait in `AcquireNextFrame(15 ms)`; only GDI pictures are hashed. Cursor sent as
+  normalized `cur` messages. Sound: `/audio` WebSocket, `start_sound` = WASAPI loopback of the default output (follows
+  device changes), 16-bit stereo 10 ms packets; the phone plays them with Web Audio and an adaptive cushion
+  (30 ms up to 200 ms after dropouts, back down after 15 s smooth). Phone: Control off on every open (`SC.ctlOn`),
+  full screen (`.scr.imm`), canvas drawing via `createImageBitmap`, tries the PC's LAN address (`st.lan`) before the
+  Tailscale one, viewport `maximum-scale=1, interactive-widget=overlays-content` (Chrome zoomed into the hidden
+  typing box and kept the zoom after rotating). Input (`input()`): SendInput absolute (VIRTUALDESK), buttons, wheel, unicode text, keys
+  with mods; only in `control` mode, and not while `boost::game_in_front` (game folder, or fullscreen + GPU ≥ 60 %). Settings `remote_screen` (off/view/control, default off), `remote_screen_quality`.
+  Measured on the dev PC: ~10 ms per 1280 px frame (capture + shrink + JPEG), ~85-95 KB; the frame rate follows how
+  often the screen changes (Discord + a 30 fps stream: ~25-36 fps).
+- **Tailscale:** `remote::info` adds `away` / `away_qr` (Deck's page on the Tailscale IP), `away_peers`,
+  `away_account` and `away_get_qr` → `/tailscale`, a page served by Deck with store links plus the newest universal APK
+  from pkgs.tailscale.com (the Play Store hides Tailscale in some countries). Tailscale's network is Private, so
+  Deck's firewall rule covers it.
 
 ## 2026-10-14: v2.0.0 — the big update
 

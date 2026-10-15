@@ -6,7 +6,8 @@
 //! this tiny 32-bit helper. Same calls as the SDK's HotkeyHandler plugin: SetFlags, then
 //! WM_RTSS_UPDATESETTINGS so RivaTuner picks the change up.
 //!
-//! `rtss-osd32 status <folder>` only reads it.
+//! `rtss-osd32 status <folder>` only reads it. A third argument picks another switch by its flag
+//! bit: 4 is RTSSHOOKSFLAG_LIMITER_DISABLED (the framerate limiter is off while it is set).
 //!
 //! Exit code: 0 already as asked, 1 changed, 10 / 11 status off / on, 2 bad arguments,
 //! 3 RTSSHooks.dll missing or too old.
@@ -47,6 +48,10 @@ fn main() {
         _ => exit(2),
     };
     let Some(dir) = args.next().map(PathBuf::from) else { exit(2) };
+    let flag: u32 = match args.next() {
+        Some(f) => f.to_str().and_then(|s| s.parse().ok()).filter(|f| [1, 4].contains(f)).unwrap_or_else(|| exit(2)),
+        None => OSD_VISIBLE,
+    };
     unsafe {
         let m = LoadLibraryW(wide(dir.join("RTSSHooks.dll").as_os_str()).as_ptr());
         if m == 0 {
@@ -59,12 +64,12 @@ fn main() {
         let get: extern "C" fn() -> u32 = std::mem::transmute(get);
         let set: extern "C" fn(u32, u32) -> u32 = std::mem::transmute(set);
         if status {
-            exit(10 + (get() & OSD_VISIBLE) as i32);
+            exit(10 + (get() & flag != 0) as i32);
         }
-        if (get() & OSD_VISIBLE != 0) == on {
+        if (get() & flag != 0) == on {
             exit(0);
         }
-        set(!OSD_VISIBLE, if on { OSD_VISIBLE } else { 0 });
+        set(!flag, if on { flag } else { 0 });
         let mut wnd = FindWindowW(std::ptr::null(), wide(OsStr::new("RTSS")).as_ptr());
         if wnd == 0 {
             wnd = FindWindowW(std::ptr::null(), wide(OsStr::new("RivaTuner Statistics Server")).as_ptr());

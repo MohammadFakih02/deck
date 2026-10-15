@@ -17,7 +17,7 @@
 
 ## Download
 
-Get **`Deck_2.0.0_x64-setup.exe`** from the [latest release](https://github.com/MohammadFakih02/deck/releases/latest) and run it. Deck lives in the tray; open it by resting the mouse in the top-left corner of the screen, or by clicking the tray icon.
+Get **`Deck_2.5.0_x64-setup.exe`** from the [latest release](https://github.com/MohammadFakih02/deck/releases/latest) and run it. Deck lives in the tray; open it by resting the mouse in the top-left corner of the screen, or by clicking the tray icon.
 
 > The setup isn't code-signed, so Windows SmartScreen may say "Windows protected your PC". Click **More info → Run anyway**.
 
@@ -41,7 +41,8 @@ Hardware control (fans, lighting, CPU power limits, GPU tuning) needs administra
 | **In-game overlay** | Through RivaTuner (Deck can install it for you): choose and group any reading, Afterburner-style looks, colours, a smooth frametime graph that fits the overlay, and keys to show it and to reset the figures. |
 | **Everyday tools** | Clipboard history (skips password managers), per-app volume, timers and break reminders, keep awake, "shut down when…" (a time, an app closing, downloads finishing, idle, media stopping). |
 | **Screen and PC** | Window pinning / see-through / FancyZones-style snap zones / workspaces, display refresh rate and brightness, processes, startup apps, network (speed test, ping, game-server ping), a WizTree-fast disk space treemap (reads the NTFS file table directly), clean up, colour picker, text from screen, locked files. |
-| **Phone remote** | A web app on your home network (scan a QR code): media, volume, profiles, shared files. |
+| **Phone remote** | A web app on your phone (scan a QR code): media, volume, profiles, shared files. At home, or from anywhere through Tailscale (free). |
+| **Remote desktop** | See and control the PC from your phone or another computer with RustDesk (free); Deck installs and sets it up. |
 
 Every hardware setting has a **?** that explains what it does, why you'd change it and what to watch out for.
 

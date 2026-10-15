@@ -966,6 +966,27 @@ fn restore(a: &Active, reopen_apps: bool) -> Value {
 
 // ------------------------------------------------------------ game watch
 
+/// The game in front, quickly (no process scan): the foreground program is from a game folder,
+/// or it's fullscreen while the graphics card is busy. The phone's Screen control pauses for it
+/// (Deck never sends input into games: anti-cheat).
+pub fn game_in_front(app: &App) -> Option<String> {
+    let mut pid = 0u32;
+    unsafe { GetWindowThreadProcessId(windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow(), Some(&mut pid)) };
+    if pid == 0 || pid == std::process::id() {
+        return None;
+    }
+    let path = process_path(pid)?;
+    let lower = path.to_lowercase();
+    let stem = stem_of(&lower);
+    let windir = std::env::var("WINDIR").unwrap_or_default().to_lowercase();
+    if NOT_GAMES.contains(&stem.as_str()) || (!windir.is_empty() && lower.starts_with(&windir)) {
+        return None;
+    }
+    let from_games = in_game_dir(&lower, &app.boost.game_dirs()) && !stem.contains("launcher");
+    let fullscreen_busy = crate::hotcorner::fullscreen_in_front() && app.gpu_engine().and_then(|g| g.nvml.live().util).is_some_and(|u| u >= 60);
+    (from_games || fullscreen_busy).then(|| friendly_name(&path))
+}
+
 /// The game that's running, if Deck can tell: a program from a game folder,
 /// or a fullscreen program that isn't a browser or video player.
 fn find_game(app: &App, sys: &mut System) -> Option<(u32, String)> {

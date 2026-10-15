@@ -16,6 +16,9 @@ if ((Get-Process Deck -ErrorAction SilentlyContinue) -and (Test-Path $exe)) {
 }
 Get-Process Deck -ErrorAction SilentlyContinue | Stop-Process -Force
 if (Test-Path "$env:ProgramFiles\Deck\Deck.exe") { Start-Process "$env:ProgramFiles\Deck\Deck.exe" -ArgumentList "--release-fans" -Wait -ErrorAction SilentlyContinue }
+# Claude Sync's hooks out of Claude Code's settings (and the hook program), plus Deck's firewall rules
+if (Test-Path $exe) { Start-Process $exe -ArgumentList "--uninstall-cleanup" -Wait -ErrorAction SilentlyContinue }
+foreach ($r in "Deck phone remote", "Deck between your PCs") { netsh advfirewall firewall delete rule name="$r" | Out-Null }
 
 # every task in the \Deck\ folder
 $svc = New-Object -ComObject Schedule.Service
