@@ -2,7 +2,7 @@
 //! so anti-cheat has nothing to object to). Keys another program holds are retried every 30 s.
 //! Games can switch registered shortcuts off while they are in front (raw input with
 //! `RIDEV_NOHOTKEYS`, League of Legends for one), so while a full-screen game is in front the same
-//! thread also polls the keys with `GetAsyncKeyState` (every 30 ms) and runs a shortcut that
+//! thread also polls the keys with `GetAsyncKeyState` (every ~16 ms, so quick taps are seen) and runs a shortcut that
 //! `WM_HOTKEY` didn't deliver within 100 ms. Without a game it only looks once a second for one.
 
 use crate::app::App;
@@ -190,6 +190,12 @@ fn run(a: Option<Action>) {
     }
 }
 
+/// Which bound shortcuts are down right now (after a reload or when a game comes to the front, so
+/// a key that is already held isn't taken for a new press).
+fn held_now(bound: &[(i32, String, Action, bool)]) -> HashMap<i32, bool> {
+    bound.iter().filter_map(|(id, k, _, _)| parse(k).map(|(m, vk)| (*id, combo_down(m, vk)))).collect()
+}
+
 /// The key and exactly its modifiers are down right now (Ctrl+PageUp must not count as PageUp).
 fn combo_down(m: u32, vk: u32) -> bool {
     let down = |k: i32| unsafe { windows_sys::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState(k) as u16 & 0x8000 != 0 };
@@ -212,7 +218,7 @@ pub fn start(app: Arc<App>) {
             THREAD.store(windows_sys::Win32::System::Threading::GetCurrentThreadId(), Ordering::SeqCst);
             let retry_timer = SetTimer(std::ptr::null_mut(), 0, 30_000, None);
             // once a second until a full-screen game is in front, then every 30 ms
-            let poll_timer = SetTimer(std::ptr::null_mut(), 0, 1000, None);
+            let mut poll_timer = SetTimer(std::ptr::null_mut(), 0, 1000, None);
             let mut fast = false;
             let mut game_checked = std::time::Instant::now() - std::time::Duration::from_secs(5);
             // per shortcut id: key held at the last poll, a press seen by polling only, and when each path last ran it
@@ -266,7 +272,7 @@ pub fn start(app: Arc<App>) {
                     }
                     WM_APP_RELOAD => {
                         register(&mut bound, false);
-                        held.clear();
+                        held = held_now(&bound);
                         pending.clear();
                     }
                     WM_TIMER if msg.wParam == poll_timer => {
@@ -275,9 +281,12 @@ pub fn start(app: Arc<App>) {
                             let game = crate::hw::game::foreground_game().is_some();
                             if game != fast {
                                 fast = game;
-                                // the same id replaces the timer's interval
-                                SetTimer(std::ptr::null_mut(), poll_timer, if fast { 30 } else { 1000 }, None);
-                                held.clear();
+                                // the same id replaces the timer's interval; 15 ms is one timer tick (~15.6 ms)
+                                let t = SetTimer(std::ptr::null_mut(), poll_timer, if fast { 15 } else { 1000 }, None);
+                                if t != 0 {
+                                    poll_timer = t;
+                                }
+                                held = held_now(&bound);
                                 pending.clear();
                             }
                         }

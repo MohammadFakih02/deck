@@ -96,10 +96,14 @@ function bitrateSelect(k) {
   return h("select", { "aria-label": "Bitrate", onchange: async (e) => {
     let v = e.target.value;
     if (v === "custom") {
-      const x = parseFloat(String(await promptBox("Bitrate", "Mb/s, for example 1.5 (empty for Auto)", "", "Set") || "").replace(",", "."));
+      const typed = await promptBox("Bitrate", "Mb/s, for example 1.5 (empty for Auto)", "", "Set");
+      const t = typed == null ? null : String(typed).trim().replace(",", ".");
+      const x = t ? parseFloat(t) : 0;
+      // Cancel, or something that isn't a number: keep the bitrate (the redraw puts the box back)
+      if (t == null || Number.isNaN(x)) return render();
       v = x > 0 ? Math.round(Math.min(200, Math.max(0.3, x)) * 1000) : 0;
     }
-    setSetting("remote_screen_kbps", +v);
+    setSetting("remote_screen_kbps", +v).then(render);
   } }, ...opts.map(([v, l]) => h("option", { value: String(v), selected: v === k }, l)), h("option", { value: "custom" }, "Type…"));
 }
 
@@ -115,10 +119,14 @@ function phonesConnected(r) {
 
 /** Phone page: how many phones may connect at home and away, and whether one side shuts the other out. */
 function connLimitsCard(s) {
-  const pick = (key) => h("select", { onchange: (e) => setSetting(key, +e.target.value) },
-    [[0, "No limit"], [1, "1"], [2, "2"], [3, "3"], [5, "5"]].map(([v, l]) => h("option", { value: String(v), selected: (s[key] || 0) === v }, l)));
+  const pick = (key) => {
+    const cur = s[key] || 0, opts = [[0, "No limit"], [1, "1"], [2, "2"], [3, "3"], [5, "5"]];
+    if (!opts.some(([v]) => v === cur)) opts.push([cur, String(cur)]); // a value set elsewhere (settings file)
+    return h("select", { onchange: (e) => setSetting(key, +e.target.value).then(render) },
+      opts.map(([v, l]) => h("option", { value: String(v), selected: cur === v }, l)));
+  };
   const row = (label, el) => h("div", { class: "rd-row" }, h("span", { class: "dim" }, label), el);
-  const sw = (label, key) => h("label", { class: "row", style: { justifyContent: "space-between", gap: "10px" } }, h("span", null, label), toggle(!!s[key], (v) => setSetting(key, v)));
+  const sw = (label, key) => h("label", { class: "row", style: { justifyContent: "space-between", gap: "10px" } }, h("span", null, label), toggle(!!s[key], (v) => setSetting(key, v).then(render)));
   return h("details", { class: "card col fold-card", style: { gap: "10px" } },
     h("summary", { style: { fontWeight: 700, cursor: "pointer" } }, "Who can connect"),
     row("Phones at home at a time", pick("remote_max_local")),
@@ -132,7 +140,7 @@ function connLimitsCard(s) {
 function screenCard(r) {
   const s = S.state.settings;
   const mode = s.remote_screen || "off", q = s.remote_screen_quality || "sharp";
-  const seg = (val, opts, key) => h("div", { class: "seg" }, opts.map(([v, l]) => h("button", { class: val === v ? "on" : "", onclick: () => setSetting(key, v) }, l)));
+  const seg = (val, opts, key) => h("div", { class: "seg" }, opts.map(([v, l]) => h("button", { class: val === v ? "on" : "", onclick: () => setSetting(key, v).then(render) }, l)));
   const n = r.screen_viewers || 0;
   return h("div", { class: "card col" },
     h("div", { class: "tile-head" }, I("smartphone"), h("span", null, "Screen on your phone"), h("span", { class: "grow" }),

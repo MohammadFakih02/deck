@@ -98,6 +98,8 @@
     hw_hist: () => ({ cpu_t: wave(56, 6, 3), gpu_t: wave(60, 4, 2, 1.4), cpu_l: wave(25, 15, 10), gpu_l: wave(80, 12, 8, 1.3), cpu_w: wave(95, 30, 12), gpu_w: wave(210, 25, 15, 1.2), board: temp_names.map((_, i) => wave(34 + i * 4, 1, 0.6, 2)), rpm: rpm.map((r) => wave(r, r * 0.05, r * 0.02, 1.7)) }),
     hw_table: () => ({ since: Math.floor(Date.now() / 1000) - 4 * 3600 - 17 * 60, rows }),
     hw_table_reset: () => null,
+    fonts_list: () => ["Bahnschrift", "Consolas", "JetBrains Mono", "Segoe UI", "Arial"],
+    rtss_limiter: ({ what, fps }) => ({ on: what === "toggle" ? true : false, fps: fps ?? 141 }),
     rtss_state: () => {
       const D = [["gpu_temp", "Temperature", "GPU temp", "gpu", "gpu", "°C", 64], ["gpu_usage", "Usage", "GPU load", "gpu", "gpu", "%", 98], ["gpu_mem", "Memory used", "VRAM", "gpu", "vram", "MB", 7000], ["gpu_mem_pct", "Memory used (%)", "VRAM %", "gpu", "vram", "%", 85], ["gpu_clock", "Core clock", "GPU clock", "gpu", "gpu", "MHz", 1920], ["gpu_memclock", "Memory clock", "VRAM clock", "gpu", "vram", "MHz", 7000], ["gpu_power", "Power", "GPU power", "gpu", "gpu", "W", 212], ["gpu_power_pct", "Power (% of the default limit)", "GPU power %", "gpu", "gpu", "%", 96], ["gpu_fan", "Fan", "GPU fan", "gpu", "gpu", "%", 58], ["gpu_volt", "Voltage", "GPU volt", "gpu", "gpu", "mV", 1050], ["gpu_limit", "What is holding the clock back", "GPU limit", "gpu", "gpu", "", "power"],
         ["cpu_temp", "Temperature", "CPU temp", "cpu", "cpu", "°C", 71], ["cpu_usage", "Usage", "CPU load", "cpu", "cpu", "%", 34], ["cpu_clock", "Clock", "CPU clock", "cpu", "cpu", "MHz", 5300], ["cpu_power", "Power", "CPU power", "cpu", "cpu", "W", 96], ["cpu_volt", "Voltage (VID)", "CPU volt", "cpu", "cpu", "V", 1.213],

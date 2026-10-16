@@ -924,6 +924,11 @@ function hotkeyField(value, id, onset) {
 
 function keyName(e) {
   const c = e.code;
+  // A numpad key that sends a navigation key (Num Lock off, or Fn on a laptop's built-in numpad:
+  // Fn + 9 = Page Up) is that key to Windows, so the shortcut must be the key it sends, not "Num9".
+  // (Fn itself never reaches Windows; the keyboard turns Fn + key into another key.)
+  const nav = { PageUp: "PageUp", PageDown: "PageDown", Home: "Home", End: "End", Insert: "Insert", Delete: "Delete", ArrowUp: "Up", ArrowDown: "Down", ArrowLeft: "Left", ArrowRight: "Right" };
+  if (/^Numpad/.test(c) && nav[e.key]) return nav[e.key];
   if (/^Key[A-Z]$/.test(c)) return c.slice(3);
   if (/^Digit\d$/.test(c)) return c.slice(5);
   if (/^F\d{1,2}$/.test(c)) return c;

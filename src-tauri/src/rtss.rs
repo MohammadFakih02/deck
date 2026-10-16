@@ -465,13 +465,77 @@ fn set_rtss_flag(flag: u32, on: bool) {
     }
 }
 
-/// Whether RivaTuner's framerate limiter is on (the 32-bit hooks' switch, the one its window
-/// shows). None when it can't be read.
+/// What the limiter key set last (0 = not yet, 1 = off, 2 = on): the answer when RivaTuner's
+/// switch can't be read.
+static LIMITER_SET: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+/// RivaTuner's 64-bit hooks, loaded once: the switches (`GetFlags`/`SetFlags`) and the profile
+/// calls the SDK's RTSSSharedMemorySample uses to change a profile in the running RivaTuner and
+/// in hooked games (writing the profile file alone isn't seen until RivaTuner restarts).
+struct Hooks64 {
+    get_flags: unsafe extern "C" fn() -> u32,
+    load_profile: unsafe extern "C" fn(*const u8) -> i32,
+    set_property: unsafe extern "C" fn(*const u8, *const std::ffi::c_void, u32) -> i32,
+    save_profile: unsafe extern "C" fn(*const u8) -> i32,
+    update_profiles: unsafe extern "C" fn(),
+}
+
+fn hooks64() -> Option<&'static Hooks64> {
+    use windows::core::{HSTRING, PCSTR};
+    use windows::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
+    // kept once loaded; until then tried again each time (RivaTuner may be installed later)
+    static H: OnceLock<Hooks64> = OnceLock::new();
+    if let Some(h) = H.get() {
+        return Some(h);
+    }
+    let h = (|| unsafe {
+        let dir = rtss_exe()?.parent()?.to_path_buf();
+        let m = LoadLibraryW(&HSTRING::from(dir.join("RTSSHooks64.dll").as_os_str())).ok()?;
+        let f = |name: &std::ffi::CStr| GetProcAddress(m, PCSTR(name.as_ptr() as *const u8));
+        Some(Hooks64 {
+            get_flags: std::mem::transmute(f(c"GetFlags")?),
+            load_profile: std::mem::transmute(f(c"LoadProfile")?),
+            set_property: std::mem::transmute(f(c"SetProfileProperty")?),
+            save_profile: std::mem::transmute(f(c"SaveProfile")?),
+            update_profiles: std::mem::transmute(f(c"UpdateProfiles")?),
+        })
+    })()?;
+    let _ = H.set(h);
+    H.get()
+}
+
+/// Whether RivaTuner's framerate limiter is on. Read from the 64-bit hooks (Deck sets both
+/// copies, and 64-bit games use this one), else the 32-bit helper, else what the key set last.
+/// None when none of them knows.
 pub fn limiter_on() -> Option<bool> {
     use std::os::windows::process::CommandExt;
-    let dir = rtss_exe()?.parent()?.to_path_buf();
-    let code = std::process::Command::new(rtss32_helper()?).arg("status").arg(&dir).arg(LIMITER_DISABLED.to_string()).creation_flags(crate::util::CREATE_NO_WINDOW).status().ok()?.code()?;
-    matches!(code, 10 | 11).then_some(code == 10)
+    if let Some(h) = hooks64() {
+        return Some(unsafe { (h.get_flags)() } & LIMITER_DISABLED == 0);
+    }
+    let from_helper = (|| {
+        let dir = rtss_exe()?.parent()?.to_path_buf();
+        let code = std::process::Command::new(rtss32_helper()?).arg("status").arg(&dir).arg(LIMITER_DISABLED.to_string()).creation_flags(crate::util::CREATE_NO_WINDOW).status().ok()?.code()?;
+        matches!(code, 10 | 11).then_some(code == 10)
+    })();
+    from_helper.or(match LIMITER_SET.load(Ordering::Relaxed) {
+        1 => Some(false),
+        2 => Some(true),
+        _ => None,
+    })
+}
+
+/// Tells RivaTuner's window to read its settings again (so it shows the new values).
+fn refresh_rtss_window() {
+    use windows::core::{w, PCWSTR};
+    use windows::Win32::Foundation::{LPARAM, WPARAM};
+    use windows::Win32::UI::WindowsAndMessaging::{FindWindowW, PostMessageW};
+    const WM_RTSS_UPDATESETTINGS: u32 = 0x8000 + 100;
+    unsafe {
+        let wnd = FindWindowW(PCWSTR::null(), w!("RTSS")).or_else(|_| FindWindowW(PCWSTR::null(), w!("RivaTuner Statistics Server")));
+        if let Ok(wnd) = wnd {
+            let _ = PostMessageW(Some(wnd), WM_RTSS_UPDATESETTINGS, WPARAM(0), LPARAM(0));
+        }
+    }
 }
 
 /// The limit in RivaTuner's global profile (frames a second, 0 = none set).
@@ -503,9 +567,23 @@ pub fn set_limit_fps(fps: u32) -> Result<(), String> {
     if !keep.join("Global").exists() {
         let _ = std::fs::write(keep.join("Global"), &bytes);
     }
-    let new = set_ini(&text, &[("Framerate", "Limit", fps.min(1000).to_string()), ("Framerate", "LimitDenominator", "1".into())]);
+    let fps = fps.min(1000);
+    let new = set_ini(&text, &[("Framerate", "Limit", fps.to_string()), ("Framerate", "LimitDenominator", "1".into())]);
     std::fs::write(&f, to_ansi(&new)).map_err(|e| e.to_string())?;
+    // a running RivaTuner keeps its own copy of the profile (its window showed 0 while the file
+    // said 5): load the file we just wrote, set the limit, save, and tell RivaTuner and the games
+    if let Some(h) = hooks64() {
+        unsafe {
+            if (h.load_profile)(c"".as_ptr().cast()) != 0 {
+                let v: u32 = fps;
+                (h.set_property)(c"FramerateLimit".as_ptr().cast(), &v as *const u32 as *const std::ffi::c_void, 4);
+                (h.save_profile)(c"".as_ptr().cast());
+            }
+            (h.update_profiles)();
+        }
+    }
     request_reload();
+    refresh_rtss_window();
     Ok(())
 }
 
@@ -516,6 +594,8 @@ pub fn toggle_limiter(app: &App) {
     }
     let on = !limiter_on().unwrap_or(false);
     set_rtss_flag(LIMITER_DISABLED, !on);
+    LIMITER_SET.store(if on { 2 } else { 1 }, Ordering::Relaxed);
+    refresh_rtss_window();
     let fps = limit_fps();
     let body = if fps == 0 { "No limit is set yet: set one on the Overlay page.".to_string() } else { format!("Games are held to {fps} FPS.") };
     app.toast(crate::app::Toast::simple("limiter", if on { "Framerate limit on" } else { "Framerate limit off" }, if on { &body } else { "Games run as fast as they can." }));
@@ -652,13 +732,30 @@ pub fn open_rtss_window() -> Result<(), String> {
             std::thread::sleep(Duration::from_millis(200));
         }
     }
-    std::process::Command::new(&exe).current_dir(exe.parent().unwrap()).spawn().map_err(|e| e.to_string())?;
-    for _ in 0..50 {
-        if rtss_windows().0.is_some() {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(100));
+    // with RivaTuner's own "Start minimized" on, a fresh start goes straight to the tray (whose
+    // icon Deck may hide) and nothing opens: turn it off for this start, then put it back
+    let config = exe.parent().unwrap().join("Profiles").join("Config");
+    let minimized = std::fs::read(&config).ok().map(|b| from_ansi(&b)).filter(|t| t.lines().any(|l| l.trim() == "StartMinimized=1"));
+    if let Some(t) = &minimized {
+        let _ = std::fs::write(&config, to_ansi(&set_ini(t, &[("Settings", "StartMinimized", "0".into())])));
     }
+    let started = std::process::Command::new(&exe).current_dir(exe.parent().unwrap()).spawn().map_err(|e| e.to_string());
+    if started.is_ok() {
+        // its window exists hidden at once; wait until RivaTuner shows it (it has read the setting)
+        for _ in 0..50 {
+            if rtss_windows().0.is_some_and(|w| unsafe { windows::Win32::UI::WindowsAndMessaging::IsWindowVisible(w) }.as_bool()) {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    }
+    if minimized.is_some() {
+        // read again: RivaTuner may have written the file since
+        if let Ok(b) = std::fs::read(&config) {
+            let _ = std::fs::write(&config, to_ansi(&set_ini(&from_ansi(&b), &[("Settings", "StartMinimized", "1".into())])));
+        }
+    }
+    started?;
     if APP.get().is_some_and(|a| a.settings.lock().rtss_tray_hidden) {
         for _ in 0..10 {
             std::thread::sleep(Duration::from_millis(300));

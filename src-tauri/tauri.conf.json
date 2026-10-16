@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Deck",
-  "version": "2.5.4",
+  "version": "2.5.5",
   "identifier": "com.moudi.deck",
   "build": {
     "frontendDist": "../ui"

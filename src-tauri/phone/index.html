@@ -509,6 +509,7 @@ async function upload(f, i, n) {
     if (r.status === 200 && r.j) { have = r.j.have; fails = 0; if (r.j.done) return "ok"; continue; }
     if (r.status === 409 && r.j) { have = r.j.have; continue; }
     if (r.status === 401) return "This code is old. Scan the QR code again.";
+    if (r.status === 403) return r.text || "This PC isn't taking this phone right now.";
     if (r.status === 507) return r.text || "The PC's drive is almost full";
     // the connection dropped: wait a moment, ask what the PC has, and go on from there
     if (++fails > 40) return "Upload stopped: the PC can't be reached. Pick the file again later to continue where it stopped.";
@@ -1314,7 +1315,8 @@ $("sview").addEventListener("pointerdown", (e) => {
     const hold = !!lastTap && performance.now() - lastTap.t < 350 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 40;
     lastTap = null;
     g = { kind: "one", x0: e.clientX, y0: e.clientY, tx0: SC.tx, ty0: SC.ty, moved: false, dragging: false, done: false, hold };
-    if (ctl()) g.timer = setTimeout(() => {
+    // (no right-click on a long press that is the second half of tap-then-drag)
+    if (ctl() && !hold) g.timer = setTimeout(() => {
       if (g && g.kind === "one" && !g.moved) { click(spot(g.x0, g.y0), 1); g.done = true; if (navigator.vibrate) navigator.vibrate(15); }
     }, 550);
   } else if (ptrs.size === 2) {
@@ -1336,7 +1338,10 @@ $("sview").addEventListener("pointermove", (e) => {
       return;
     }
     // sliding moves the pointer; only tap-then-slide holds the button
-    if (g.hold && !g.dragging) { g.dragging = true; ssend({ t: "md", b: 0, ...spot(g.x0, g.y0) }); }
+    // the button goes down where the finger is now (past the 10 px start), not where it touched: the
+    // tap just clicked there, and a second press on the same spot would be a double-click on the PC
+    // (a title bar would maximize instead of moving, a file would open)
+    if (g.hold && !g.dragging) { g.dragging = true; ssend({ t: "md", b: 0, ...spot(e.clientX, e.clientY) }); }
     queueMove(spot(e.clientX, e.clientY));
   } else if (g.kind === "two" && ptrs.size >= 2) {
     const [a, b] = [...ptrs.values()];

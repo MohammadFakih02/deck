@@ -1,10 +1,43 @@
 # Deck — project state
 
-Handoff notes so work can resume later. Last updated: 2026-10-15 (v2.5.4).
+Handoff notes so work can resume later. Last updated: 2026-10-15 (v2.5.5).
 
 **Start with `DECK.md`** (full overview: features, hardware, files, build/test, status). This file is the dated history.
 
 > **RULE: before every commit, update the docs.** Add today's dated entry here, add user-visible changes to `CHANGELOG.md`, update `DECK.md` / `README.md` when facts change, and stage them in the same commit. The pre-commit hook enforces it; never bypass it. No personal data in these files (that goes in the git-ignored `PRIVATE_NOTES.md`).
+
+## 2026-10-16: v2.5.5 — Phone page redraws, code review fixes
+
+- **Overlay page redesign** (owner: "very ugly, very difficult to use, especially with this many things to edit and this much scrolling"; done with /impeccable). Kept Deck's look; changed the structure.
+  - Before: seven stacked cards, about 4,300 px tall at 1260×900, with a small preview that scrolled away.
+  - Now: `ovStrip` (the switch, state, show/hide key, compact limiter), then `.ov-cols`: `ovStage` (sticky preview plus quick looks) beside `ovEditor` (tabs: Items, Layout, Look, Colours, Graph, Warnings, Behaviour). Tabs use the ARIA tablist roles and arrow keys. The open tab is kept in `S.cache.ovTab` and `localStorage` `deck.ovTab`.
+  - Rows (`ovRow`) are flex: the control stays beside its name and wraps only when there is no room. The old container query that put every control under its label is gone. Items rows are 34 px, with actions shown on hover or focus. "Add readings" opens on demand (`S.cache.ovAdding`), and is open when the list is empty.
+  - Removed the "large preview" toggle (`deck.ovBig`); the preview is large now.
+  - Checked with the mock harness at 1260×900 and 900×800, across every tab, a selection and the open adder. The Impeccable detector reports nothing.
+- UI harness (`tools/testing/ui-preview`):
+  - Every script now picks the `about:blank` tab. Edge opened a sync dialog first and the scripts timed out on it.
+  - `mock.js` gained `fonts_list` and `rtss_limiter`. A null reply made the Overlay page fetch again on every render, an endless loop.
+- **Home → PC tile without admin** (friend's screenshot): the CPU card showed "20 threads" with no clock, power or temperature, and the tile looked uncustomizable.
+  - Cause: `hw::start` runs only as admin, so `cpu_now` is null. The GPU card comes from NVML and was complete.
+  - Now: the CPU card's last line is a *Needs admin* link, and the customize dialog shows a banner. Both call `elevate_setup`, the same as the CPU and GPU pages' Set up.
+  - The cards were already customizable, from the sliders icon in the tile header.
+- **32-bit RivaTuner helper was never in the setups.** The i686 Rust target wasn't installed on the build PC, so `build.rs` skipped `rtss-osd32.exe` with a warning. Released builds could neither read nor flip RivaTuner's 32-bit switch, the one its own window shows; that is the root of the limiter-key report. The target is now installed (`rustup target add i686-pc-windows-msvc`). The 64-bit read added above works without the helper anyway.
+- Report (owner): Open RivaTuner showed a busy cursor for a moment and nothing opened. RivaTuner had restarted (new RTSS.exe), and its main window existed but was hidden: its config had `StartMinimized=1` (Profiles\Config, [Settings]), so the fresh start that `open_rtss_window` relies on stayed in the tray, with the tray icon hidden by Deck. Now: set it to 0 before the start, wait for `IsWindowVisible` on the "RivaTunerStatisticsServer" window (up to 5 s), read the file again and set it back to 1. Not tested live (owner can't test now).
+- Report (owner, screenshot): on the Phone page some Screen view options "can't be changed". They were saved; the page didn't redraw. The `changed` listener in `app.js` only calls `renderSide()` for the "settings" topic, and `Pages.phone.tick` only redraws when `remote_info` changes. The Phone page's controls now do `setSetting(k, v).then(render)` (the codebase's idiom).
+- `/code-review` on that change, then a full review (superpowers code-reviewer) of 0fc0f76..working tree (2.5.4 + this). Fixed:
+  - `render()` keeps `<details>` fold cards open across redraws of the same page/sub-tab (by summary text); before, every redraw (also the live tick) folded them shut. A card that is open by default and was closed by the user opens again (unchanged).
+  - `setSetting()` puts the previous value back when `set_setting` fails (only if no newer write for that key is pending).
+  - Bitrate "Type…": Cancel / not a number keeps the old value (was saved as 0 = Auto).
+  - Phone limits: `admit()` now checks and registers under one `CONNS` lock and returns the `Registered` guard, moved into the upgrade closure (two phones at once could both pass a limit of 1). The rule is a pure `decide(list, ip, Limits)`; `allowed()` applies it to `/upload`, `/upload` GET, `/file/{id}` and `/art` (403 with the reason; the phone's upload shows it). Refused sockets get a Close frame. The guard is dropped before the last `changed("remote")`, so the count is right at once. The "Screen view is off" check now runs before admitting.
+  - Screen view tap-then-drag: `md` goes out at the finger's position once it has moved past the 10 px start, not where the second touch landed (the tap had just clicked there: Windows made it a double-click, maximizing a title bar or opening a file). No long-press right-click timer during tap-then-drag.
+  - Hotkey poll: 15 ms in a game (one timer tick, ~15.6 ms; 30 ms missed quick taps), `held` refilled from the real key state on reload / game switch (clearing it fired a held key again), the id returned by `SetTimer` is kept.
+  - Limit select shows a value that isn't in its list.
+  - Tests: `conn_tests` (`is_online` for home/away/IPv4-mapped/IPv6 addresses, a phone counts once, `decide` limits and shut-outs).
+- Friend's laptop report (RTSS 7.3.4; can't be tested here or on the owner's PC):
+  - **Limiter key on, never off:** `toggle_limiter` used `limiter_on().unwrap_or(false)`; `limiter_on` only asked the 32-bit helper, so when that read failed every press was "turn on". Now `limiter_on` reads `GetFlags` from `RTSSHooks64.dll` first (Deck sets both copies; 64-bit games use this one), then the helper, then `LIMITER_SET` (what the key set last).
+  - **Limit not synced (Deck 5, RivaTuner window 0):** `set_limit_fps` only rewrote `Profiles\Global`; a running RivaTuner keeps its own copy. Now, after the file write (which also sets `LimitDenominator=1`, the API has no property for it), `hooks64()` calls `LoadProfile("")`, `SetProfileProperty("FramerateLimit", u32)`, `SaveProfile("")`, `UpdateProfiles()` — the sequence of the SDK's RTSSSharedMemorySample `IncProfileProperty` (exports and the `FramerateLimit` property name checked in this PC's RTSSHooks64.dll, 7.3.7) — and posts `WM_RTSS_UPDATESETTINGS` (WM_APP+100) to RivaTuner's window. `hooks64()` keeps the DLL once loaded and retries until then.
+  - **Fn + numpad 9 recorded as "Num9":** `keyName` used `e.code` ("Numpad9") even when the key sends Page Up (`e.key`); a numpad key that sends a navigation key is now recorded as that key (`VK_PRIOR` etc., what `RegisterHotKey` and `GetAsyncKeyState` see).
+- Not done (reviewed, left): a WebSocket ping to drop dead phone connections sooner (a phone switching Wi-Fi → Tailscale can be refused by its own stale connection until TCP gives up; the 10 s retry recovers); unit tests for the hotkey de-duplication state machine.
 
 ## 2026-10-16: v2.5.4 — shortcuts in League, phone connections, touchpad-style Screen view
 

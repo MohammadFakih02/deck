@@ -154,12 +154,19 @@ async function run(cmd, args, okMsg) {
 const localWrites = new Map();
 
 async function setSetting(key, value) {
+  const before = S.state.settings[key];
   S.state.settings[key] = value;
   localWrites.set(key, [value, 0]);
   try {
     await invoke("set_setting", { key, value });
   } catch (e) {
     note(String(e), true);
+    // not applied: a redraw must show what is really in effect
+    if (localWrites.get(key)?.[0] === value) {
+      localWrites.delete(key);
+      S.state.settings[key] = before;
+    }
+    return;
   } finally {
     if (localWrites.get(key)?.[0] === value) localWrites.set(key, [value, Date.now()]);
   }

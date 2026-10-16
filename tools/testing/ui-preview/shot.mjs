@@ -11,8 +11,8 @@ setTimeout(() => { console.log("TIMEOUT"); process.exit(2); }, 40000).unref();
 const browser = process.env.BROWSER || ["C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe", "C:/Program Files/Microsoft/Edge/Application/msedge.exe", "C:/Program Files/Google/Chrome/Application/chrome.exe"].find((p) => existsSync(p));
 const edge = spawn(browser, ["--headless=new", `--remote-debugging-port=${port}`, "--allow-file-access-from-files", "--disable-gpu", "--hide-scrollbars", `--user-data-dir=${process.env.TEMP}\deck-prev-edge-${process.pid}`, `--window-size=${w},${hgt}`, "about:blank"], { stdio: "ignore" });
 let list;
-for (let i = 0; i < 50; i++) { try { list = await (await fetch(`http://127.0.0.1:${port}/json`)).json(); if (list.find((t) => t.type === "page")) break; } catch {} await new Promise((r) => setTimeout(r, 200)); }
-const t = list.find((x) => x.type === "page");
+for (let i = 0; i < 50; i++) { try { list = await (await fetch(`http://127.0.0.1:${port}/json`)).json(); if (list.find((t) => t.type === "page" && t.url === "about:blank")) break; } catch {} await new Promise((r) => setTimeout(r, 200)); }
+const t = list.find((x) => x.type === "page" && x.url === "about:blank");
 const ws = new WebSocket(t.webSocketDebuggerUrl);
 let id = 0; const pend = new Map(); const logs = [];
 ws.onmessage = (m) => { const d = JSON.parse(m.data); if (d.id && pend.has(d.id)) { pend.get(d.id)(d); pend.delete(d.id); } if (d.method === "Runtime.exceptionThrown") logs.push("EXC " + JSON.stringify(d.params.exceptionDetails.exception?.description || d.params.exceptionDetails.text)); if (d.method === "Runtime.consoleAPICalled" && d.params.type === "error") logs.push("ERR " + d.params.args.map((a) => a.value || a.description).join(" ")); };

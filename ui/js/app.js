@@ -195,6 +195,10 @@ function refocus(root, spot) {
   if (n && typeof n.focus === "function") n.focus({ preventScroll: true });
 }
 
+let lastView = null;
+const foldTitle = (d) => d.querySelector(":scope > summary")?.textContent || "";
+const openFolds = (root) => new Set([...root.querySelectorAll("details[open]")].map(foldTitle).filter(Boolean));
+
 function render() {
   if (holdRedraw(render)) return;
   renderSide();
@@ -202,6 +206,10 @@ function render() {
   const content = document.getElementById("content");
   const scroll = content.scrollTop;
   const spot = !S.query && S.keepScroll ? focusSpot(content) : null;
+  // fold cards (<details>) the user opened stay open through a redraw of the same page (found by their title)
+  const view = S.query ? "?" : `${S.page}/${S.sub || ""}`;
+  const opened = view === lastView ? openFolds(content) : new Set();
+  lastView = view;
   let body;
   try {
     if (S.query) body = renderResults();
@@ -212,6 +220,7 @@ function render() {
     body = h("div", { class: "empty" }, "Something went wrong drawing this page: " + e.message);
   }
   content.replaceChildren(body);
+  if (opened.size) for (const d of content.querySelectorAll("details")) if (opened.has(foldTitle(d))) d.open = true;
   if (!S.query && S.keepScroll) content.scrollTop = scroll;
   S.keepScroll = true;
   nameControls(content);

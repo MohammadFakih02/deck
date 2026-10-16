@@ -34,7 +34,9 @@ const pctOf = (v) => (v != null ? Math.round(v) + "%" : "–");
 const PC_CARDS = {
   cpu: (s) => {
     const c = S.live?.cpu_now || {};
-    return { k: "CPU", v: pctOf(s.cpu), l1: c.mhz || c.w != null ? [ghz(c.mhz), watts(c.w)] : [`${s.cores} threads`], l2: c.t != null ? fmtTemp(c.t) : null, hist: s.cpu_hist, color: accent() };
+    // the CPU's clock, power and temperature come from Deck's hardware engine, which needs admin
+    const why = S.state.admin ? null : h("button", { class: "vlink", title: "The CPU's clock, power and temperature need Deck to run as admin", onclick: (e) => { e.stopPropagation(); pcAdminSetup(); } }, "Needs admin");
+    return { k: "CPU", v: pctOf(s.cpu), l1: c.mhz || c.w != null ? [ghz(c.mhz), watts(c.w)] : [`${s.cores} threads`], l2: c.t != null ? fmtTemp(c.t) : why, hist: s.cpu_hist, color: accent() };
   },
   ram: (s) => ({ k: "Memory", v: pctOf(s.ram_pct), l1: [ofBytes(s.ram_used, s.ram_total)], l2: `${fmtBytes(s.ram_total - s.ram_used)} free`, hist: s.ram_hist, color: "#b98cff" }),
   gpu: (s) => {
@@ -50,6 +52,11 @@ const PC_CARDS = {
   },
   net: (s) => ({ k: "Network", v: fmtRate(s.down), small: true, l1: ["down"], l2: `up ${fmtRate(s.up)}`, hist: s.down_hist, max: 0, color: "#4fd1ff" }),
 };
+/** Sets Deck up to run as admin (the same step as the CPU and GPU pages' Set up button). */
+function pcAdminSetup() {
+  invoke("elevate_setup").catch((e) => note(String(e), true));
+}
+
 const PC_NAMES = { cpu: "CPU", ram: "Memory", gpu: "Graphics card", vram: "Graphics memory", net: "Network" };
 
 /** Which cards the PC tile shows and in what order, and whether the drives show. */
@@ -62,6 +69,7 @@ function pcCustomize() {
     const all = [...on, ...Object.keys(PC_NAMES).filter((id) => !on.includes(id))];
     body.replaceChildren(
       h("div", { class: "dim", style: { marginBottom: "8px" } }, "Pick the cards and their order. Each shows the usage, then clock and power, then the temperature."),
+      S.state.admin ? null : h("div", { class: "banner", style: { marginBottom: "8px" } }, I("info"), h("div", { class: "grow" }, "The CPU's clock, power and temperature need Deck to run as admin."), h("button", { class: "btn sm", onclick: pcAdminSetup }, "Set up")),
       ...all.map((id) => {
         const i = on.indexOf(id);
         return h("div", { class: "pc-set-row" },

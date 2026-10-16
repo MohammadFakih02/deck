@@ -1,5 +1,7 @@
 // Sensors → Overlay. What the in-game overlay shows (and in what order), how its lines are laid
 // out and coloured, how RivaTuner draws it, and a preview built from the same lines the overlay gets.
+// Layout: a strip with the switch and the in-game keys, then the preview (pinned while the page
+// scrolls) beside a tabbed editor, so every change shows next to the control that made it.
 
 const OV_DEF = {
   layout: "grouped", labels: true, units: "small", align: true,
@@ -35,16 +37,16 @@ const OV_PRESETS = [
 
 /** One click: the items and the style together. */
 const OV_LOOKS = [
-  ["Like MSI Afterburner", "Clock on top, a line per thread, framerate stats on their own lines, columns, graph",
+  ["Like MSI Afterburner", "Clock, a line per thread, framerate stats, graph",
     ["time", "cpu_temp", "cpu_usage", "cpu_clock", "cpu_power", "thread_table", "ram", "proc_ram", "commit", "fps", "fps_min", "fps_avg", "fps_max", "fps_1low", "fps_01low", "gpu_temp", "gpu_usage", "gpu_power_pct", "gpu_clock", "gpu_power", "gpu_fan", "gpu_mem", "gpu_memclock", "frametime"],
     { layout: "grouped", labels: true, align: true, units: "small", columns: true, fps_lines: true, group_colors: true, group_values: false, heat: false,
       label_color: "FF8A1E", value_color: "FF8A1E", warm_color: "FFC85A", warn_color: "FF4D4D", cpu_color: "1E90FF", ram_color: "1E90FF", gpu_color: "2ECC71", fps_color: "E0707A", info_color: "FF8A1E",
       clock_12h: true, clock_secs: true, graph: true, graph_w: 48, graph_h: 2, shadow: true, box_on: false, zoom: 2, corner: "tr", margin_x: 8, margin_y: 8, font: "Unispace", bold: false }],
   ["Just the framerate", "A big FPS number in the corner",
     ["fps"], { layout: "line", labels: false, units: "small", columns: false, group_colors: false, heat: false, zoom: 4, corner: "tl", margin_x: 12, margin_y: 12, graph: false, box_on: true, box_opacity: 45 }],
-  ["Compact row", "GPU, CPU, memory and framerate on one line",
+  ["Compact row", "GPU, CPU, memory and FPS on one line",
     ["gpu_temp", "gpu_usage", "cpu_temp", "cpu_usage", "ram", "fps", "frametime"], { layout: "line", labels: true, units: "small", columns: false, group_colors: true, group_values: false, zoom: 2, corner: "tl", margin_x: 10, margin_y: 10, graph: false, box_on: true, box_opacity: 55 }],
-  ["Every core", "CPU load, then each core's usage, clock and temperature",
+  ["Every core", "Each core's usage, clock and temperature",
     ["cpu_usage", "cpu_temp", "core_table", "gpu_temp", "gpu_usage", "fps"], { layout: "grouped", labels: true, columns: true, fps_lines: false, group_colors: true, group_values: false, heat: true, zoom: 2, corner: "tr", margin_x: 8, margin_y: 8 }],
 ];
 
@@ -70,22 +72,31 @@ async function ovItemsSet(list) {
   render();
 }
 
-function ovSwitch(title, desc, on, onset, help) {
-  return h("label", { class: "boost-opt" }, toggle(on, onset), h("div", null, h("div", { class: "t" }, title, help ? helpTip(help) : null), desc ? h("div", { class: "s" }, desc) : null));
-}
-
+/** A setting: its name (and a line about it) on the left, the control on the right. The control
+ *  drops under the name only when the row is too narrow for both. */
 function ovRow(title, control, desc, help) {
   return h("div", { class: "ov-row2" }, h("div", { class: "ov-lbl" }, h("div", { class: "t" }, title, help ? helpTip(help) : null), desc ? h("div", { class: "s" }, desc) : null), h("div", { class: "ov-ctl" }, control));
 }
 
-function ovColor(value, fallback, onset) {
-  const input = h("input", { type: "color", value: "#" + String(value || fallback).replace("#", "").toLowerCase(), "aria-label": "Colour" });
+/** A switch row (the switch on the right, like every other control in the editor). */
+function ovSwitch(title, desc, on, onset, help) {
+  return ovRow(title, toggle(on, onset), desc, help);
+}
+
+/** A small heading inside a tab, for the groups of settings in it. */
+function ovSub(title, ...right) {
+  return h("div", { class: "ov-sub" }, h("span", null, title), right.length ? h("span", { class: "grow" }) : null, ...right);
+}
+
+function ovColor(value, fallback, onset, label) {
+  const input = h("input", { type: "color", value: "#" + String(value || fallback).replace("#", "").toLowerCase(), "aria-label": label || "Colour" });
   input.addEventListener("change", () => onset(input.value.slice(1).toUpperCase()));
-  return h("div", { class: "ov-color" }, input, h("button", { class: "btn sm ghost", title: "Back to the default colour", "aria-label": "Default colour", onclick: () => onset(fallback) }, I("undo", "sm")));
+  const changed = String(value || fallback).toUpperCase() !== fallback;
+  return h("div", { class: "ov-color" }, input, changed ? h("button", { class: "icon-btn sm", title: "Back to the default colour", "aria-label": "Default " + (label || "colour").toLowerCase(), onclick: () => onset(fallback) }, I("undo", "sm")) : null);
 }
 
 function ovColorField(title, key, st) {
-  return h("label", null, h("span", { class: "dim small" }, title), ovColor(st[key], OV_DEF[key], (c) => ovStyle({ [key]: c })));
+  return h("div", { class: "ov-cf" }, h("span", { class: "dim small" }, title), ovColor(st[key], OV_DEF[key], (c) => ovStyle({ [key]: c }), title + " colour"));
 }
 
 // ------------------------------------------------------------------- the preview
@@ -119,19 +130,12 @@ async function ovInstallRtss() {
   render();
 }
 
-/** Large preview: the preview takes the wide column and the editor the narrow one, so both stay usable. Per viewer. */
-const ovBig = () => { try { return localStorage.getItem("deck.ovBig") === "1"; } catch { return false; } };
-function ovSetBig(on) {
-  try { localStorage.setItem("deck.ovBig", on ? "1" : "0"); } catch {}
-  render();
-}
-
-function ovPreview(st, r) {
+function ovScreen(st) {
   const body = h("div", { class: "ov-osd" + (st.group_values ? " gv" : "") + (st.shadow ? " shadow" : "") + (st.box_on ? " box" : "") + (st.bold ? " bold" : "") });
   const bar = st.color_bar ? h("div", { class: "ov-bar " + (st.corner[1] === "r" ? "r" : "l") }) : null;
   const screen = h("div", { class: "ov-screen", "data-c": st.corner },
     h("div", { class: "ov-scene" }), bar, body,
-    OV_CORNERS.map(([c, name]) => h("button", { class: "ov-pad " + c + (st.corner === c ? " on" : ""), title: name, "aria-label": "Put the overlay " + name.toLowerCase(), onclick: () => ovStyle({ corner: c }) })));
+    OV_CORNERS.map(([c, name]) => h("button", { class: "ov-pad " + c + (st.corner === c ? " on" : ""), title: name, "aria-label": "Put the overlay " + name.toLowerCase(), "aria-pressed": st.corner === c, onclick: () => ovStyle({ corner: c }) })));
   const v = (k, val) => screen.style.setProperty(k, val);
   // the colours the overlay gets: a saved colour that isn't 6 hex digits falls back like it does there
   const col = (key) => "#" + (/^#?[0-9a-f]{6}$/i.test(st[key] || "") ? st[key].replace("#", "") : OV_DEF[key]);
@@ -169,25 +173,29 @@ function ovPreview(st, r) {
   };
   draw();
   HW.updaters.push(draw);
-  const live = r.fps != null ? h("span", { class: "chip on num" }, `${Math.round(r.fps)} FPS${r.app ? " · " + r.app : ""}`) : h("span", { class: "dim small" }, "No game running: the framerate shows a dash");
-  return h("div", { class: "card col ov-prev" },
-    h("div", { class: "tile-head" }, I("eye"), h("span", null, "Preview"), h("span", { class: "grow" }), live,
-      h("button", { class: "icon-btn", title: ovBig() ? "Smaller preview" : "Larger preview (keep editing on the left)", "aria-label": ovBig() ? "Smaller preview" : "Larger preview", "aria-pressed": ovBig() ? "true" : "false", onclick: () => ovSetBig(!ovBig()) }, I(ovBig() ? "shrink" : "expand"))),
-    screen,
-    h("div", { class: "dim small" }, "Your readings, right now. Click a corner to move the overlay there. RivaTuner draws the real thing, so its font and spacing differ a little."));
+  return screen;
 }
 
-// ------------------------------------------------------------------- what to show
-
-function ovLooksCard(s, r) {
+/** The left column: the preview, then the one-click looks. Pinned while the editor scrolls. */
+function ovStage(st, s, r) {
   const known = new Set((r.items || []).map((i) => i.id));
-  return h("div", { class: "card col" },
-    h("div", { class: "tile-head" }, I("sparkle"), h("span", null, "Quick looks"), h("span", { class: "grow" }), h("span", { class: "dim small ov-hint" }, "Sets the items and the style, then change anything")),
-    h("div", { class: "ov-looks" }, OV_LOOKS.map(([name, desc, ids, patch]) => h("button", { class: "ov-look", onclick: async () => {
-      await setSetting("osd_items", ids.filter((i) => known.has(i)));
-      await ovStyle(patch);
-    } }, h("b", null, name), h("span", { class: "dim small" }, desc)))));
+  const live = r.fps != null
+    ? h("span", { class: "chip on num" }, `${Math.round(r.fps)} FPS${r.app ? " · " + r.app : ""}`)
+    : h("span", { class: "dim small" }, "No game running");
+  return h("div", { class: "ov-stage" },
+    h("div", { class: "card col ov-prev" },
+      h("div", { class: "tile-head" }, I("eye"), h("span", null, "Preview"), h("span", { class: "grow" }), live),
+      ovScreen(st),
+      h("div", { class: "faint small" }, "Your readings right now. Click a corner to move the overlay there. RivaTuner draws the real one, so its spacing differs a little.")),
+    h("div", { class: "card col ov-looks-card" },
+      h("div", { class: "tile-head" }, I("sparkle"), h("span", null, "Quick looks"), h("span", { class: "grow" }), h("span", { class: "ov-hint" }, "Items and style in one click")),
+      h("div", { class: "ov-looks" }, OV_LOOKS.map(([name, desc, ids, patch]) => h("button", { class: "ov-look", title: desc, onclick: async () => {
+        await setSetting("osd_items", ids.filter((i) => known.has(i)));
+        await ovStyle(patch);
+      } }, h("b", null, name), h("span", null, desc))))));
 }
+
+// ------------------------------------------------------------------- Items tab
 
 /** Moves the items in `pick` (keeping their order) so the block starts where `at` was. */
 function ovMoveBlock(list, pick, at) {
@@ -198,7 +206,7 @@ function ovMoveBlock(list, pick, at) {
   return [...rest.slice(0, k), ...sel, ...rest.slice(k)];
 }
 
-function ovItemsCard(s, r) {
+function ovItemsTab(s, r) {
   const defs = new Map((r.items || []).map((i) => [i.id, i]));
   const catName = Object.fromEntries((r.cats || []).map(([k, l]) => [k, l]));
   const on = (s.osd_items || []).filter((id) => defs.has(id));
@@ -266,13 +274,14 @@ function ovItemsCard(s, r) {
     const el = h("div", { class: "ov-item" + (d.have ? "" : " none") + (picked ? " picked" : ""), draggable: "true", "data-k": k },
       h("span", { class: "ov-grip", "aria-hidden": "true" }),
       box,
-      h("div", { class: "ov-in", onclick: (e) => pick(id, e) }, h("b", null, d.short), h("span", { class: "dim small" }, `${catName[d.cat] || ""} · ${d.label}`)),
+      h("div", { class: "ov-in", onclick: (e) => pick(id, e) }, h("b", null, d.short), h("span", { class: "ov-cat" }, `${catName[d.cat] || ""} · ${d.label}`)),
       g && !multi(id) ? h("span", { class: "chip sm-chip ov-gchip", title: "On a line of its own called " + g }, I("link", "sm"), g) : null,
       d.have ? null : h("span", { class: "chip sm-chip", title: "This PC gives no such reading right now, so the overlay skips it" }, "no reading"),
       d.stat ? h("span", { class: "chip sm-chip", title: "Counted by Deck from every frame RivaTuner draws, over the time set under Behaviour" }, "from frames") : null,
-      h("button", { class: "icon-btn sm", title: "Move up", "aria-label": "Move " + d.short + " up", disabled: k === 0, onclick: () => move(k, k - 1) }, I("moveup", "sm")),
-      h("button", { class: "icon-btn sm down", title: "Move down", "aria-label": "Move " + d.short + " down", disabled: k === on.length - 1, onclick: () => move(k, k + 1) }, I("moveup", "sm")),
-      h("button", { class: "icon-btn sm danger", title: "Remove", "aria-label": "Remove " + d.short, onclick: () => set(on.filter((x) => x !== id)) }, I("x", "sm")));
+      h("span", { class: "ov-acts" },
+        h("button", { class: "icon-btn sm", title: "Move up", "aria-label": "Move " + d.short + " up", disabled: k === 0, onclick: () => move(k, k - 1) }, I("moveup", "sm")),
+        h("button", { class: "icon-btn sm down", title: "Move down", "aria-label": "Move " + d.short + " down", disabled: k === on.length - 1, onclick: () => move(k, k + 1) }, I("moveup", "sm")),
+        h("button", { class: "icon-btn sm danger", title: "Remove", "aria-label": "Remove " + d.short, onclick: () => set(on.filter((x) => x !== id)) }, I("x", "sm"))));
     // dragging a selected item takes the whole selection along
     el.addEventListener("dragstart", (e) => {
       e.dataTransfer.setData("text/plain", id);
@@ -298,42 +307,47 @@ function ovItemsCard(s, r) {
   const anyGrouped = [...sel].some((id) => groups[id]);
   const bar = sel.size ? h("div", { class: "ov-selbar", role: "toolbar", "aria-label": "Selected items" },
     h("b", null, `${sel.size} selected`),
-    h("button", { class: "btn sm ghost", title: "Move the selected items up", onclick: () => moveSel(-1) }, I("moveup", "sm"), "Up"),
-    h("button", { class: "btn sm ghost ov-down", title: "Move the selected items down", onclick: () => moveSel(1) }, I("moveup", "sm"), "Down"),
-    h("button", { class: "btn sm ghost", onclick: () => moveSel("top") }, "To the top"),
-    h("button", { class: "btn sm ghost", onclick: () => moveSel("bottom") }, "To the bottom"),
-    h("button", { class: "btn sm", title: "Show the selected items on one line with a label of your choice", onclick: groupSel }, I("link", "sm"), "Put on one line"),
-    anyGrouped ? h("button", { class: "btn sm ghost", onclick: ungroupSel }, "Back to their own lines") : null,
-    h("button", { class: "btn sm ghost danger", onclick: () => { const keep = on.filter((x) => !sel.has(x)); sel.clear(); set(keep); } }, I("trash", "sm"), "Remove"),
+    h("button", { class: "icon-btn sm", title: "Move up", "aria-label": "Move the selected items up", onclick: () => moveSel(-1) }, I("moveup", "sm")),
+    h("button", { class: "icon-btn sm ov-down", title: "Move down", "aria-label": "Move the selected items down", onclick: () => moveSel(1) }, I("moveup", "sm")),
+    h("button", { class: "btn sm ghost", onclick: () => moveSel("top") }, "Top"),
+    h("button", { class: "btn sm ghost", onclick: () => moveSel("bottom") }, "Bottom"),
+    h("button", { class: "btn sm", title: "Show the selected items on one line with a label of your choice", onclick: groupSel }, I("link", "sm"), "One line"),
+    anyGrouped ? h("button", { class: "btn sm ghost", onclick: ungroupSel }, "Own lines") : null,
     h("span", { class: "grow" }),
+    h("button", { class: "icon-btn sm danger", title: "Remove the selected items", "aria-label": "Remove the selected items", onclick: () => { const keep = on.filter((x) => !sel.has(x)); sel.clear(); set(keep); } }, I("trash", "sm")),
     h("button", { class: "icon-btn sm", title: "Clear the selection", "aria-label": "Clear the selection", onclick: () => { sel.clear(); render(); } }, I("x", "sm"))) : null;
 
   const free = (r.items || []).filter((i) => !on.includes(i.id));
+  const adding = !!S.cache.ovAdding || !on.length;
   const adders = (r.cats || []).map(([cat, label]) => {
     const list = free.filter((i) => i.cat === cat);
     if (!list.length) return null;
     return h("div", { class: "ov-addrow" }, h("span", { class: "ov-addcat" }, label),
-      h("div", { class: "row wrap", style: { gap: "6px" } }, list.map((i) => h("button", { class: "chip ov-add" + (i.have ? "" : " none"), title: i.label + (i.have ? "" : " (no reading on this PC right now)"), onclick: () => set([...on, i.id]) }, I("plus", "sm"), i.short))));
+      h("div", { class: "ov-addchips" }, list.map((i) => h("button", { class: "chip ov-add" + (i.have ? "" : " none"), title: i.label + (i.have ? "" : " (no reading on this PC right now)"), onclick: () => set([...on, i.id]) }, I("plus", "sm"), i.short))));
   });
 
   const every = (r.items || []).filter((i) => i.have && !i.id.startsWith("fan:") && !i.id.startsWith("temp:")).map((i) => i.id);
   const presets = OV_PRESETS.map(([name, ids]) => h("button", { class: "chip", onclick: () => set((ids || every).filter((x) => defs.has(x))) }, name));
   const allPicked = on.length > 0 && on.every((x) => sel.has(x));
 
-  return h("div", { class: "card col" },
-    h("div", { class: "tile-head" }, I("list"), h("span", null, `What to show · ${on.length}`), helpTip("ov.items"), h("span", { class: "grow" }),
+  return [
+    ovSub(`${on.length} shown, top to bottom`, helpTip("ov.items"),
       on.length ? h("button", { class: "link", onclick: () => { if (allPicked) sel.clear(); else on.forEach((x) => sel.add(x)); render(); } }, allPicked ? "Select none" : "Select all") : null),
     bar,
-    on.length ? h("div", { class: "ov-items" }, rows) : h("div", { class: "empty" }, "Nothing is shown. Add something below."),
-    h("div", { class: "ov-presets" }, h("span", { class: "dim small" }, "Start from"), presets),
-    free.length ? h("div", { class: "ov-adders" }, adders) : null);
+    on.length ? h("div", { class: "ov-items" }, rows) : h("div", { class: "empty" }, "Nothing is shown yet. Add readings below, or start from a set."),
+    free.length ? h("div", { class: "ov-addbox" + (adding ? " open" : "") },
+      h("button", { class: "ov-addhead", "aria-expanded": adding ? "true" : "false", onclick: () => { S.cache.ovAdding = !adding; render(); } },
+        I("plus", "sm"), h("span", null, "Add readings"), h("span", { class: "chip-n" }, free.length), h("span", { class: "grow" }), I("chevron", "sm")),
+      adding ? h("div", { class: "ov-adders" }, adders) : null) : null,
+    h("div", { class: "ov-presets" }, h("span", { class: "faint small" }, "Replace with"), presets),
+  ];
 }
 
-// ------------------------------------------------------------------- layout
+// ------------------------------------------------------------------- Layout tab
 
-function ovLayoutCard(st, s) {
+function ovLayoutTab(st, s) {
   const items = s.osd_items || [];
-  const hasCores = items.some((i) => ["cpu_cores", "core_clock", "core_temp"].includes(i));
+  const hasCores = items.some((i) => ["cpu_cores", "core_clock", "core_temp", "core_table", "thread_table"].includes(i));
   const hasMem = items.some((i) => ["gpu_mem", "ram", "commit", "proc_ram"].includes(i));
   const demo = {
     grouped: ["GPU  64°C  98%", "CPU  58°C  31%", "FPS  143  6.9ms"],
@@ -342,120 +356,215 @@ function ovLayoutCard(st, s) {
   };
   const pick = (v, title, sub) => h("button", { class: "ov-lay" + (st.layout === v ? " on" : ""), onclick: () => ovStyle({ layout: v }), "aria-pressed": st.layout === v },
     h("pre", null, demo[v].join("\n")), h("b", null, title), h("span", { class: "dim small" }, sub));
-  return h("div", { class: "card col" },
-    h("div", { class: "tile-head" }, I("layout"), h("span", null, "Layout"), helpTip("ov.layout")),
-    h("div", { class: "ov-lays" }, pick("grouped", "Grouped", "One line per group"), pick("list", "List", "One line per item"), pick("line", "One line", "All in a row")),
-    ovRow("Labels", toggle(st.labels, (v) => ovStyle({ labels: v })), "GPU, CPU, FPS… in front of the numbers"),
-    st.labels && st.layout !== "line" ? ovRow("Line up the values", toggle(st.align, (v) => ovStyle({ align: v })), "Pads the labels so the numbers start in one column") : null,
-    st.layout === "grouped" ? ovRow("Framerate figures on their own lines", toggle(st.fps_lines, (v) => ovStyle({ fps_lines: v })), "FPS, Min, Avg, Max and the lows each get a line, like Afterburner", "ov.fps_lines") : null,
-    st.layout !== "line" ? ovRow("Tidy columns", toggle(st.columns, (v) => ovStyle({ columns: v })), "Numbers line up under each other (best with a monospace font)", "ov.columns") : null,
+  return [
+    h("div", { class: "ov-lays" }, pick("grouped", "Grouped", "A line per group"), pick("list", "List", "A line per item"), pick("line", "One line", "All in a row")),
+    ovSub("Lines", helpTip("ov.layout")),
+    ovSwitch("Labels", "GPU, CPU, FPS… in front of the numbers", st.labels, (v) => ovStyle({ labels: v })),
+    st.labels && st.layout !== "line" ? ovSwitch("Line up the values", "The numbers start in one column", st.align, (v) => ovStyle({ align: v })) : null,
+    st.layout !== "line" ? ovSwitch("Tidy columns", "Numbers line up under each other (best with a monospace font)", st.columns, (v) => ovStyle({ columns: v }), "ov.columns") : null,
+    st.layout === "grouped" ? ovSwitch("Framerate figures on their own lines", "FPS, Min, Avg, Max and the lows each get a line", st.fps_lines, (v) => ovStyle({ fps_lines: v }), "ov.fps_lines") : null,
+    hasCores ? ovRow("Cores per row", seg([4, 6, 8, 10, 12, 16].map((n) => [n, String(n)]), st.cores_per_row, (v) => ovStyle({ cores_per_row: v }))) : null,
+    ovSub("Numbers"),
     ovRow("Units", seg([["small", "Small"], ["normal", "Normal"], ["off", "None"]], st.units, (v) => ovStyle({ units: v })), "°C, %, MHz after each number"),
-    items.includes("time") ? ovRow("Clock", h("div", { class: "row", style: { gap: "12px" } }, seg([[false, "24 h"], [true, "12 h"]], st.clock_12h, (v) => ovStyle({ clock_12h: v })), seg([[false, "No seconds"], [true, "Seconds"]], st.clock_secs, (v) => ovStyle({ clock_secs: v })))) : null,
+    ovSwitch("Decimals in the framerate", "143.4 instead of 143", !st.int_fps, (v) => ovStyle({ int_fps: !v }), "ov.decimals"),
     hasMem ? ovRow("Memory in", seg([["MB", "MB"], ["GB", "GB"]], st.mem_unit, (v) => ovStyle({ mem_unit: v }))) : null,
-    ovRow("Decimals in the framerate", toggle(!st.int_fps, (v) => ovStyle({ int_fps: !v })), "143.4 instead of 143", "ov.decimals"),
-    hasCores ? ovRow("Cores per row", seg([4, 6, 8, 10, 12, 16].map((n) => [n, String(n)]), st.cores_per_row, (v) => ovStyle({ cores_per_row: v })), "For the per-thread and per-core rows") : null);
+    items.includes("time") ? ovRow("Clock", h("div", { class: "row", style: { gap: "8px" } }, seg([[false, "24 h"], [true, "12 h"]], st.clock_12h, (v) => ovStyle({ clock_12h: v })), seg([[false, "hh:mm"], [true, "hh:mm:ss"]], st.clock_secs, (v) => ovStyle({ clock_secs: v })))) : null,
+  ];
 }
 
-// ------------------------------------------------------------------- colours
+// ------------------------------------------------------------------- Look tab
 
-function ovColorsCard(st) {
-  const same = (t) => Object.entries(t).every(([k, v]) => st[k] === v);
-  return h("div", { class: "card col" },
-    h("div", { class: "tile-head" }, I("droplet"), h("span", null, "Colours")),
-    h("div", { class: "ov-themes" }, OV_THEMES.map(([name, t]) => h("button", { class: "ov-theme" + (same(t) ? " on" : ""), onclick: () => ovStyle(t), "aria-pressed": same(t) },
-      h("span", { class: "sw" }, [t.label_color, t.value_color, t.group_colors ? t.gpu_color : t.warn_color, t.group_colors ? t.cpu_color : t.warm_color].map((c) => h("i", { style: { background: "#" + c } }))), name))),
-    h("div", { class: "ov-colors" }, ovColorField("Labels", "label_color", st), ovColorField("Numbers", "value_color", st), ovColorField("Warm", "warm_color", st), ovColorField("Hot", "warn_color", st)),
-    ovSwitch("A colour for each part", "GPU, CPU, memory and framerate lines each get their own.", st.group_colors, (v) => ovStyle({ group_colors: v })),
-    st.group_colors ? ovSwitch("Colour the numbers too", "Otherwise only the labels take the part's colour.", st.group_values, (v) => ovStyle({ group_values: v })) : null,
-    st.group_colors ? h("div", { class: "ov-colors" }, ovColorField("GPU", "gpu_color", st), ovColorField("CPU", "cpu_color", st), ovColorField("Memory", "ram_color", st), ovColorField("Framerate", "fps_color", st), ovColorField("Other", "info_color", st)) : null,
-    ovSwitch("Colour numbers by how loaded or hot they are", "Warm from 70 % load or 12 °C under the temperature limit, hot from 90 % or the limit.", st.heat, (v) => ovStyle({ heat: v }), "ov.heat"));
-}
-
-// ------------------------------------------------------------------- how RivaTuner draws it
-
-function ovLookCard(st, r) {
+function ovLookTab(st, r) {
   const put = (patch) => ovStyle(patch);
   // a real list: the suggested overlay fonts first, then every font installed on this PC
-  if (!S.cache.fonts) invoke("fonts_list").then((f) => { S.cache.fonts = f; if (S.page === "overlay") render(); }).catch(() => (S.cache.fonts = []));
+  if (!S.cache.fonts) invoke("fonts_list").then((f) => { S.cache.fonts = f || []; if (S.page === "overlay") render(); }).catch(() => (S.cache.fonts = []));
   const installed = (S.cache.fonts || []).filter((f) => !OV_FONTS.includes(f));
   const opt = (f) => h("option", { value: f, selected: f === st.font }, f);
   const font = h("select", { class: "ov-font", "aria-label": "Font", onchange: (e) => put({ font: e.target.value }) },
     OV_FONTS.includes(st.font) || installed.includes(st.font) ? null : opt(st.font),
     h("optgroup", { label: "Suggested" }, OV_FONTS.map(opt)),
     installed.length ? h("optgroup", { label: "All fonts on this PC" }, installed.map(opt)) : null);
-  return h("div", { class: "card col" },
-    h("div", { class: "tile-head" }, I("sliders"), h("span", null, "Look in the game"), h("span", { class: "grow" }),
-      r.installed && !r.profiles ? h("span", { class: "chip warn", title: "RivaTuner makes its profiles the first time it runs" }, "Start RivaTuner once first") : null),
-    ovRow("Position", seg(OV_CORNERS, st.corner, (v) => put({ corner: v })), null, "ov.position"),
-    sliderRow("Distance from the side", st.margin_x, 1, 600, 1, " px", (v) => put({ margin_x: v })),
-    sliderRow("Distance from the top/bottom", st.margin_y, 1, 600, 1, " px", (v) => put({ margin_y: v })),
-    sliderRow("Text size", st.zoom, 1, 8, 1, "×", (v) => put({ zoom: v }), "ov.zoom"),
+  return [
+    r.installed && !r.profiles ? h("div", { class: "banner warn" }, I("info"), h("div", null, "Start RivaTuner once first: it makes its profiles the first time it runs, and the look is written there.")) : null,
+    ovSub("Position", helpTip("ov.position")),
+    ovRow("Corner", seg(OV_CORNERS, st.corner, (v) => put({ corner: v }))),
+    sliderRow("From the side", st.margin_x, 1, 600, 1, " px", (v) => put({ margin_x: v })),
+    sliderRow("From the top or bottom", st.margin_y, 1, 600, 1, " px", (v) => put({ margin_y: v })),
+    ovSwitch("Shrink to fit the screen", "For long overlays on small screens", st.fit, (v) => put({ fit: v })),
+    ovSub("Text"),
+    sliderRow("Size", st.zoom, 1, 8, 1, "×", (v) => put({ zoom: v }), "ov.zoom"),
     ovRow("Font", h("div", { class: "row", style: { gap: "10px" } }, font,
-      h("div", { class: "row", style: { gap: "6px" } }, toggle(st.bold, (v) => put({ bold: v })), h("span", { class: "dim" }, "Bold"))), "Any font installed on this PC", "ov.font"),
-    ovRow("Text shadow", toggle(st.shadow, (v) => put({ shadow: v })), "A dark outline that keeps the letters readable"),
-    ovRow("Dark box behind the text", toggle(st.box_on, (v) => put({ box_on: v }))),
+      h("div", { class: "row ov-bold" }, toggle(st.bold, (v) => put({ bold: v })), h("span", { class: "dim" }, "Bold"))), null, "ov.font"),
+    ovSwitch("Shadow", "A dark outline that keeps the letters readable", st.shadow, (v) => put({ shadow: v })),
+    ovSwitch("Dark box behind the text", null, st.box_on, (v) => put({ box_on: v })),
     st.box_on ? sliderRow("Box opacity", st.box_opacity, 5, 100, 5, " %", (v) => put({ box_opacity: v })) : null,
-    ovRow("Shrink to fit the screen", toggle(st.fit, (v) => put({ fit: v })), "For long overlays on small screens"),
-    ovRow("Frametime graph", toggle(st.graph, (v) => put({ graph: v })), "A graph of the game's frametimes under the text", "ov.graph"),
-    st.graph ? ovRow("Graph width", seg([[true, "Fit the overlay"], [false, "Set it"]], st.graph_fit, (v) => put({ graph_fit: v })), "Fit: as wide as the longest line, and it follows when the overlay changes", "ov.graph_fit") : null,
-    st.graph && !st.graph_fit ? sliderRow("Width", st.graph_w, 8, 128, 2, " chars", (v) => put({ graph_w: v })) : null,
-    st.graph ? sliderRow("Graph height", st.graph_h, 1, 24, 1, " lines", (v) => put({ graph_h: v })) : null,
-    st.graph ? ovRow("Graph shows", seg([[5, "5 s"], [10, "10 s"], [20, "20 s"], [30, "30 s"], [60, "1 min"]], st.graph_secs, (v) => put({ graph_secs: v })), "Longer moves slower", "ov.graph_secs") : null,
-    st.graph ? ovRow("Smooth the line", toggle(st.graph_smooth, (v) => put({ graph_smooth: v })), "Each point is the average of its frames. Off: the slowest frame, so every hitch shows", "ov.graph_smooth") : null,
-    st.graph ? ovRow("Graph style", seg([[0, "Lines"], [1, "Filled"], [2, "Bars"]], st.graph_style === 3 ? 0 : st.graph_style, (v) => put({ graph_style: v }))) : null,
-    st.graph ? sliderRow("Graph top", st.graph_max, 0, 100, 1, st.graph_max ? " ms" : " auto", (v) => put({ graph_max: v })) : null,
-    ovRow("Frame time bar", toggle(st.color_bar, (v) => put({ color_bar: v })), "A coloured strip along the screen edge that changes colour on every frame", "ov.color_bar"),
-    ovRow("Use this look in every game", toggle(st.all_games, (v) => put({ all_games: v })), "A game with its own RivaTuner profile ignores the global one", "ov.all_games"),
-    h("div", { class: "row wrap" },
-      h("span", { class: "dim small grow" }, "Written to RivaTuner's profiles. Your originals are kept in RivaTuner\\Profiles\\Deck backup."),
-      h("button", { class: "btn sm ghost", onclick: async () => {
-        if (!(await confirmBox("Put RivaTuner's look back", "RivaTuner's profile files go back to how they were before Deck first changed them.", "Put back"))) return;
-        try { const n = await invoke("rtss_restore_look"); note(n + " profile" + (n === 1 ? "" : "s") + " restored"); } catch (e) { note(String(e), true); }
-      } }, I("undo", "sm"), "Put RivaTuner's look back")));
+  ];
 }
 
-// ------------------------------------------------------------------- warnings and behaviour
+// ------------------------------------------------------------------- Colours tab
 
-function ovWarnCard(st) {
-  return h("div", { class: "card col" },
-    h("div", { class: "tile-head" }, I("alert"), h("span", null, "Warnings on the overlay"), helpTip("ov.warn")),
-    ovSwitch("Turn a number red when it gets too high", "Temperatures at or above the limit, and the framerate under its limit.", st.warn, (v) => ovStyle({ warn: v })),
-    st.warn || st.heat ? sliderRow("GPU temperature limit", st.warn_gpu_temp, 60, 100, 1, " °C", (v) => ovStyle({ warn_gpu_temp: v })) : null,
-    st.warn || st.heat ? sliderRow("CPU temperature limit", st.warn_cpu_temp, 60, 105, 1, " °C", (v) => ovStyle({ warn_cpu_temp: v })) : null,
-    st.warn ? sliderRow("Framerate under", st.warn_fps, 0, 240, 5, st.warn_fps ? " FPS" : " off", (v) => ovStyle({ warn_fps: v })) : null);
+function ovColorsTab(st) {
+  const same = (t) => Object.entries(t).every(([k, v]) => st[k] === v);
+  return [
+    h("div", { class: "ov-themes" }, OV_THEMES.map(([name, t]) => h("button", { class: "ov-theme" + (same(t) ? " on" : ""), onclick: () => ovStyle(t), "aria-pressed": same(t) },
+      h("span", { class: "sw" }, [t.label_color, t.value_color, t.group_colors ? t.gpu_color : t.warn_color, t.group_colors ? t.cpu_color : t.warm_color].map((c) => h("i", { style: { background: "#" + c } }))), name))),
+    ovSub("Your colours"),
+    h("div", { class: "ov-colors" }, ovColorField("Labels", "label_color", st), ovColorField("Numbers", "value_color", st), ovColorField("Warm", "warm_color", st), ovColorField("Hot", "warn_color", st)),
+    ovSwitch("A colour for each part", "GPU, CPU, memory and framerate lines each get their own", st.group_colors, (v) => ovStyle({ group_colors: v })),
+    st.group_colors ? h("div", { class: "ov-colors" }, ovColorField("GPU", "gpu_color", st), ovColorField("CPU", "cpu_color", st), ovColorField("Memory", "ram_color", st), ovColorField("Framerate", "fps_color", st), ovColorField("Other", "info_color", st)) : null,
+    st.group_colors ? ovSwitch("Colour the numbers too", "Otherwise only the labels take the part's colour", st.group_values, (v) => ovStyle({ group_values: v })) : null,
+    ovSwitch("Colour by load and heat", "Warm from 70 % load or 12 °C under the limit, hot from 90 % or the limit (Warnings tab)", st.heat, (v) => ovStyle({ heat: v }), "ov.heat"),
+  ];
 }
 
-/** RivaTuner's framerate limiter: its key (like Afterburner's), on/off now, and the limit. */
-function ovLimiterRow(s) {
-  const l = S.cache.limiter;
-  if (!l) invoke("rtss_limiter", { what: "state" }).then((r) => { S.cache.limiter = r; if (S.page === "overlay") render(); }).catch(() => {});
-  const act = async (what, fps) => { try { S.cache.limiter = await run("rtss_limiter", { what, fps }); } catch {} render(); };
-  const fps = h("input", { type: "number", min: 0, max: 1000, step: 1, value: l?.fps ?? "", style: { width: "74px" }, "aria-label": "Limit in frames a second", title: "0 = no limit",
-    onchange: (e) => act("set", Math.max(0, Math.min(1000, +e.target.value || 0))) });
-  return ovRow("Framerate limit", h("div", { class: "row wrap", style: { gap: "8px", justifyContent: "flex-end" } },
-    fps, h("span", { class: "dim" }, "FPS"),
-    l && l.on != null ? toggle(!!l.on, () => act("toggle")) : null,
-    hotkeyField(s.limiter_hotkey, "limiter", (k) => setSetting("limiter_hotkey", k).then(render))),
-    "RivaTuner's limiter: holds every game to this framerate. The key turns it on and off in game, like Afterburner's limiter key", "ov.limiter");
+// ------------------------------------------------------------------- Graph tab
+
+function ovGraphTab(st) {
+  const put = (patch) => ovStyle(patch);
+  return [
+    ovSwitch("Frametime graph", "How long the game's frames take, drawn under the text", st.graph, (v) => put({ graph: v }), "ov.graph"),
+    st.graph ? [
+      ovRow("Width", seg([[true, "Fit the overlay"], [false, "Set it"]], st.graph_fit, (v) => put({ graph_fit: v })), null, "ov.graph_fit"),
+      !st.graph_fit ? sliderRow("Width", st.graph_w, 8, 128, 2, " chars", (v) => put({ graph_w: v })) : null,
+      sliderRow("Height", st.graph_h, 1, 24, 1, " lines", (v) => put({ graph_h: v })),
+      ovRow("Style", seg([[0, "Lines"], [1, "Filled"], [2, "Bars"]], st.graph_style === 3 ? 0 : st.graph_style, (v) => put({ graph_style: v }))),
+      ovRow("Shows the last", seg([[5, "5 s"], [10, "10 s"], [20, "20 s"], [30, "30 s"], [60, "1 min"]], st.graph_secs, (v) => put({ graph_secs: v })), "Longer scrolls slower", "ov.graph_secs"),
+      sliderRow("Top of the graph", st.graph_max, 0, 100, 1, st.graph_max ? " ms" : " auto", (v) => put({ graph_max: v })),
+      ovSwitch("Smooth the line", "Off: each point is its slowest frame, so every hitch shows", st.graph_smooth, (v) => put({ graph_smooth: v }), "ov.graph_smooth"),
+    ] : null,
+    ovSub("Screen edge"),
+    ovSwitch("Frame time bar", "A strip along the screen edge that changes colour on every frame", st.color_bar, (v) => put({ color_bar: v }), "ov.color_bar"),
+  ];
 }
 
-function ovBehaviourCard(st, s) {
-  return h("div", { class: "card col" },
-    h("div", { class: "tile-head" }, I("gear"), h("span", null, "Behaviour")),
-    ovRow("Show or hide with", hotkeyField(s.osd_hotkey, "overlay", (k) => setSetting("osd_hotkey", k).then(render)), "Page Up, Page Down, Home, End, Insert, Delete, Pause or an F-key work on their own; other keys need Ctrl, Alt or Win"),
+// ------------------------------------------------------------------- Warnings tab
+
+function ovWarnTab(st) {
+  return [
+    ovSwitch("Turn a number red when it gets too high", "Temperatures at or above the limit, and the framerate under its limit", st.warn, (v) => ovStyle({ warn: v }), "ov.warn"),
+    st.warn || st.heat ? [
+      ovSub("Limits"),
+      sliderRow("GPU temperature", st.warn_gpu_temp, 60, 100, 1, " °C", (v) => ovStyle({ warn_gpu_temp: v })),
+      sliderRow("CPU temperature", st.warn_cpu_temp, 60, 105, 1, " °C", (v) => ovStyle({ warn_cpu_temp: v })),
+      st.warn ? sliderRow("Framerate under", st.warn_fps, 0, 240, 5, st.warn_fps ? " FPS" : " off", (v) => ovStyle({ warn_fps: v })) : null,
+    ] : null,
+  ];
+}
+
+// ------------------------------------------------------------------- Behaviour tab
+
+function ovBehaviourTab(st, s) {
+  return [
+    ovSub("Readings"),
     ovRow("Update every", seg([[250, "¼ s"], [500, "½ s"], [1000, "1 s"], [2000, "2 s"]], s.osd_ms, async (v) => { await setSetting("osd_ms", v); render(); }), null, "ov.update"),
-    ovRow("Start the figures over with", h("div", { class: "row", style: { gap: "8px" } },
+    ovRow("Average and lows cover", seg([[30, "30 s"], [60, "1 min"], [120, "2 min"], [300, "5 min"]], st.stats_secs, (v) => ovStyle({ stats_secs: v })), "How far back the average, lows, lowest and highest look", "ov.stats"),
+    ovRow("Start the figures over", h("div", { class: "row", style: { gap: "6px" } },
       hotkeyField(s.osd_reset_hotkey, "overlay_reset", (k) => setSetting("osd_reset_hotkey", k).then(render)),
       h("button", { class: "btn sm ghost", onclick: () => invoke("rtss_reset_stats").then(() => note("Framerate figures start over")) }, I("refresh", "sm"), "Now")),
-      "Average, lows, lowest, highest and the graph. Handy at the start of a match or benchmark run", "ov.reset"),
-    ovLimiterRow(s),
-    ovRow("Average and lows cover", seg([[30, "30 s"], [60, "1 min"], [120, "2 min"], [300, "5 min"]], st.stats_secs, (v) => ovStyle({ stats_secs: v })), "How far back the average, 1% low, lowest and highest look", "ov.stats"),
+      "Average, lows and the graph: a key for the start of a match or benchmark", "ov.reset"),
+    ovSub("RivaTuner"),
+    ovSwitch("Use this look in every game", "A game with its own RivaTuner profile ignores the global one", st.all_games, (v) => ovStyle({ all_games: v }), "ov.all_games"),
     ovSwitch("Start RivaTuner with Deck", null, s.rtss_autostart, (v) => setSetting("rtss_autostart", v)),
-    ovSwitch("Hide RivaTuner's tray icon", "RivaTuner keeps running; open its settings with the button below", s.rtss_tray_hidden, async (v) => {
+    ovSwitch("Hide RivaTuner's tray icon", "It keeps running; open it with the button below", s.rtss_tray_hidden, async (v) => {
       try { await invoke("rtss_tray", { hidden: v }); S.state.settings.rtss_tray_hidden = v; } catch (e) { note(String(e)); }
     }),
-    ovRow("RivaTuner's own settings", h("button", { class: "btn sm", onclick: () => invoke("rtss_open").catch((e) => note(String(e))) }, I("external", "sm"), "Open RivaTuner"), "RivaTuner restarts so its window opens properly; a game's overlay blinks for a moment"),
-    ovSwitch("Share readings like Afterburner", "Lets RivaTuner's overlay editor and stream widgets read the same numbers.", s.mahm_on, (v) => setSetting("mahm_on", v), "ov.mahm"));
+    ovSwitch("Share readings like Afterburner", "RivaTuner's overlay editor and stream widgets can read the same numbers", s.mahm_on, (v) => setSetting("mahm_on", v), "ov.mahm"),
+    h("div", { class: "ov-foot" },
+      h("button", { class: "btn sm", title: "RivaTuner restarts so its window opens properly; a game's overlay blinks for a moment", onclick: () => invoke("rtss_open").catch((e) => note(String(e))) }, I("external", "sm"), "Open RivaTuner"),
+      h("button", { class: "btn sm ghost", title: "Your originals are kept in RivaTuner\\Profiles\\Deck backup", onclick: async () => {
+        if (!(await confirmBox("Put RivaTuner's look back", "RivaTuner's profile files go back to how they were before Deck first changed them.", "Put back"))) return;
+        try { const n = await invoke("rtss_restore_look"); note(n + " profile" + (n === 1 ? "" : "s") + " restored"); } catch (e) { note(String(e), true); }
+      } }, I("undo", "sm"), "Put RivaTuner's look back")),
+  ];
+}
+
+// ------------------------------------------------------------------- the editor
+
+const OV_TABS = [
+  ["items", "Items"],
+  ["layout", "Layout"],
+  ["look", "Look"],
+  ["colours", "Colours"],
+  ["graph", "Graph"],
+  ["warn", "Warnings"],
+  ["more", "Behaviour"],
+];
+
+/** The open tab, kept per viewer across visits. */
+function ovTab() {
+  if (!S.cache.ovTab) { try { S.cache.ovTab = localStorage.getItem("deck.ovTab"); } catch {} }
+  return OV_TABS.some(([k]) => k === S.cache.ovTab) ? S.cache.ovTab : "items";
+}
+function ovSetTab(k) {
+  S.cache.ovTab = k;
+  try { localStorage.setItem("deck.ovTab", k); } catch {}
+  render();
+  document.getElementById("ov-tab-" + k)?.focus();
+}
+
+function ovEditor(st, s, r) {
+  const tab = ovTab();
+  const count = (s.osd_items || []).length;
+  const lit = { graph: st.graph || st.color_bar, warn: st.warn };
+  const tabs = h("div", { class: "ov-tabs", role: "tablist", "aria-label": "Overlay settings" },
+    OV_TABS.map(([k, label], i) => h("button", {
+      id: "ov-tab-" + k, role: "tab", class: "ov-tab" + (tab === k ? " on" : ""), "aria-selected": tab === k ? "true" : "false", "aria-controls": "ov-panel", tabindex: tab === k ? "0" : "-1",
+      onclick: () => ovSetTab(k),
+      onkeydown: (e) => {
+        const d = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
+        if (d) { e.preventDefault(); ovSetTab(OV_TABS[(i + d + OV_TABS.length) % OV_TABS.length][0]); }
+      },
+    }, h("span", null, label),
+      k === "items" ? h("span", { class: "ov-n num" }, count) : lit[k] ? h("i", { class: "ov-dot", title: "On" }) : null)));
+  const body = {
+    items: () => ovItemsTab(s, r),
+    layout: () => ovLayoutTab(st, s),
+    look: () => ovLookTab(st, r),
+    colours: () => ovColorsTab(st),
+    graph: () => ovGraphTab(st),
+    warn: () => ovWarnTab(st),
+    more: () => ovBehaviourTab(st, s),
+  }[tab]();
+  return h("div", { class: "card ov-editor" }, tabs, h("div", { class: "ov-panel", id: "ov-panel", role: "tabpanel", "aria-labelledby": "ov-tab-" + tab }, body));
+}
+
+// ------------------------------------------------------------------- the strip
+
+/** RivaTuner's framerate limiter, compact: the limit, on/off now, and its key (like Afterburner's). */
+function ovLimiter(s) {
+  const l = S.cache.limiter;
+  if (l === undefined) {
+    S.cache.limiter = null;
+    invoke("rtss_limiter", { what: "state" }).then((r) => { S.cache.limiter = r || null; if (S.page === "overlay") render(); }).catch(() => {});
+  }
+  const act = async (what, fps) => { try { S.cache.limiter = await run("rtss_limiter", { what, fps }); } catch {} render(); };
+  const fps = h("input", { type: "number", class: "ov-fps num", min: 0, max: 1000, step: 1, value: l?.fps ?? "", "aria-label": "Framerate limit, frames a second", title: "0 = no limit",
+    onchange: (e) => act("set", Math.max(0, Math.min(1000, +e.target.value || 0))) });
+  return h("div", { class: "ov-key" },
+    h("span", { class: "ov-kl" }, "Frame limit", helpTip("ov.limiter")),
+    h("div", { class: "ov-fpsbox" }, fps, h("span", null, "FPS")),
+    l && l.on != null ? h("span", { class: "ov-lim", title: l.on ? "The limiter is on" : "The limiter is off" }, toggle(!!l.on, () => act("toggle"))) : null,
+    hotkeyField(s.limiter_hotkey, "limiter", (k) => setSetting("limiter_hotkey", k).then(render)));
+}
+
+function ovStrip(s, r) {
+  const on = !!s.osd_on;
+  const rate = { 250: "¼ s", 500: "½ s", 1000: "1 s", 2000: "2 s" }[s.osd_ms] || s.osd_ms + " ms";
+  const line = !r.installed
+    ? "RivaTuner draws the overlay. Deck installs it from Guru3D in about a minute and sets it up."
+    : !r.running ? "RivaTuner isn't running, so nothing is drawn."
+    : on ? `RivaTuner is drawing it · new readings every ${rate}` : "Turn it on to see your readings over games.";
+  return h("div", { class: "card ov-strip" + (on ? " on" : "") },
+    h("div", { class: "ov-power" },
+      toggle(on, async (v) => { await setSetting("osd_on", v); await ovRefresh(); render(); }),
+      h("div", null,
+        h("div", { class: "ov-title" }, on ? "Overlay on" : "Overlay off"),
+        h("div", { class: "small " + (r.installed && r.running ? "dim" : "ov-warn") }, line))),
+    !r.installed ? h("button", { class: "btn sm primary", disabled: S.cache.rtssInstalling ? "" : null, onclick: ovInstallRtss }, S.cache.rtssInstalling ? "Installing…" : "Install RivaTuner") : null,
+    r.installed && !r.running ? h("button", { class: "btn sm primary", onclick: async () => { await run("rtss_start", null, "Starting RivaTuner…"); setTimeout(async () => { await ovRefresh(); render(); }, 1500); } }, "Start RivaTuner") : null,
+    h("div", { class: "ov-keys" },
+      h("div", { class: "ov-key" }, h("span", { class: "ov-kl" }, "Show or hide"), hotkeyField(s.osd_hotkey, "overlay", (k) => setSetting("osd_hotkey", k).then(render))),
+      r.installed ? ovLimiter(s) : null));
 }
 
 // ------------------------------------------------------------------- the page
@@ -472,7 +581,7 @@ Pages.overlay = {
   },
   render() {
     HW.updaters = [];
-    return h("div", null, head("Overlay", "Your readings over your games: what to show, how it looks and the key that shows it. RivaTuner draws it."), overlayPage());
+    return h("div", null, head("Overlay", "Your readings over your games. RivaTuner draws it; Deck decides what it shows and how."), overlayPage());
   },
 };
 
@@ -480,23 +589,7 @@ function overlayPage() {
   const s = S.state.settings;
   const st = ovStyleNow();
   const r = S.cache.rtss || {};
-  const on = !!s.osd_on;
-  const status = !r.installed
-    ? h("span", { class: "chip warn" }, "RivaTuner isn't installed")
-    : r.running ? h("span", { class: "chip good" }, I("check"), "RivaTuner running") : h("span", { class: "chip warn" }, "RivaTuner isn't running");
-  const master = h("div", { class: "card ov-master" + (on ? " on" : "") },
-    toggle(on, async (v) => { await setSetting("osd_on", v); await ovRefresh(); render(); }),
-    h("div", { class: "grow" },
-      h("div", { class: "ov-title" }, on ? "The overlay is on" : "The overlay is off"),
-      h("div", { class: "dim" }, !r.installed
-        ? "RivaTuner Statistics Server draws the overlay in games. Deck installs it from its maker (Guru3D) in about a minute, then sets it up and runs it for you."
-        : on ? "Deck sends the readings to RivaTuner, which draws them in games." : "Turn it on to see the readings over your games.")),
-    status,
-    r.installed && !r.running ? h("button", { class: "btn sm", onclick: async () => { await run("rtss_start", null, "Starting RivaTuner…"); setTimeout(async () => { await ovRefresh(); render(); }, 1500); } }, "Start RivaTuner") : null,
-    !r.installed ? h("button", { class: "btn sm primary", disabled: S.cache.rtssInstalling ? "" : null, onclick: ovInstallRtss }, S.cache.rtssInstalling ? "Installing…" : "Install RivaTuner") : null);
-  return h("div", { class: "ov" + (ovBig() ? " big" : "") },
-    master,
-    h("div", { class: "ov-cols" },
-      h("div", { class: "ov-main" }, ovLooksCard(s, r), ovItemsCard(s, r), ovLayoutCard(st, s), ovColorsCard(st), ovLookCard(st, r), ovWarnCard(st), ovBehaviourCard(st, s)),
-      h("div", { class: "ov-side" }, ovPreview(st, r))));
+  return h("div", { class: "ov" },
+    ovStrip(s, r),
+    h("div", { class: "ov-cols" }, ovStage(st, s, r), ovEditor(st, s, r)));
 }

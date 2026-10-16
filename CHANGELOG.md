@@ -2,6 +2,29 @@
 
 All notable changes to Deck. Setups for each version are on the [Releases](https://github.com/MohammadFakih02/deck/releases) page.
 
+## 2.5.5 — 2026-10-16
+
+### Changed
+- **Overlay page, redesigned.** It was one long column of seven sections (about four screens of scrolling).
+  - **Top strip:** the overlay switch and RivaTuner's state, with the keys you use in game: show or hide, and the frame limit (limit, on/off and its key).
+  - **Preview:** bigger, and it stays in view while you edit, with the quick looks under it.
+  - **Settings:** seven short tabs: Items, Layout, Look, Colours, Graph, Warnings, Behaviour. Deck remembers the last tab you used.
+  - **Denser lists:** the item list is compact, with move and remove buttons showing on hover. "Add readings" opens when you want it.
+
+### Fixed
+- **Home → PC tile on a PC where Deck isn't running as admin:** the CPU card showed only "20 threads", with no clock, power or temperature, and gave no reason. Those readings need admin, so the card now says *Needs admin* and sets it up when clicked. The tile's customize dialog says the same.
+- **Open RivaTuner did nothing** (the mouse showed a busy cursor for a moment) when RivaTuner's own *Start minimized* option is on: it restarted straight into the tray, whose icon Deck may hide. Deck now turns that option off for this one start and puts it back once the window is open.
+- **Framerate limit key only turned the limiter on:** when Deck couldn't read RivaTuner's switch it took it as "off", so every press meant "turn on". Deck now reads the switch from RivaTuner's 64-bit hooks (and remembers what it set last), so the key turns it off again.
+- **Framerate limit didn't reach a running RivaTuner:** Deck wrote the limit into RivaTuner's profile file, which RivaTuner only reads when it starts (its window still showed 0). Deck now also sets it through RivaTuner's own profile interface, so RivaTuner and running games use it at once.
+- **Shortcut keys on a laptop's built-in numpad:** Fn + 9 (Page Up) was saved as "Num9", which never fires because Windows gets Page Up. The recorder now saves the key the numpad key actually sends (Page Up, Home, End, arrows…). Fn itself never reaches Windows, so there's nothing to "allow": press Fn + the key and the recorder now saves the right one.
+- **Phone page settings looked unchangeable:** a click on a Screen view option (picture size, smoothness, bitrate…) was saved, but the page kept showing the old choice until something else redrew it. The page now redraws right away.
+- **Fold-out sections closed by themselves** whenever a page redrew (for example the Phone page when a phone connected). Open sections now stay open.
+- A setting that **failed to save** no longer shows as if it had been changed.
+- **Bitrate → Type…:** pressing Cancel (or typing something that isn't a number) set the bitrate to Auto; it now keeps the bitrate. Empty still means Auto.
+- **Phone limits:** two phones connecting at the same moment could both get the last place; a phone that was turned away could still send and download files. Both closed.
+- **Screen view:** tap then drag on a window's title bar or a file could act as a double-click (maximize, open) on the PC; a long press during tap-then-drag right-clicked instead of dragging.
+- **Shortcuts in full-screen games:** quick taps are seen more reliably, and a shortcut held while a game came to the front no longer runs again.
+
 ## 2.5.4 — 2026-10-16
 
 ### New

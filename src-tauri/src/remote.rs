@@ -333,43 +333,72 @@ pub fn devices() -> (usize, usize) {
     count(&CONNS.lock())
 }
 
-/// May a phone at `ip` connect now? The error is what the phone shows.
-fn admit(app: &App, ip: IpAddr) -> Result<(), String> {
-    let (home, online, known) = {
-        let list = CONNS.lock();
-        let (h, o) = count(&list);
-        (h, o, list.iter().any(|c| c.ip == ip))
-    };
-    // the same phone opening another page or the Screen view
-    if known {
+/// The phone limits from the settings.
+#[derive(Clone, Copy, Default)]
+struct Limits {
+    max_home: u32,
+    max_away: u32,
+    home_blocks_away: bool,
+    away_blocks_home: bool,
+}
+
+fn limits(app: &App) -> Limits {
+    let s = app.settings.lock();
+    Limits { max_home: s.remote_max_local, max_away: s.remote_max_online, home_blocks_away: s.remote_local_blocks_online, away_blocks_home: s.remote_online_blocks_local }
+}
+
+/// The rule on its own: may a phone at `ip` connect, with `list` connected now? The error is what
+/// the phone shows. A phone already connected (another page, its Screen view or sound) always may.
+fn decide(list: &[Conn], ip: IpAddr, l: Limits) -> Result<(), String> {
+    if list.iter().any(|c| c.ip == ip) {
         return Ok(());
     }
+    let (home, online) = count(list);
     let away = is_online(ip);
-    let s = app.settings.lock();
-    if away && s.remote_local_blocks_online && home > 0 {
+    if away && l.home_blocks_away && home > 0 {
         return Err("A phone at home is using this PC. Connections from away are off while it is.".into());
     }
-    if !away && s.remote_online_blocks_local && online > 0 {
+    if !away && l.away_blocks_home && online > 0 {
         return Err("A phone away from home is using this PC. Connections at home are off while it is.".into());
     }
-    let (max, n, place) = if away { (s.remote_max_online, online, "away from home") } else { (s.remote_max_local, home, "at home") };
+    let (max, n, place) = if away { (l.max_away, online, "away from home") } else { (l.max_home, home, "at home") };
     if max > 0 && n as u32 >= max {
         return Err(format!("This PC allows {max} phone{} {place} at a time, and that many are connected.", if max == 1 { "" } else { "s" }));
     }
     Ok(())
 }
 
+/// Checks and registers in one step, so two phones connecting at the same moment can't both take
+/// the last place. The guard keeps the connection counted until it is dropped.
+fn admit(app: &App, ip: IpAddr) -> Result<Registered, String> {
+    let l = limits(app);
+    let mut list = CONNS.lock();
+    decide(&list, ip, l)?;
+    let id = NEXT_CONN.fetch_add(1, Ordering::Relaxed);
+    list.push(Conn { id, ip });
+    Ok(Registered(id))
+}
+
+/// For plain requests (uploads, files): a phone that is turned away can't use them either.
+fn allowed(app: &App, ip: IpAddr) -> Result<(), String> {
+    let l = limits(app);
+    decide(&CONNS.lock(), ip, l)
+}
+
 /// Keeps a connection in the list while it is open.
 struct Registered(u64);
-fn register(ip: IpAddr) -> Registered {
-    let id = NEXT_CONN.fetch_add(1, Ordering::Relaxed);
-    CONNS.lock().push(Conn { id, ip });
-    Registered(id)
-}
 impl Drop for Registered {
     fn drop(&mut self) {
         CONNS.lock().retain(|c| c.id != self.0);
     }
+}
+
+/// A browser can't read an HTTP refusal of a WebSocket: open it, say why, close it properly.
+fn refuse(up: WebSocketUpgrade, why: String) -> Response {
+    up.on_upgrade(move |mut socket| async move {
+        let _ = socket.send(Message::Text(json!({ "t": "refused", "text": why }).to_string().into())).await;
+        let _ = socket.send(Message::Close(None)).await;
+    })
 }
 
 fn authorized(app: &App, k: &Option<String>) -> bool {
@@ -422,9 +451,12 @@ fn upload_part(id: &str) -> Option<PathBuf> {
 
 /// How much of a resumable upload the PC already has (the phone asks before sending, and again
 /// after a dropped connection, so nothing is sent twice). Parts nobody came back for in 3 days go.
-async fn upload_have(State(app): State<St>, Query(q): Query<Key>) -> Response {
+async fn upload_have(State(app): State<St>, ConnectInfo(addr): ConnectInfo<SocketAddr>, Query(q): Query<Key>) -> Response {
     if !authorized(&app, &q.k) {
         return (StatusCode::UNAUTHORIZED, "bad key").into_response();
+    }
+    if let Err(why) = allowed(&app, addr.ip()) {
+        return (StatusCode::FORBIDDEN, why).into_response();
     }
     if let Ok(rd) = std::fs::read_dir(inbox_dir()) {
         for e in rd.flatten() {
@@ -501,9 +533,12 @@ fn received(app: &App, path: &std::path::Path, size: u64) {
     });
 }
 
-async fn upload(State(app): State<St>, Query(q): Query<Key>, body: Body) -> Response {
+async fn upload(State(app): State<St>, ConnectInfo(addr): ConnectInfo<SocketAddr>, Query(q): Query<Key>, body: Body) -> Response {
     if !authorized(&app, &q.k) {
         return (StatusCode::UNAUTHORIZED, "bad key").into_response();
+    }
+    if let Err(why) = allowed(&app, addr.ip()) {
+        return (StatusCode::FORBIDDEN, why).into_response();
     }
     // the phone page sends in pieces it can continue; an older page still sends the whole file
     if let Some(id) = q.id.clone() {
@@ -562,9 +597,12 @@ pub fn push_shared(app: &App, mut s: Shared) {
     app.changed("shared");
 }
 
-async fn file(State(app): State<St>, AxPath(id): AxPath<u64>, Query(q): Query<Key>, headers: axum::http::HeaderMap) -> Response {
+async fn file(State(app): State<St>, ConnectInfo(addr): ConnectInfo<SocketAddr>, AxPath(id): AxPath<u64>, Query(q): Query<Key>, headers: axum::http::HeaderMap) -> Response {
     if !authorized(&app, &q.k) {
         return (StatusCode::UNAUTHORIZED, "bad key").into_response();
+    }
+    if let Err(why) = allowed(&app, addr.ip()) {
+        return (StatusCode::FORBIDDEN, why).into_response();
     }
     let item = app.shared.lock().iter().find(|s| s.id == id).cloned();
     let Some(path) = item.and_then(|s| s.path) else { return (StatusCode::NOT_FOUND, "gone").into_response() };
@@ -647,14 +685,11 @@ async fn ws(State(app): State<St>, ConnectInfo(addr): ConnectInfo<SocketAddr>, Q
     if !authorized(&app, &q.k) {
         return (StatusCode::UNAUTHORIZED, "bad key").into_response();
     }
-    let ip = addr.ip();
-    if let Err(why) = admit(&app, ip) {
-        // a browser can't read an HTTP refusal of a WebSocket: open it, say why, close it
-        return up.on_upgrade(move |mut socket| async move {
-            let _ = socket.send(Message::Text(json!({ "t": "refused", "text": why }).to_string().into())).await;
-        });
-    }
-    up.on_upgrade(move |socket| client(socket, app, ip))
+    let reg = match admit(&app, addr.ip()) {
+        Ok(r) => r,
+        Err(why) => return refuse(up, why),
+    };
+    up.on_upgrade(move |socket| client(socket, app, reg))
 }
 
 /// Everything the phone shows (gathered on a blocking thread: COM calls).
@@ -677,9 +712,12 @@ fn art_link(app: &App, media: &mut Value) {
     *a = json!(format!("/art?h={h:x}&k={}", pct(&app.settings.lock().remote_token)));
 }
 
-async fn art(State(app): State<St>, Query(q): Query<Key>) -> Response {
+async fn art(State(app): State<St>, ConnectInfo(addr): ConnectInfo<SocketAddr>, Query(q): Query<Key>) -> Response {
     if !authorized(&app, &q.k) {
         return (StatusCode::UNAUTHORIZED, "bad key").into_response();
+    }
+    if let Err(why) = allowed(&app, addr.ip()) {
+        return (StatusCode::FORBIDDEN, why).into_response();
     }
     let s = ART.lock().1.clone();
     let Some((head, b64)) = s.split_once(',') else { return StatusCode::NOT_FOUND.into_response() };
@@ -749,21 +787,20 @@ async fn audio_ws(State(app): State<St>, ConnectInfo(addr): ConnectInfo<SocketAd
     if !authorized(&app, &q.k) {
         return (StatusCode::UNAUTHORIZED, "bad key").into_response();
     }
-    let ip = addr.ip();
-    if let Err(why) = admit(&app, ip) {
-        return (StatusCode::FORBIDDEN, why).into_response();
-    }
     if app.settings.lock().remote_screen == "off" {
         return (StatusCode::FORBIDDEN, "Screen view is off on the PC").into_response();
     }
+    let reg = match admit(&app, addr.ip()) {
+        Ok(r) => r,
+        Err(why) => return (StatusCode::FORBIDDEN, why).into_response(),
+    };
     let quality = q.q.unwrap_or_default();
-    up.on_upgrade(move |socket| audio_client(socket, app, quality, ip))
+    up.on_upgrade(move |socket| audio_client(socket, app, quality, reg))
 }
 
 /// The PC's sound for a phone with the Screen view open and its sound on. Ends when the phone
 /// turns it off or leaves, or the PC turns the Screen view off.
-async fn audio_client(mut socket: WebSocket, app: Arc<App>, quality: String, ip: IpAddr) {
-    let _reg = register(ip);
+async fn audio_client(mut socket: WebSocket, app: Arc<App>, quality: String, _reg: Registered) {
     let (tx, mut rx) = tokio::sync::mpsc::channel::<crate::screencast::Out>(64);
     let stop = crate::screencast::start_sound(&quality, tx);
     let mut check = tokio::time::interval(Duration::from_millis(1000));
@@ -807,25 +844,22 @@ async fn screen_ws(State(app): State<St>, ConnectInfo(addr): ConnectInfo<SocketA
     if !authorized(&app, &q.k) {
         return (StatusCode::UNAUTHORIZED, "bad key").into_response();
     }
-    let ip = addr.ip();
-    if let Err(why) = admit(&app, ip) {
-        return up.on_upgrade(move |mut socket| async move {
-            let _ = socket.send(Message::Text(json!({ "t": "refused", "text": why }).to_string().into())).await;
-        });
-    }
     if app.settings.lock().remote_screen == "off" {
         return (StatusCode::FORBIDDEN, "Screen view is off on the PC").into_response();
     }
+    let reg = match admit(&app, addr.ip()) {
+        Ok(r) => r,
+        Err(why) => return refuse(up, why),
+    };
     let video = if app.settings.lock().remote_screen_codec == "jpeg" { crate::screencast::Video::Jpeg } else { crate::screencast::Video::parse(q.v.as_deref().unwrap_or("")) };
     let away = q.away.as_deref() == Some("1");
     let pad = q.pad.as_deref() == Some("1");
-    up.on_upgrade(move |socket| screen_client(socket, app, video, away, pad, ip))
+    up.on_upgrade(move |socket| screen_client(socket, app, video, away, pad, reg))
 }
 
 /// One phone's Screen view: pictures out, taps and typing in (only in "control" mode). Ends when
 /// the phone leaves or the PC turns the Screen view off.
-async fn screen_client(mut socket: WebSocket, app: Arc<App>, video: crate::screencast::Video, away: bool, pad: bool, ip: IpAddr) {
-    let _reg = register(ip);
+async fn screen_client(mut socket: WebSocket, app: Arc<App>, video: crate::screencast::Video, away: bool, pad: bool, reg: Registered) {
     let (quality, fps, kbps, smooth) = {
         let s = app.settings.lock();
         (s.remote_screen_quality.clone(), s.remote_screen_fps, s.remote_screen_kbps, s.remote_screen_priority != "sharp")
@@ -923,11 +957,11 @@ async fn screen_client(mut socket: WebSocket, app: Arc<App>, video: crate::scree
     if app.screen_viewers.fetch_sub(1, Ordering::Relaxed) == 1 {
         app.dismiss_toast("screen-view");
     }
+    drop(reg);
     app.changed("remote");
 }
 
-async fn client(mut socket: WebSocket, app: Arc<App>, ip: IpAddr) {
-    let _reg = register(ip);
+async fn client(mut socket: WebSocket, app: Arc<App>, reg: Registered) {
     app.remote_clients.fetch_add(1, Ordering::Relaxed);
     app.changed("remote");
     let mut changes = app.changes.subscribe();
@@ -972,6 +1006,7 @@ async fn client(mut socket: WebSocket, app: Arc<App>, ip: IpAddr) {
         }
     }
     app.remote_clients.fetch_sub(1, Ordering::Relaxed);
+    drop(reg);
     app.changed("remote");
 }
 
@@ -1080,4 +1115,49 @@ fn handle(app: &Arc<App>, v: &Value) -> Option<Value> {
         _ => Err("unknown".into()),
     };
     r.err().map(|e| json!({ "t": "error", "msg": e }))
+}
+
+#[cfg(test)]
+mod conn_tests {
+    use super::*;
+
+    fn ip(s: &str) -> IpAddr {
+        s.parse().unwrap()
+    }
+
+    #[test]
+    fn home_and_away_addresses() {
+        for home in ["192.168.1.5", "10.0.0.2", "172.16.4.1", "127.0.0.1", "169.254.3.3", "::ffff:192.168.1.5", "fe80::1", "fd00::1", "::1"] {
+            assert!(!is_online(ip(home)), "{home} is at home");
+        }
+        for away in ["100.64.0.1", "100.127.255.1", "8.8.8.8", "100.128.0.1", "::ffff:100.100.1.1", "2001:4860::8888"] {
+            assert!(is_online(ip(away)), "{away} is away");
+        }
+    }
+
+    fn conns(ips: &[&str]) -> Vec<Conn> {
+        ips.iter().enumerate().map(|(i, s)| Conn { id: i as u64, ip: ip(s) }).collect()
+    }
+
+    #[test]
+    fn a_phone_counts_once() {
+        assert_eq!(count(&conns(&["192.168.1.5", "192.168.1.5", "192.168.1.5", "100.64.0.9"])), (1, 1));
+    }
+
+    #[test]
+    fn limits_and_shut_outs() {
+        let none = Limits::default();
+        let one_home = Limits { max_home: 1, ..none };
+        let list = conns(&["192.168.1.5"]);
+        assert!(decide(&list, ip("192.168.1.6"), none).is_ok());
+        assert!(decide(&list, ip("192.168.1.6"), one_home).is_err(), "second phone at home");
+        assert!(decide(&list, ip("192.168.1.5"), one_home).is_ok(), "same phone, another page");
+        assert!(decide(&list, ip("100.64.0.9"), one_home).is_ok(), "away has its own limit");
+        let shut_away = Limits { home_blocks_away: true, ..none };
+        assert!(decide(&list, ip("100.64.0.9"), shut_away).is_err());
+        assert!(decide(&[], ip("100.64.0.9"), shut_away).is_ok(), "nobody at home");
+        let shut_home = Limits { away_blocks_home: true, ..none };
+        assert!(decide(&conns(&["100.64.0.9"]), ip("192.168.1.6"), shut_home).is_err());
+        assert!(decide(&conns(&["100.64.0.9", "100.64.0.10"]), ip("100.64.0.11"), Limits { max_away: 2, ..none }).is_err());
+    }
 }

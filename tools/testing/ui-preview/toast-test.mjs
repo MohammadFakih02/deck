@@ -10,8 +10,8 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const uiDir = process.env.DECK_UI || path.resolve(here, "../../../ui");
 const edge = spawn("C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe", ["--headless=new", `--remote-debugging-port=${port}`, "--allow-file-access-from-files", "--disable-gpu", `--user-data-dir=${process.env.TEMP}\\deck-toast-edge-${process.pid}`, "--window-size=400,600", "about:blank"], { stdio: "ignore" });
 let list;
-for (let i = 0; i < 50; i++) { try { list = await (await fetch(`http://127.0.0.1:${port}/json`)).json(); if (list.find((t) => t.type === "page")) break; } catch {} await new Promise((r) => setTimeout(r, 200)); }
-const ws = new WebSocket(list.find((x) => x.type === "page").webSocketDebuggerUrl);
+for (let i = 0; i < 50; i++) { try { list = await (await fetch(`http://127.0.0.1:${port}/json`)).json(); if (list.find((t) => t.type === "page" && t.url === "about:blank")) break; } catch {} await new Promise((r) => setTimeout(r, 200)); }
+const ws = new WebSocket(list.find((x) => x.type === "page" && x.url === "about:blank").webSocketDebuggerUrl);
 let id = 0; const pend = new Map(); const logs = [];
 ws.onmessage = (m) => { const d = JSON.parse(m.data); if (d.id && pend.has(d.id)) { pend.get(d.id)(d); pend.delete(d.id); } if (d.method === "Runtime.exceptionThrown") logs.push(d.params.exceptionDetails.exception?.description || d.params.exceptionDetails.text); };
 await new Promise((r) => (ws.onopen = r));
