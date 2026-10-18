@@ -297,7 +297,7 @@ fn ata_temp(h: windows_sys::Win32::Foundation::HANDLE, disk: u8) -> Option<f64> 
     }
     let attrs = &out[16 + 2..16 + 2 + 30 * 12];
     for id in [194u8, 190u8] {
-        for a in attrs.chunks_exact(12) {
+        for a in attrs.as_chunks::<12>().0 {
             if a[0] == id {
                 let t = a[5] as f64;
                 if t > 0.0 && t < 120.0 {

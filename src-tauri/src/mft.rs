@@ -224,7 +224,7 @@ fn read_record(rec: &mut [u8], index: usize, recs: &mut [Rec], files: &AtomicU64
                     continue;
                 }
                 let parent = (le64(v, 0) & 0xFFFF_FFFF_FFFF) as u32;
-                let units: Vec<u16> = v[0x42..0x42 + len * 2].chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
+                let units: Vec<u16> = v[0x42..0x42 + len * 2].as_chunks::<2>().0.iter().map(|c| u16::from_le_bytes(*c)).collect();
                 name = Some((ns, parent, String::from_utf16_lossy(&units)));
             }
             0x80 if a[9] == 0 => {

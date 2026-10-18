@@ -179,7 +179,7 @@ fn read_now(want_images: bool) -> Option<(String, String, Vec<String>, Option<(V
             })
         } else if available(CF_UNICODETEXT.0 as u32) {
             GetClipboardData(CF_UNICODETEXT.0 as u32).ok().and_then(global_bytes).map(|b| {
-                let w: Vec<u16> = b.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
+                let w: Vec<u16> = b.as_chunks::<2>().0.iter().map(|c| u16::from_le_bytes(*c)).collect();
                 ("text".to_string(), from_wide(&w), Vec::new(), None)
             })
             // too big to keep: a cut-down copy would paste back silently incomplete

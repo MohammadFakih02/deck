@@ -39,7 +39,7 @@ impl HidDev {
                 if SetupDiGetDeviceInterfaceDetailW(set, &id, buf.as_mut_ptr() as *mut _, req, &mut req, null_mut()) == 0 {
                     continue;
                 }
-                let wide: Vec<u16> = buf[4..].chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).take_while(|c| *c != 0).collect();
+                let wide: Vec<u16> = buf[4..].as_chunks::<2>().0.iter().map(|c| u16::from_le_bytes(*c)).take_while(|c| *c != 0).collect();
                 let path = String::from_utf16_lossy(&wide);
                 if !path.to_lowercase().contains(vidpid) {
                     continue;

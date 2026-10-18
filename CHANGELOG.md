@@ -38,6 +38,7 @@ All notable changes to Deck. Setups for each version are on the [Releases](https
 - **A "Shut down when…" plan survives a Deck restart.** It starts waiting again from the beginning.
 
 ### Fixed
+- **Building from source** works with Rust 1.99 (its new clippy check failed the build in CI).
 - **Overlay "Threads" table showed fake clocks.** Every thread read its base clock (for example 3500 MHz on P-cores and 2600 MHz on E-cores) whatever it was really doing, so a CPU cap looked like it did nothing. It now shows each thread's live clock, the way Task Manager measures it, with or without admin rights.
 - **Overlay "Game RAM" measured the wrong program** when another window was in front (a screenshot tool, Discord). It now measures the game RivaTuner is drawing in, and shows nothing if the game's anti-cheat hides it.
 - **The CPU clock without admin rights** read too high when an E-core was the busiest core.

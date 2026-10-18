@@ -71,7 +71,7 @@ fn reg_get(path: &str, name: &str) -> Option<(String, String)> {
         match ty {
             4 if len >= 4 => Some(("dword".into(), u32::from_le_bytes([buf[0], buf[1], buf[2], buf[3]]).to_string())),
             1 => {
-                let u: Vec<u16> = buf[..len as usize].chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).take_while(|c| *c != 0).collect();
+                let u: Vec<u16> = buf[..len as usize].as_chunks::<2>().0.iter().map(|c| u16::from_le_bytes(*c)).take_while(|c| *c != 0).collect();
                 Some(("sz".into(), String::from_utf16_lossy(&u)))
             }
             _ => None,

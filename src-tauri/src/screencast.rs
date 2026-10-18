@@ -340,7 +340,7 @@ impl Capturer {
             return Ok(None);
         }
         // a locked PC reads as an all-black screen through GDI
-        if self.dup.is_none() && shot.px.chunks_exact(4).step_by(97).all(|p| p[0] == 0 && p[1] == 0 && p[2] == 0) {
+        if self.dup.is_none() && shot.px.as_chunks::<4>().0.iter().step_by(97).all(|p| p[0] == 0 && p[1] == 0 && p[2] == 0) {
             self.last_hash = 0;
             return Err(());
         }
@@ -363,7 +363,7 @@ fn shrink(s: &Shot, w: u32, h: u32) -> Shot {
         let r0 = &s.px[fy * sw * 4..(fy + 1) * sw * 4];
         let y1 = (fy + 1).min(sh - 1);
         let r1 = &s.px[y1 * sw * 4..(y1 + 1) * sw * 4];
-        for (o, &(a, b)) in out.chunks_exact_mut(4).zip(&cols) {
+        for (o, &(a, b)) in out.as_chunks_mut::<4>().0.iter_mut().zip(&cols) {
             for c in 0..3 {
                 o[c] = ((r0[a + c] as u16 + r0[b + c] as u16 + r1[a + c] as u16 + r1[b + c] as u16 + 2) >> 2) as u8;
             }
@@ -1497,7 +1497,7 @@ fn sound_packet(ts: f64, q: SoundQ, rate: u32, ch: usize, samples: &[i16], st: &
     }
     if ch == 2 {
         // one byte per frame: left in the low half, right in the high half
-        for f in samples.chunks_exact(2) {
+        for f in samples.as_chunks::<2>().0 {
             v.push(st[0].enc(f[0]) | (st[1].enc(f[1]) << 4));
         }
     } else {
@@ -1671,7 +1671,7 @@ fn sound_run(q: SoundQ, out: tokio::sync::mpsc::Sender<Out>, stop: Arc<AtomicBoo
             // to `to` samples a second (Low: one channel); packets of 20 ms
             let ratio = d.rate as f64 / to as f64;
             let start_ts = pcm_ts - acc[0].len() as f64 * 1000.0 / d.rate as f64;
-            for f in pcm.chunks_exact(2) {
+            for f in pcm.as_chunks::<2>().0 {
                 if chs == 1 {
                     acc[0].push((f[0] as f32 + f[1] as f32) * 0.5);
                 } else {

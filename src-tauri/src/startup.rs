@@ -70,7 +70,7 @@ fn approved(root: HKEY, sub: &str, name: &str) -> bool {
 }
 
 fn wide_str(data: &[u8]) -> String {
-    let w: Vec<u16> = data.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
+    let w: Vec<u16> = data.as_chunks::<2>().0.iter().map(|c| u16::from_le_bytes(*c)).collect();
     crate::util::from_wide(&w)
 }
 
