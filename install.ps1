@@ -24,15 +24,37 @@ if (-not $admin) {
     exit $p.ExitCode
 }
 
-if (Get-Process Deck -ErrorAction SilentlyContinue) {
-    Write-Host "Deck is running. Quit it from the tray icon, then run this again." -ForegroundColor Yellow
-    Start-Sleep 4
+function Fail($msg) {
+    # the elevated window would close at once: keep the reason on screen
+    Write-Host $msg -ForegroundColor Red
+    Start-Sleep 20
     exit 1
 }
 
 $dir = Join-Path $env:ProgramFiles "Deck"
+$built = "$target\release\deck.exe"
+if (-not (Test-Path $built)) { Fail "No build at $built. Run this without -NoBuild." }
+
+# a running Deck (and its watchdog, which would start it again) locks Deck.exe: an install that
+# only warned and stopped here changed nothing
+if (Get-Process Deck -ErrorAction SilentlyContinue) {
+    Write-Host "Closing Deck..."
+    if (Test-Path "$dir\Deck.exe") { Start-Process "$dir\Deck.exe" -ArgumentList "--quit" -ErrorAction SilentlyContinue }
+    for ($i = 0; $i -lt 30 -and (Get-Process Deck -ErrorAction SilentlyContinue); $i++) { Start-Sleep -Milliseconds 500 }
+    Get-Process Deck -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+    Start-Sleep 1
+}
+
 New-Item -ItemType Directory -Force $dir | Out-Null
-Copy-Item "$target\release\deck.exe" "$dir\Deck.exe" -Force
+$want = (Get-FileHash $built).Hash
+for ($i = 0; ; $i++) {
+    try { Copy-Item $built "$dir\Deck.exe" -Force -ErrorAction Stop } catch {}
+    if ((Get-FileHash "$dir\Deck.exe" -ErrorAction SilentlyContinue).Hash -eq $want) { break }
+    if ($i -ge 10) { Fail "Deck.exe in $dir could not be replaced (still in use?). Nothing was installed." }
+    Get-Process Deck -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+    Start-Sleep 1
+}
+Write-Host "Deck.exe replaced and checked: it matches the build."
 Copy-Item "$PSScriptRoot\src-tauri\run.vbs" "$dir\run.vbs" -Force
 if (Test-Path "$PSScriptRoot\src-tauri\icons\profiles") {
     New-Item -ItemType Directory -Force "$dir\icons" | Out-Null
@@ -81,5 +103,6 @@ Start-Process "$dir\Deck.exe" -ArgumentList "--launch-test" -Wait
 $res = Get-Content "$env:TEMP\deck-launch-test.result" -ErrorAction SilentlyContinue
 Write-Host "Launch test: $res"
 
-Write-Host "Installed to $dir. Start Deck from the Start menu (or sign out and in)." -ForegroundColor Green
+schtasks /run /tn "\Deck\Open" | Out-Null
+Write-Host "Installed to $dir and started." -ForegroundColor Green
 Start-Sleep 3

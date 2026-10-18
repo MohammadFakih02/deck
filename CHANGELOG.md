@@ -18,6 +18,8 @@ All notable changes to Deck. Setups for each version are on the [Releases](https
 ### Fixed
 - **A clock cap at the CPU's top turbo no longer caps.** A profile saved with its cap slider at the top (5,300 MHz on an i5-14600KF) still held the CPU at that clock and blocked any overclock. Such caps now count as no cap when saving and applying, once Deck has read the CPU's real top turbo.
 - **E-core clocks read about a quarter too low** in the overlay, on Sensors and in the per-thread rows (2.97 GHz for an E-core really at 4.0 GHz on an i5-14600KF). Windows measures every core's performance against the CPU's base clock, and Deck multiplied the E-cores' by their own lower one.
+### Testing
+- **`install.ps1` no longer does nothing when Deck is running.** It printed a warning and stopped, so a developer install often left the old version in place. It now closes Deck itself, retries the copy until the installed Deck.exe matches the build (and says so in a window that stays open if it can't), and starts Deck again.
 
 ## 2.5.7 — 2026-10-18
 
