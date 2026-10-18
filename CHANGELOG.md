@@ -2,7 +2,7 @@
 
 All notable changes to Deck. Setups for each version are on the [Releases](https://github.com/MohammadFakih02/deck/releases) page.
 
-## Unreleased
+## 2.5.8 — 2026-10-18
 
 ### Changed
 - **The CPU page is reworked.**

@@ -1,12 +1,16 @@
 # Deck — project state
 
-Handoff notes so work can resume later. Last updated: 2026-10-18 (v2.5.7).
+Handoff notes so work can resume later. Last updated: 2026-10-18 (v2.5.8).
 
 **Start with `DECK.md`** (full overview: features, hardware, files, build/test, status). This file is the dated history.
 
 > **RULE: before every commit, update the docs.** Add today's dated entry here, add user-visible changes to `CHANGELOG.md`, update `DECK.md` / `README.md` when facts change, and stage them in the same commit. The pre-commit hook enforces it; never bypass it. No personal data in these files (that goes in the git-ignored `PRIVATE_NOTES.md`).
 
-## 2026-10-18: CPU page rework (after 2.5.7, unreleased)
+## 2026-10-18: v2.5.8 — CPU page rework, E-core clock fix, install.ps1 fix
+
+- **Released as 2.5.8:** version bumped in `tauri.conf.json`, `Cargo.toml`, `Cargo.lock`, DECK.md and README.md; the CHANGELOG's Unreleased section became `## 2.5.8`; tag `v2.5.8` pushed so `release.yml` builds and publishes the setup.
+
+### CPU page rework
 
 - **Installed on moudi's PC (24c5ae1 + install fix):** user report "a lot of times the install does nothing, I have to use the GitHub installer". Checked: a UI-only change does rebuild (Tauri tracks `ui/`), and WebView2's cache holds no Deck UI files. The cause was `install.ps1`: with Deck running it printed a yellow warning in the elevated window, waited 4 s and exited 1 without copying. It now quits Deck (`--quit`, then kills Deck and its watchdog), retries the copy until the installed exe's hash matches the build (`Fail` keeps the window open 20 s otherwise), and starts `\Deck\Open` at the end. Verified: installed == build, Deck restarted from Program Files, launch test admin=true child=Medium.
 
@@ -14,7 +18,7 @@ Handoff notes so work can resume later. Last updated: 2026-10-18 (v2.5.7).
 - **Backend:** `CpuProfile::without_silent_caps(top)` + `cpu::effective` (only when `limits().turbo_known`) in `cpu_save`, `write_plan`, `apply_extras`, `cpu_state`. `Shared.power_now` / `power_board` set by the power thread every 2 s (`powermode::board`: the captured stock register or the current one; `Rapl::decode`). `cpu_live` gains `limits`, `board`, `limits_by_deck`, `cores` (`profcmd::core_rows` from the sensor table). `cpu_state` profiles gain `plan_epp`. Tests: `a_cap_at_the_top_is_no_cap`, `limits_decode_from_the_register`, `cores_come_from_the_sensor_table` (223 total).
 - **UI:** `ui/js/profiles.js` (Pages.cpu, `cpuRail`, `cpuEditor` / `editorBody`, `endSlider`: a slider whose end is off), `.cpu-page` / `.rail-*` / `.ce-*` in `app.css`, help texts `cpu.limit`, `cpu.turbo_mode` and updated cap / EPP / power / clock-floor entries. `editCpu(x)` now opens the on-page editor (still exported to `window` for tests). Regress tests 14b and 17 updated for the on-page editor; mock data has limits, board limits, cores and a plan-own EPP profile. Screenshots checked at 1260 and 900 wide; impeccable's detector findings in the new CSS fixed (bar fills animate transform, chevron icon).
 
-## 2026-10-18: E-core clock fix, Cinebench investigation (after 2.5.7, unreleased)
+## 2026-10-18: E-core clock fix, Cinebench investigation (shipped in 2.5.8)
 
 - **Bug:** `thread_mhz` multiplied each thread's PDH `% Processor Performance` by its own `Processor Frequency`. On hybrid Intel the percentage is against the base clock (the TSC rate, 3500 on an i5-14600KF) on every core, so E-cores (2600 nominal) read 26 % low: 2.97 GHz under Cinebench while APERF/MPERF and IA32_PERF_STATUS (40x) said 4.0. Fixed: base = the highest `Processor Frequency`. Test `every_thread_counts_against_the_base_clock`.
 - **User report "Deck lowers Cinebench scores / clocks" (moudi's PC, MSI MAG B660M Bazooka, i5-14600KF), measured with Cinebench R23 multi, one pass each, via an elevated throwaway test reading MSRs:**
