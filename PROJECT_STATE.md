@@ -1,17 +1,21 @@
 # Deck — project state
 
-Handoff notes so work can resume later. Last updated: 2026-10-18 (v2.5.6 + unreleased thick-client audit fixes).
+Handoff notes so work can resume later. Last updated: 2026-10-18 (v2.5.7).
 
 **Start with `DECK.md`** (full overview: features, hardware, files, build/test, status). This file is the dated history.
 
 > **RULE: before every commit, update the docs.** Add today's dated entry here, add user-visible changes to `CHANGELOG.md`, update `DECK.md` / `README.md` when facts change, and stage them in the same commit. The pre-commit hook enforces it; never bypass it. No personal data in these files (that goes in the git-ignored `PRIVATE_NOTES.md`).
 
-## 2026-10-18: CPU clock fix (after 2.5.6, unreleased)
+## 2026-10-18: v2.5.7 — CPU clock fix, thick-client audit fixes
+
+- **Released as 2.5.7:** version bumped in `tauri.conf.json`, `Cargo.toml`, `Cargo.lock`, DECK.md and README.md; the CHANGELOG's Unreleased section became `## 2.5.7`; tag `v2.5.7` pushed so `release.yml` builds and publishes the setup. Ships the CPU clock fix below and every thick-client audit fix (F1–F8).
+
+### CPU clock fix
 
 - **Bug (user report, overlay in Warframe):** "CPU" clock and the P-core/E-core rows sat at exactly 5.30 / 4.00 GHz while the thread rows (and Afterburner) moved. Cause: `Cpu::clock` and the per-core rows in `Cpu::details` read IA32_PERF_STATUS (MSR 0x198) bits 15:8, the current P-state ratio, which stays at the top step while the core is in C-states. Thread rows use PDH `Processor Frequency` × `% Processor Performance`.
 - **Fix (`hw/sensors.rs`):** `Cpu::clock(&mut self)` reads the PDH thread clocks once per tick into `Cpu.mhz` and returns the fastest. `details` gives each core `core_mhz(mask, &mhz)` (its fastest thread) for every vendor. MSR 0x198 is now only used for the VID. Test `a_core_shows_the_live_clock_of_its_threads`.
 
-## 2026-10-18: Thick-client audit fixes (after 2.5.6, unreleased)
+## 2026-10-18: Thick-client audit fixes (shipped in 2.5.7)
 
 A thick-client audit (OWASP Desktop App Top 10, TCASVS 5.0; report kept out of the repo until released) found the elevated
 process still trusting user-controlled locations. All fixed with tests:
