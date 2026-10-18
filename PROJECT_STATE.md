@@ -1,12 +1,12 @@
 # Deck — project state
 
-Handoff notes so work can resume later. Last updated: 2026-10-18 (v2.5.8).
+Handoff notes so work can resume later. Last updated: 2026-10-18 (v2.5.9).
 
 **Start with `DECK.md`** (full overview: features, hardware, files, build/test, status). This file is the dated history.
 
 > **RULE: before every commit, update the docs.** Add today's dated entry here, add user-visible changes to `CHANGELOG.md`, update `DECK.md` / `README.md` when facts change, and stage them in the same commit. The pre-commit hook enforces it; never bypass it. No personal data in these files (that goes in the git-ignored `PRIVATE_NOTES.md`).
 
-## 2026-10-18: overlay backend audit — readings checked against HWiNFO, Afterburner graph (after 2.5.8, unreleased)
+## 2026-10-18: v2.5.9 — overlay backend audit — readings checked against HWiNFO, Afterburner graph
 
 - **Why:** user: "I'm sick and tired of finding bugs in this app, or having fake readings, or incorrect readings", focus on how the overlay works in the backend; the graph "looks ugly", make a better one but keep the classic one. Part of a whole-app UI audit (hardware pages the way the CPU page was done, overlay first).
 - **Method:** read `rtss.rs` / `osd.rs` against RivaTuner's SDK (`RTSSSharedMemory.h`, its shared-memory sample, the Overlay Editor plugin's writer) and checked every reading live, mid-game, with read-only PowerShell readers of RTSS's and HWiNFO's shared memory (`HWiNFO_SENS_SM2`) and `nvidia-smi`. Matched: GPU temp/clock/power/load, memory clock (7001 = nvidia-smi's convention), CPU temp/power/load, RAM, game RAM, FPS (RTSS 120.1), avg 118.9 vs 119 and 1 % low 62.5 vs 62 from a 60 s count of RTSS's ring. VRAM matches HWiNFO's "Memory Allocated" (nvidia-smi's "used" leaves out driver-reserved memory, ~100 MB less): left as is.

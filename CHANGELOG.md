@@ -2,7 +2,7 @@
 
 All notable changes to Deck. Setups for each version are on the [Releases](https://github.com/MohammadFakih02/deck/releases) page.
 
-## Unreleased
+## 2.5.9 — 2026-10-18
 
 ### Fixed
 - **CPU clocks read about 20 % low under some power plans.** Deck measured against Windows' "current" CPU clock, which a power plan lowers, instead of the CPU's fixed base clock. In a game, cores at 2.69 GHz (HWiNFO) showed 2.15 GHz on the overlay, the CPU page and Sensors. Now checked against HWiNFO core by core.
