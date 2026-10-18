@@ -22,8 +22,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
-      - name: Install the Tauri CLI
-        run: cargo install tauri-cli --version 2.11.4 --locked
+      # a ready-made binary (compiling it took minutes)
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: tauri-cli@2.11.4
       - name: Tag matches the version
         shell: pwsh
         run: |

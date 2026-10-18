@@ -44,6 +44,9 @@ Handoff notes so work can resume later. Last updated: 2026-10-18 (v2.5.5 + unrel
   clippy clean, 205 tests pass.
 - **CI runs tests as admin:** four fsguard tests failed there (an admin may write to System32). The tests now check with a
   copy of their own token where Administrators only denies, so they test an everyday user on any runner.
+- **Faster CI:** the cache was never saved (it saves only after a passing run, and every run had failed), so each run compiled
+  everything; now `cache-on-failure`. The setup is built only on a `v*` tag (release.yml, Tauri CLI as a ready-made binary),
+  and a newer push cancels the older run.
 - **Final artifact:** `cargo tauri build --bundles nsis` with `DECK_REQUIRE_RTSS32=1` (2 m 40 s at 12 jobs): `Deck_2.5.5_x64-setup.exe`,
   7.6 MB; `deck.exe` holds 3 PE images (Deck, the RivaTuner helper and one more, as before) and no `vcruntime140.dll` import
   anywhere. Not installed (Phase 4: no install without the owner).

@@ -249,7 +249,7 @@ cargo build --release     # set CARGO_TARGET_DIR to build elsewhere
 
 - **UI changes need a rebuild**, because the UI is embedded in the exe. `install.ps1` deletes Tauri's cached asset copies first, since a crashed build once left them broken.
 - **Setup:** `cargo tauri build --bundles nsis` makes `Deck_<version>_x64-setup.exe`, a **per-machine** setup (`"installMode": "perMachine"` in `tauri.conf.json`; one UAC prompt; installs to Program Files; `hooks.nsh` removes an older per-user copy silently, keeping settings).
-- **CI** (`.github/workflows/ci.yml`, every push to `main` and every PR, with `DECK_REQUIRE_RTSS32=1`): `node --check`, clippy `-D warnings`, `cargo test --locked`, the UI suites (`regress`, `a11y`, `toast-test`, `phone-shot`, `phone-sign`), `cargo audit`, then the NSIS setup with its SHA-256 as a build artifact.
+- **CI** (`.github/workflows/ci.yml`, every push to `main` and every PR, with `DECK_REQUIRE_RTSS32=1`): `node --check`, clippy `-D warnings`, `cargo test --locked`, the UI suites (`regress`, `a11y`, `toast-test`, `phone-shot`, `phone-sign`), `cargo audit`. Compiled dependencies are cached (also after a failed run) and a newer push cancels the older run; the NSIS setup is built only by `release.yml`.
 - **Releases** (`.github/workflows/release.yml`): push a tag `v<version>`. It checks the tag matches `tauri.conf.json`, runs the tests, builds the setup, and publishes the release with the `## <version>` section of `CHANGELOG.md` as the notes and the SHA-256 beside the setup. Nothing is attached by hand.
 - **`DECK_REQUIRE_RTSS32=1`** makes `build.rs` fail when the 32-bit RivaTuner helper didn't build (no i686 target), instead of warning.
 - **Command-line modes:**

@@ -90,7 +90,7 @@ cargo clippy --all-targets -- -D warnings
 cargo tauri build --bundles nsis   # makes the setup in target\release\bundle\nsis
 ```
 
-CI runs the same tests, clippy, a dependency audit, the UI checks and the setup build on every push to `main` and every pull request; pushing a `v*` tag builds the release and attaches the setup with its SHA-256.
+CI runs the same tests, clippy, a dependency audit, and the UI checks on every push to `main` and every pull request; pushing a `v*` tag builds the release and attaches the setup with its SHA-256.
 
 For day-to-day work, `install.ps1` builds Deck and installs it to `C:\Program Files\Deck` with the admin tasks; `uninstall.ps1` removes it (add `-Purge` to delete settings too).
 
