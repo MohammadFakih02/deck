@@ -67,6 +67,13 @@ pub struct Cpu {
     clk: (usize, usize),
     /// Windows "Processor Frequency" (each logical processor's nominal clock), for `clk`
     nominal: (usize, usize),
+    /// this tick's live clock of every logical processor (`clock` reads it, `details` reuses it)
+    mhz: Vec<Option<f32>>,
+}
+
+/// A core's live clock: the fastest of its threads (`mask` = its logical processors).
+pub fn core_mhz(mask: u64, threads: &[Option<f32>]) -> Option<f32> {
+    (0..64usize).filter(|b| mask & (1u64 << b) != 0).filter_map(|b| threads.get(b).copied().flatten()).reduce(f32::max)
 }
 
 /// The real clock of each logical processor in MHz, in logical-processor order (None: no reading
@@ -211,7 +218,7 @@ impl Cpu {
             },
             _ => (CpuTemp::None, Some(format!("CPU temperature not supported for this CPU ({})", brand))),
         };
-        let mut c = Cpu { t, prev: None, brand, error, cores: crate::hw::sysmon::cores(), energy_unit: 0.0, last_energy: None, threads: crate::hw::sysmon::ThreadLoad::new(), clk: pdh_open(r"\Processor Information(*)\% Processor Performance"), nominal: pdh_open(r"\Processor Information(*)\Processor Frequency") };
+        let mut c = Cpu { t, prev: None, brand, error, cores: crate::hw::sysmon::cores(), energy_unit: 0.0, last_energy: None, threads: crate::hw::sysmon::ThreadLoad::new(), clk: pdh_open(r"\Processor Information(*)\% Processor Performance"), nominal: pdh_open(r"\Processor Information(*)\Processor Frequency"), mhz: vec![] };
         // RAPL energy unit (Intel 0x606, AMD 0xC0010299): joules = count / 2^bits[12:8]
         let unit_msr = match &c.t {
             CpuTemp::Intel { m, .. } => m.exec("ioctl_read_msr", &[0x606], 1).ok(),
@@ -251,13 +258,15 @@ impl Cpu {
             if intel {
                 let (therm, perf) = on_cpu(cpu, || (self.msr(0x19C), self.msr(0x198)));
                 let t = therm.filter(|v| v & 0x8000_0000 != 0).map(|v| tjmax - ((v >> 16) & 0x7F) as f64);
-                let clk = perf.map(|v| ((v >> 8) & 0xFF) as f64 * 100.0).filter(|c| *c > 0.0);
                 let vid = perf.map(|v| ((v >> 32) & 0xFFFF) as f64 / 8192.0).filter(|v| *v > 0.2 && *v < 2.0);
                 temps.push((label.clone(), t));
-                clocks.push((label.clone(), clk));
                 if let Some(v) = vid {
                     vid_max = Some(vid_max.map_or(v, |m: f64| m.max(v)));
                 }
+            }
+            // not the ratio in IA32_PERF_STATUS: it stays at the top turbo step while the core naps
+            if !self.mhz.is_empty() {
+                clocks.push((label.clone(), core_mhz(*mask, &self.mhz).map(|c| c as f64)));
             }
         }
         for (l, t) in &temps {
@@ -319,33 +328,12 @@ impl Cpu {
         }
     }
 
-    /// Fastest current core clock in MHz (Intel: IA32_PERF_STATUS ratio read on every logical CPU).
-    pub fn clock(&self) -> Option<u32> {
-        let CpuTemp::Intel { m, .. } = &self.t else {
-            // no MSR driver: the fastest logical processor according to Windows, each against its
-            // own nominal clock (an E-core's is lower than the P-cores' base)
-            let best = thread_mhz(&pdh_values(self.nominal), &pdh_values(self.clk)).into_iter().flatten().fold(0.0f32, f32::max);
-            return (best > 1.0).then(|| best.round() as u32);
-        };
-        let n = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1).min(64);
-        let mut best = 0u32;
-        unsafe {
-            let th = GetCurrentThread();
-            let mut old = 0usize;
-            for cpu in 0..n {
-                let prev = SetThreadAffinityMask(th, 1usize << cpu);
-                if cpu == 0 {
-                    old = prev;
-                }
-                if let Ok(v) = m.exec("ioctl_read_msr", &[0x198], 1) {
-                    best = best.max((((v[0] as u64) >> 8) & 0xFF) as u32 * 100);
-                }
-            }
-            if old != 0 {
-                SetThreadAffinityMask(th, old);
-            }
-        }
-        (best > 0).then_some(best)
+    /// Fastest live thread clock in MHz, from Windows (each thread against its own nominal clock:
+    /// an E-core's is lower than the P-cores' base). Also keeps every thread's clock for `details`.
+    pub fn clock(&mut self) -> Option<u32> {
+        self.mhz = thread_mhz(&pdh_values(self.nominal), &pdh_values(self.clk));
+        let best = self.mhz.iter().flatten().fold(0.0f32, |a, b| a.max(*b));
+        (best > 1.0).then(|| best.round() as u32)
     }
 
     /// Total CPU load in % since the previous call.
@@ -581,6 +569,17 @@ mod clock_tests {
         let perf = named(&[("1,0", 50.0), ("0,0", 100.0)]);
         assert_eq!(thread_mhz(&nominal, &perf), vec![Some(3000.0), None, Some(1500.0)], "no performance reading yet: no clock rather than a made-up one");
         assert!(thread_mhz(&[], &perf).is_empty());
+    }
+
+    /// A core runs at the clock of its busiest thread; the ratio register it used to come from
+    /// stays at the top turbo step while the core naps, so every core read 5300 / 4000.
+    #[test]
+    fn a_core_shows_the_live_clock_of_its_threads() {
+        let threads = [Some(5210.0), Some(5250.0), Some(2840.0), None, Some(1200.0)];
+        assert_eq!(core_mhz(0b11, &threads), Some(5250.0), "a P-core with two threads");
+        assert_eq!(core_mhz(0b100, &threads), Some(2840.0), "an E-core");
+        assert_eq!(core_mhz(0b1000, &threads), None, "no reading yet");
+        assert_eq!(core_mhz(1 << 40, &threads), None, "a thread this PC doesn't have");
     }
 
     /// Reads this PC's live thread clocks (read-only).

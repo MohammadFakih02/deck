@@ -16,6 +16,9 @@ All notable changes to Deck. Setups for each version are on the [Releases](https
 - **Typed pairing codes and sync keys that are easy to guess are turned down** (repeats, runs like 1234 or ABCD, or few different characters). PC to PC and Claude Code sync serve at most 64 connections at once, and a stranger has 10 seconds to prove the code.
 - **Exploit mitigations:** Deck and its helper are built with Control Flow Guard, and Deck with CET shadow-stack support.
 
+### Fixed
+- **CPU clocks in the overlay and on Sensors show the real clock.** The main CPU clock and every P-core / E-core row read a register that stays at the top turbo step (5.30 / 4.00 GHz on a 14600KF) while a core naps, so they never moved. They now come from the same live Windows reading as the thread rows: a core shows its busiest thread's clock.
+
 ### Testing
 - The UI test suites wait up to 30 seconds for headless Edge to start (a slow CI runner timed out at 10), and the notification-window test always closes its Edge, even when it fails.
 
