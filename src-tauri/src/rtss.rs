@@ -149,44 +149,18 @@ fn write_osd(v: &View, text: &str) -> bool {
     write_osd_with(v, text, None)
 }
 
-/// The frametime graph's points, fed by `frame_loop`, and the overlay's width in characters
-/// (from the last text written) for a graph that fits it.
-static GRAPH: Mutex<(osd::GraphFeed, usize)> = Mutex::new((osd::GraphFeed::new(), 0));
+/// The room the frametime graph gets, in characters (from the last text written): see
+/// `osd::osd_text_width`. RivaTuner fills the graph itself from every frame.
+static GRAPH_W: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
-/// Starts the framerate figures and the graph over (the reset key and the buttons).
+/// Starts the framerate figures over (the reset key and the buttons).
 pub fn reset_stats() {
     FRAMES.lock().0.clear();
-    GRAPH.lock().0.clear();
 }
 
 /// The graph object as it should be now.
 fn graph_now(st: &OsdStyle) -> Vec<u8> {
-    let g = GRAPH.lock();
-    osd::graph_object(st, g.1, &g.0.points.iter().copied().collect::<Vec<_>>())
-}
-
-/// Puts a new graph into Deck's slot between text updates, so the graph moves smoothly.
-fn write_graph(v: &View, graph: &[u8]) -> bool {
-    unsafe {
-        let p = v.p;
-        let (size, off, n) = array(p, v.len, 20, OSD_SLOT);
-        if rd(p, 4) < 0x0002_000C || size < OSD_OBJECTS + graph.len() || n < 2 {
-            return false;
-        }
-        let owner = |e: *mut u8| std::slice::from_raw_parts(e.add(256), 256);
-        let Some(e) = (1..n).map(|i| p.add(off + i * size)).find(|e| owner(*e).starts_with(OWNER) && owner(*e)[OWNER.len()] == 0) else { return false };
-        let busy = &*(p.add(36) as *const AtomicI32);
-        for _ in 0..20 {
-            if busy.fetch_or(1, Ordering::SeqCst) & 1 == 0 {
-                std::ptr::copy_nonoverlapping(graph.as_ptr(), e.add(OSD_OBJECTS), graph.len());
-                (&*(p.add(32) as *const AtomicI32)).fetch_add(1, Ordering::SeqCst);
-                busy.fetch_and(!1, Ordering::SeqCst);
-                return true;
-            }
-            std::thread::sleep(Duration::from_millis(1));
-        }
-        false
-    }
+    osd::graph_object(st, GRAPH_W.load(Ordering::Relaxed))
 }
 
 /// The OSD entry's object buffer (RTSS_SHARED_MEMORY_OSD_ENTRY.buffer, after szOSD, szOSDOwner and szOSDEx).
@@ -951,7 +925,7 @@ pub fn refresh_now() {
     }
     if on {
         let (text, width) = osd::osd_text_width(&items, &style, &snap, name.as_deref().unwrap_or(""));
-        GRAPH.lock().1 = width;
+        GRAPH_W.store(width, Ordering::Relaxed);
         write_osd_with(&v, &text, style.graph.then(|| graph_now(&style)));
     } else {
         write_osd(&v, "");
@@ -986,7 +960,6 @@ pub fn status() -> Value {
         "trimmed": TRIMMED.load(Ordering::Relaxed),
         // the Sensors page's frametime graph: the last 600 frames, and the figures over the whole window
         "ft_recent": FRAMES.lock().0.recent(600),
-        "graph": GRAPH.lock().0.points.iter().copied().collect::<Vec<_>>(),
         "stats": {
             "avg": snap.fps_avg, "min": snap.fps_min, "max": snap.fps_max, "low1": snap.fps_1low, "low01": snap.fps_01low,
             "secs": APP.get().map(|a| a.settings.lock().osd_style.stats_secs).unwrap_or(60),
@@ -1211,28 +1184,15 @@ fn frame_loop() {
                 }
             }
         }
-        let (graph_on, style) = APP.get().map(|a| { let s = a.settings.lock(); (s.osd_on && s.osd_style.graph, s.osd_style.clone()) }).unwrap_or_default();
-        let mut new_frames = vec![];
         if let Some(app) = pick_app(fg, &drew, now) {
             let mut f = FRAMES.lock();
             let who = seen.get(&app).map(|(pid, _)| (app, *pid));
             if f.1 != who {
                 f.0.clear();
                 f.1 = who;
-                GRAPH.lock().0.clear();
             }
-            new_frames = fresh.remove(&app).unwrap_or_default();
-            for ms in &new_frames {
-                f.0.push(*ms, now, window);
-            }
-        }
-        let span = Duration::from_secs(style.graph_secs.clamp(2, 120) as u64);
-        let stepped = GRAPH.lock().0.feed(&new_frames, now, span, style.graph_smooth);
-        if stepped && graph_on {
-            let g = graph_now(&style);
-            let _w = WRITE.lock();
-            if !STOP.load(Ordering::SeqCst) {
-                write_graph(v, &g);
+            for ms in fresh.remove(&app).unwrap_or_default() {
+                f.0.push(ms, now, window);
             }
         }
         FRAMES.lock().0.prune(now, window);
@@ -1437,7 +1397,7 @@ pub fn start(app: Arc<App>) {
                 if let Some(v) = &rt {
                     if on {
                         let (text, width) = osd::osd_text_width(&items, &style, &snap, name.as_deref().unwrap_or(""));
-                        GRAPH.lock().1 = width;
+                        GRAPH_W.store(width, Ordering::Relaxed);
                         wrote = write_osd_with(v, &text, style.graph.then(|| graph_now(&style)));
                     } else if wrote {
                         write_osd(v, "");

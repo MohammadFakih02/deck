@@ -487,33 +487,21 @@ export const HELP = {
   },
   "ov.graph": {
     t: "Frametime graph",
-    what: "A line of how long the game's frames take, drawn by RivaTuner under the overlay text. Deck feeds it a steady number of points a second, so it scrolls at the same pace at 60 or 1000 FPS.",
+    what: "How long each of the game's frames takes: RivaTuner's own frametime graph, the one MSI Afterburner shows. RivaTuner records every frame and redraws the graph with each one, so it moves as smoothly as the game.",
     why: "Stutter shows up as spikes even when the framerate number looks fine.",
-    change: "Width and height are in characters and lines of the overlay text. With the top on auto, the modern look puts it at twice a typical frame and the classic look at the slowest point.",
+    change: "Width and height are in characters and lines of the overlay text. Top of the graph on auto lets RivaTuner scale it; a number fixes the top in milliseconds.",
   },
   "ov.graph_look": {
     t: "Graph look",
-    what: "Modern: the graph on a line of its own, labelled FT like the other lines, on a dark panel, with the live frametime at its end. Classic: the bare graph under the text, as Deck drew it before.",
-    why: "With the top at twice a typical frame, normal frames sit mid-height and a hitch shoots up. Scaled to the slowest frame (classic), one big hitch squashes every other frame into a flat line at the bottom.",
-    change: "Both use your style (lines, filled or bars), height, width and the time they cover.",
+    what: "Both are RivaTuner's frametime graph. Modern: on a line of its own, labelled FT and lined up with the other lines, with the live frametime in front unless the overlay already shows it. Classic: the graph alone under the text.",
+    why: "Modern keeps the graph in the overlay's columns, so it reads as part of it.",
+    change: "Both use your style (lines, filled or bars), height, width and top.",
   },
   "ov.graph_fit": {
     t: "Graph width",
     what: "Fit makes the graph exactly as wide as the overlay's longest line; Set it uses the width you choose.",
     why: "A fitted graph lines up with the text and stays tidy when you add or remove readings.",
     change: "With Fit, adding a long line (the clock, a core table) widens the graph too.",
-  },
-  "ov.graph_secs": {
-    t: "Graph shows",
-    what: "How much time the graph spans from its left edge to its right edge.",
-    why: "5 s shows each hitch clearly; a minute shows trends, like the game getting slower over time.",
-    change: "Longer spans scroll slower. The graph always has 120 points.",
-  },
-  "ov.graph_smooth": {
-    t: "Smooth the line",
-    what: "On: each point is the average frametime of the frames in it. Off: each point is the slowest frame in it.",
-    why: "Smooth is calmer to look at; off is better for hunting stutter, since a single bad frame still makes a spike.",
-    change: "Takes effect from the next point; the line already drawn stays as it was.",
   },
   "ov.reset": {
     t: "Start the figures over",
