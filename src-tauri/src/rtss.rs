@@ -158,9 +158,9 @@ pub fn reset_stats() {
     FRAMES.lock().0.clear();
 }
 
-/// The graph object as it should be now.
-fn graph_now(st: &OsdStyle) -> Vec<u8> {
-    osd::graph_object(st, GRAPH_W.load(Ordering::Relaxed))
+/// The graph object as it should be now (`avg_fps`: the game's average, for the top on auto).
+fn graph_now(st: &OsdStyle, avg_fps: Option<f32>) -> Vec<u8> {
+    osd::graph_object(st, GRAPH_W.load(Ordering::Relaxed), avg_fps)
 }
 
 /// The OSD entry's object buffer (RTSS_SHARED_MEMORY_OSD_ENTRY.buffer, after szOSD, szOSDOwner and szOSDEx).
@@ -926,7 +926,7 @@ pub fn refresh_now() {
     if on {
         let (text, width) = osd::osd_text_width(&items, &style, &snap, name.as_deref().unwrap_or(""));
         GRAPH_W.store(width, Ordering::Relaxed);
-        write_osd_with(&v, &text, style.graph.then(|| graph_now(&style)));
+        write_osd_with(&v, &text, style.graph.then(|| graph_now(&style, snap.fps_avg)));
     } else {
         write_osd(&v, "");
     }
@@ -1398,7 +1398,7 @@ pub fn start(app: Arc<App>) {
                     if on {
                         let (text, width) = osd::osd_text_width(&items, &style, &snap, name.as_deref().unwrap_or(""));
                         GRAPH_W.store(width, Ordering::Relaxed);
-                        wrote = write_osd_with(v, &text, style.graph.then(|| graph_now(&style)));
+                        wrote = write_osd_with(v, &text, style.graph.then(|| graph_now(&style, snap.fps_avg)));
                     } else if wrote {
                         write_osd(v, "");
                         wrote = false;

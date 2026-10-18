@@ -16,7 +16,8 @@ All notable changes to Deck. Setups for each version are on the [Releases](https
 
 ### Changed
 - **The frametime graph is MSI Afterburner's:** RivaTuner's own graph of every frame, which it redraws with each frame, so it moves as smoothly as the game. Deck used to send it about 12 points a second, which looked choppy. It uses your style, height, width and top.
-- **Two looks** (Overlay → Graph → Look): **Modern** puts the graph on a line of its own, labelled FT and lined up with the other lines, with the live frametime in front unless the overlay already shows it. **Classic** is the graph alone under the text.
+- **The graph sits on a line of its own**, labelled FT and lined up with the other lines, with the live frametime in front unless the overlay already shows it.
+- **The graph's top on Auto is four average frames** (33 ms at 120 FPS): a normal frame sits a quarter of the way up and stutter stands out. RivaTuner's own autoscale followed the slowest frame on screen, so one hitch flattened the rest. A fixed top shows the framerate it stands for ("16 ms · 63 FPS").
 - **"Shows the last" and "Smooth the line" are gone:** RivaTuner keeps its own frame history.
 
 ## 2.5.8 — 2026-10-18

@@ -922,6 +922,9 @@ body.mode-app .top .pin, body.mode-app .top .close-x { display: none; }
 .ov-lbl .s { margin-top: 1px; color: var(--faint); font-size: 12px; }
 .ov-ctl { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; min-width: 0; margin-left: auto; }
 .ov-panel > .srow { grid-template-columns: minmax(110px, 1fr) minmax(120px, 1.4fr) 64px; gap: 12px; }
+/* the graph's top says "Auto · 33 ms" or "16 ms · 62 FPS": a wider value column */
+.ov-panel > .srow.ov-top { grid-template-columns: minmax(110px, 1fr) minmax(120px, 1.4fr) 112px; }
+.ov-panel > .srow.ov-top b { white-space: nowrap; }
 .ov-font { width: 190px; height: 30px; }
 .ov-bold { gap: 6px; }
 .ov-panel > .banner { margin-bottom: 12px; }

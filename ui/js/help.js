@@ -489,13 +489,13 @@ export const HELP = {
     t: "Frametime graph",
     what: "How long each of the game's frames takes: RivaTuner's own frametime graph, the one MSI Afterburner shows. RivaTuner records every frame and redraws the graph with each one, so it moves as smoothly as the game.",
     why: "Stutter shows up as spikes even when the framerate number looks fine.",
-    change: "Width and height are in characters and lines of the overlay text. Top of the graph on auto lets RivaTuner scale it; a number fixes the top in milliseconds.",
+    change: "It sits on its own FT line, lined up with the other lines, with the live frametime in front unless the overlay already shows it. Width and height are in characters and lines of the overlay text.",
   },
-  "ov.graph_look": {
-    t: "Graph look",
-    what: "Both are RivaTuner's frametime graph. Modern: on a line of its own, labelled FT and lined up with the other lines, with the live frametime in front unless the overlay already shows it. Classic: the graph alone under the text.",
-    why: "Modern keeps the graph in the overlay's columns, so it reads as part of it.",
-    change: "Both use your style (lines, filled or bars), height, width and top.",
+  "ov.graph_top": {
+    t: "Top of the graph",
+    what: "The frametime at the top edge of the graph. Auto: four average frames (at 120 FPS a frame takes 8.3 ms, so the top is 33 ms), following the game's average over the time set under Behaviour.",
+    why: "A normal frame sits a quarter of the way up and a frame twice as slow as average reaches halfway, so stutter is easy to read. Scaling to the slowest frame instead lets one hitch squash every other frame into a flat line.",
+    change: "Drag right for a fixed top in milliseconds; the framerate it stands for is shown next to it (16 ms is about 60 FPS). Frames slower than the top touch the top edge.",
   },
   "ov.graph_fit": {
     t: "Graph width",

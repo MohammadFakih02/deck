@@ -195,13 +195,10 @@ pub struct OsdStyle {
     pub graph_w: u32,
     pub graph_h: u32,
     pub graph_style: u32,
-    /// the graph's top in ms (0 = it picks)
+    /// the graph's top in ms (0 = auto: four average frames, see `graph_object`)
     pub graph_max: u32,
-    /// the graph as wide as the overlay's longest line (else `graph_w` characters)
+    /// the graph runs to the overlay's right edge (else `graph_w` characters)
     pub graph_fit: bool,
-    /// "modern": a labelled line of its own on a background panel, the live frametime at its end,
-    /// scaled to typical frames; "classic": the bare graph under the text, scaled to the slowest point
-    pub graph_look: String,
     /// a coloured strip along the screen edge that shows each frame's time
     pub color_bar: bool,
     /// shrink the overlay when it would not fit the screen
@@ -267,7 +264,6 @@ impl Default for OsdStyle {
             graph_style: 0,
             graph_max: 0,
             graph_fit: true,
-            graph_look: "modern".into(),
             color_bar: false,
             fit: false,
             int_fps: true,
@@ -636,7 +632,7 @@ pub fn lines(items: &[String], st: &OsdStyle, s: &Snap, app: &str) -> Vec<Line> 
     }
     // the modern frametime graph: a line built like the others, so it lines up with them: the live
     // frametime (unless the overlay already shows it) in the first value column, then the graph
-    if st.graph && st.graph_look != "classic" && !out.is_empty() {
+    if st.graph && !out.is_empty() {
         let mut parts = vec![];
         if !items.iter().any(|i| i == "frametime") {
             parts.extend(value("frametime", s, st, app));
@@ -777,43 +773,44 @@ pub fn text_width(ls: &[Line], st: &OsdStyle) -> usize {
         .unwrap_or(0)
 }
 
-/// The overlay text and the width of its longest line in characters.
+/// The overlay text and the room the graph gets on its line, in characters: what the graph's line
+/// leaves of the overlay's widest other line (0 without a graph).
 pub fn osd_text_width(items: &[String], st: &OsdStyle, s: &Snap, app: &str) -> (String, usize) {
     let ls = lines(items, st, s, app);
-    let width = text_width(&ls, st);
-    let mut t = render(&ls, st);
-    if let Some(gl) = ls.iter().position(|l| l.parts.iter().any(|p| p.graph)) {
-        // modern: the graph takes what its line leaves of the overlay's widest other line
-        let others: Vec<Line> = ls.iter().enumerate().filter(|(i, _)| *i != gl).map(|(_, l)| l.clone()).collect();
-        return (t, text_width(&others, st).saturating_sub(text_width(&ls[gl..=gl], st)));
-    }
-    if st.graph && !t.is_empty() {
-        // the frametime graph object Deck puts at the start of its slot's object buffer (see graph_object)
-        let c = if st.group_colors { 7 } else { 0 };
-        t += &format!("\n<C{c}><OBJ=00000000><C>");
-    }
-    (t, width)
+    let t = render(&ls, st);
+    let Some(gl) = ls.iter().position(|l| l.parts.iter().any(|p| p.graph)) else { return (t, 0) };
+    let others: Vec<Line> = ls.iter().enumerate().filter(|(i, _)| *i != gl).map(|(_, l)| l.clone()).collect();
+    let room = text_width(&others, st).saturating_sub(text_width(&ls[gl..=gl], st));
+    (t, room)
 }
 
 /// RivaTuner's own frametime graph (RTSS_EMBEDDED_OBJECT_GRAPH with FLAG_FRAMETIME and no data,
 /// shared memory v2.12+), the one MSI Afterburner shows: RivaTuner fills it from every frame and
 /// redraws it with each one. Width and height are in characters (negative); `width` is the room
-/// `osd_text_width` worked out for it, used when the graph fits the overlay. RivaTuner's
-/// frametimes are in microseconds (the SDK sample's 0..50000).
-pub fn graph_object(st: &OsdStyle, width: usize) -> Vec<u8> {
+/// `osd_text_width` worked out for it, used when the graph fits the overlay.
+///
+/// The top: the user's (`graph_max` ms), else four average frames (`avg_fps` over the figures'
+/// window; 120 FPS gives 33 ms), so a normal frame sits a quarter up and a frame twice the average
+/// reaches halfway. RivaTuner's own autoscale followed the slowest frame on screen: one hitch
+/// flattened every other frame. RivaTuner's frametimes are in microseconds (the SDK sample's
+/// 0..50000).
+pub fn graph_object(st: &OsdStyle, width: usize, avg_fps: Option<f32>) -> Vec<u8> {
     const FILLED: u32 = 1;
     const FRAMETIME: u32 = 4;
     const BAR: u32 = 8;
-    const AUTOSCALE: u32 = 128;
     let style = match st.graph_style {
         1 => FILLED,
         2 => BAR,
         _ => 0,
     };
-    let flags = FRAMETIME | style | if st.graph_max == 0 { AUTOSCALE } else { 0 };
-    let top = if st.graph_max > 0 { st.graph_max.min(1000) as f32 * 1000.0 } else { 50_000.0 };
-    let modern = st.graph_look != "classic";
-    let w = if st.graph_fit && (width > 0 || modern) { width.clamp(if modern { 12 } else { 8 }, 160) as i32 } else { st.graph_w.clamp(8, 128) as i32 };
+    let flags = FRAMETIME | style;
+    let top_ms = if st.graph_max > 0 {
+        st.graph_max.min(1000) as f32
+    } else {
+        avg_fps.filter(|f| f.is_finite() && *f > 0.0).map(|f| (4000.0 / f).min(1000.0)).unwrap_or(50.0)
+    };
+    let top = top_ms * 1000.0;
+    let w = if st.graph_fit { width.clamp(12, 160) as i32 } else { st.graph_w.clamp(8, 128) as i32 };
     let mut b = Vec::with_capacity(36);
     b.extend(0x4752_3030u32.to_le_bytes()); // 'GR00'
     b.extend(36u32.to_le_bytes());
@@ -951,34 +948,33 @@ mod tests {
         v.iter().map(|x| x.to_string()).collect()
     }
 
-    /// The modern graph is a line built like the others: its label padded like theirs, the live
+    /// The graph is a line built like the others: its label padded like theirs, the live
     /// frametime in the first value column, then the graph to the end of the overlay. The graph is
     /// RivaTuner's own frametime graph (MSI Afterburner's): no points from Deck, RivaTuner fills it
     /// from every frame and redraws it with each one, so it moves as smoothly as the game. No box
     /// behind it (RivaTuner tints that box in the graph's colour: a muddy red panel in a game).
     #[test]
-    fn the_modern_graph_is_rivatuners_own_on_a_line_like_the_others() {
+    fn the_graph_is_rivatuners_own_on_a_line_like_the_others() {
         let st = OsdStyle { graph: true, units: "normal".into(), ..Default::default() };
-        assert_eq!(st.graph_look, "modern", "the default look");
         let (t, gw) = osd_text_width(&items(&["gpu_temp", "gpu_usage", "fps"]), &st, &snap(), "");
         assert_eq!(t.lines().last().unwrap(), "<C0>FT <C>  <C1><FT><C><C0> ms<C>  <C0><OBJ=00000000><C>");
         // the overlay is "GPU  65 °C  98 %" (16) wide: the label and its gap take 5, "6.9 ms" and a gap 8
         assert_eq!(gw, 16 - 5 - 8);
-        let b = graph_object(&st, gw);
-        assert_eq!(i32::from_le_bytes(b[8..12].try_into().unwrap()), -12, "never narrower than 12 characters");
-        assert_eq!(u32::from_le_bytes(b[20..24].try_into().unwrap()), 4 | 128, "RivaTuner's frametimes (FLAG_FRAMETIME), autoscaled, a line");
-        assert_eq!(u32::from_le_bytes(b[32..36].try_into().unwrap()), 0, "no points of Deck's");
+        let b = graph_object(&st, gw, None);
+        assert_eq!(&b[0..4], b"00RG", "'GR00' as a C multi-char constant");
+        assert_eq!(u32::from_le_bytes(b[4..8].try_into().unwrap()) as usize, b.len());
         assert_eq!(b.len(), 36);
-        let classic = graph_object(&OsdStyle { graph_look: "classic".into(), ..st.clone() }, gw);
-        assert_eq!(u32::from_le_bytes(classic[20..24].try_into().unwrap()), 4 | 128, "classic: the same graph, under the text");
-        let filled = graph_object(&OsdStyle { graph_style: 1, ..st.clone() }, gw);
-        assert_eq!(u32::from_le_bytes(filled[20..24].try_into().unwrap()), 4 | 128 | 1);
-        let bars = graph_object(&OsdStyle { graph_style: 2, ..st.clone() }, gw);
-        assert_eq!(u32::from_le_bytes(bars[20..24].try_into().unwrap()), 4 | 128 | 8);
-        // a top the user set: RivaTuner's frametimes are in microseconds (the SDK sample's 0..50000)
-        let fixed = graph_object(&OsdStyle { graph_max: 25, ..st }, gw);
-        assert_eq!(u32::from_le_bytes(fixed[20..24].try_into().unwrap()), 4);
-        assert_eq!(f32::from_le_bytes(fixed[28..32].try_into().unwrap()), 25_000.0);
+        assert_eq!(i32::from_le_bytes(b[8..12].try_into().unwrap()), -12, "never narrower than 12 characters");
+        assert_eq!(i32::from_le_bytes(b[12..16].try_into().unwrap()), -4, "the height in text lines");
+        assert_eq!(u32::from_le_bytes(b[20..24].try_into().unwrap()), 4, "RivaTuner's frametimes (FLAG_FRAMETIME), a line, Deck's own top");
+        assert_eq!(u32::from_le_bytes(b[32..36].try_into().unwrap()), 0, "no points of Deck's");
+        let filled = graph_object(&OsdStyle { graph_style: 1, ..st.clone() }, gw, None);
+        assert_eq!(u32::from_le_bytes(filled[20..24].try_into().unwrap()), 4 | 1);
+        let bars = graph_object(&OsdStyle { graph_style: 2, ..st.clone() }, gw, None);
+        assert_eq!(u32::from_le_bytes(bars[20..24].try_into().unwrap()), 4 | 8);
+        let set = graph_object(&OsdStyle { graph_fit: false, graph_w: 48, ..st.clone() }, gw, None);
+        assert_eq!(i32::from_le_bytes(set[8..12].try_into().unwrap()), -48, "a width the user set");
+        assert!(!osd_text(&items(&["fps"]), &OsdStyle { graph: false, ..st }, &snap(), "").contains("<OBJ"));
     }
 
     /// When the frametime is already on the overlay (the FPS line), the graph line doesn't repeat
@@ -999,30 +995,21 @@ mod tests {
         assert_eq!(prev.as_array().unwrap().last().unwrap()["parts"].as_array().unwrap().last().unwrap()["g"], true, "the preview knows where the graph goes");
     }
 
+    /// The top on auto is four average frames (120 FPS: 8.3 ms a frame, a 33 ms top): a normal
+    /// frame sits a quarter up and a frame twice the average reaches halfway. RivaTuner's own
+    /// autoscale followed the slowest frame on screen, so one hitch flattened the rest. A top the
+    /// user set wins. RivaTuner's frametimes are in microseconds (the SDK sample's 0..50000).
     #[test]
-    fn frametime_graph_is_an_embedded_object() {
-        let mut st = OsdStyle { graph: true, graph_w: 48, graph_h: 6, graph_fit: false, graph_look: "classic".into(), ..Default::default() };
-        let (t, width) = osd_text_width(&items(&["gpu_temp", "gpu_usage", "fps"]), &st, &snap(), "");
-        assert!(t.ends_with("<OBJ=00000000><C>"));
-        let b = graph_object(&st, width);
-        assert_eq!(&b[0..4], b"00RG", "'GR00' as a C multi-char constant");
-        assert_eq!(u32::from_le_bytes(b[4..8].try_into().unwrap()) as usize, b.len());
-        assert_eq!(i32::from_le_bytes(b[8..12].try_into().unwrap()), -48);
-        assert_eq!(i32::from_le_bytes(b[12..16].try_into().unwrap()), -6);
-        assert_eq!(u32::from_le_bytes(b[20..24].try_into().unwrap()), 4 | 128, "RivaTuner's frametimes, autoscaled");
-        assert_eq!(u32::from_le_bytes(b[32..36].try_into().unwrap()), 0);
-        // fitted: as wide as "GPU  65 °C  98 %" (the longest line; a unit and its gap count as characters)
-        st.graph_fit = true;
-        let b = graph_object(&st, width);
-        assert_eq!(i32::from_le_bytes(b[8..12].try_into().unwrap()), -(width as i32));
-        assert_eq!(width, "GPU  65 °C  98 %".chars().count(), "units count as characters");
-        st.graph_style = 1;
-        st.graph_max = 20;
-        let b = graph_object(&st, width);
-        assert_eq!(u32::from_le_bytes(b[20..24].try_into().unwrap()), 4 | 1);
-        assert_eq!(f32::from_le_bytes(b[28..32].try_into().unwrap()), 20_000.0);
-        st.graph = false;
-        assert!(!osd_text(&items(&["fps"]), &st, &snap(), "").contains("<OBJ"));
+    fn the_top_on_auto_is_four_average_frames() {
+        let st = OsdStyle { graph: true, ..Default::default() };
+        let top = |st: &OsdStyle, avg: Option<f32>| f32::from_le_bytes(graph_object(st, 20, avg)[28..32].try_into().unwrap());
+        assert!((top(&st, Some(120.0)) - 33_333.3).abs() < 1.0);
+        assert!((top(&st, Some(60.0)) - 66_666.7).abs() < 1.0);
+        assert_eq!(top(&st, None), 50_000.0, "no average yet: 50 ms");
+        assert_eq!(top(&st, Some(0.0)), 50_000.0);
+        assert_eq!(top(&st, Some(2.0)), 1_000_000.0, "never more than a second");
+        let fixed = OsdStyle { graph_max: 25, ..st };
+        assert_eq!(top(&fixed, Some(120.0)), 25_000.0);
     }
 
     #[test]

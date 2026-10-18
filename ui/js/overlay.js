@@ -2,7 +2,7 @@
 // out and coloured, how RivaTuner draws it, and a preview built from the same lines the overlay gets.
 // Layout: a strip with the switch and the in-game keys, then the preview (pinned while the page
 // scrolls) beside a tabbed editor, so every change shows next to the control that made it.
-import { I, Pages, S, confirmBox, h, helpTip, invoke, note, promptBox, run, seg, setSetting, toggle } from "./core.js";
+import { I, Pages, S, confirmBox, h, helpTip, invoke, note, promptBox, run, seg, setSetting, slider, toggle } from "./core.js";
 import { head } from "./pages1.js";
 import { HW, hotkeyField, sliderRow } from "./hw.js";
 import { render } from "./app.js";
@@ -15,7 +15,7 @@ export const OV_DEF = {
   gpu_color: "76B900", cpu_color: "4FA3FF", ram_color: "C77DFF", fps_color: "FFD60A", info_color: "9AA3B5",
   warn: true, warn_gpu_temp: 85, warn_cpu_temp: 90, warn_fps: 0, cores_per_row: 8, mem_unit: "MB", stats_secs: 60,
   corner: "tr", margin_x: 1, margin_y: 1, zoom: 2, shadow: true, box_on: false, box_opacity: 50, font: "Unispace", bold: false,
-  graph: false, graph_w: 32, graph_h: 4, graph_style: 0, graph_max: 0, graph_fit: true, graph_look: "modern", color_bar: false, fit: false, int_fps: true, all_games: true,
+  graph: false, graph_w: 32, graph_h: 4, graph_style: 0, graph_max: 0, graph_fit: true, color_bar: false, fit: false, int_fps: true, all_games: true,
 };
 
 export const OV_FONTS = ["Unispace", "Consolas", "Lucida Console", "Courier New", "Cascadia Mono", "Segoe UI", "Tahoma", "Arial", "Verdana", "Calibri"];
@@ -106,12 +106,20 @@ export function ovColorField(title, key, st) {
 
 // ------------------------------------------------------------------- the preview
 
+/** The graph's top in ms as the overlay gets it: the one set, else four average frames (graph_object
+ *  in osd.rs); null on auto before there is an average. */
+export function ovGraphTop(st) {
+  if (st.graph_max) return st.graph_max;
+  const avg = ((S.cache.rtss || {}).stats || {}).avg;
+  return avg > 0 ? Math.min(1000, 4000 / avg) : null;
+}
+
 /** The frametime graph in the preview: the game's last frames, one point each, like RivaTuner's
  *  own graph on the overlay. No game drawing: an empty graph, never a made-up trace. */
 export function ovGraphSvg(st) {
   const real = ((S.cache.rtss || {}).ft_recent || []).slice(-300);
   if (real.length < 2) return `<svg viewBox="0 0 100 100" preserveAspectRatio="none"></svg>`;
-  const top = st.graph_max || Math.max(4, Math.max(...real) * 1.1);
+  const top = ovGraphTop(st) || 50;
   const n = real.length;
   const y = (v) => 100 - Math.min(1, v / top) * 96;
   let shape;
@@ -171,11 +179,6 @@ export function ovScreen(st) {
         h("span", { class: "ov-v" }, p.t),
         p.u ? h("span", { class: "ov-u " + st.units }, " " + p.u) : null,
         i < l.parts.length - 1 ? "  " : null))));
-    if (st.graph && nodes.length && st.graph_look === "classic") {
-      const g = h("div", { class: "ov-graph" + (st.graph_fit ? " fit" : "") + (gc ? " g7" : ""), style: { width: st.graph_fit ? "" : st.graph_w * 1.6 + "px", height: st.graph_h * 1.25 + "em" } });
-      g.innerHTML = ovGraphSvg(st);
-      nodes.push(g);
-    }
     body.replaceChildren(...(nodes.length ? nodes : [h("div", { class: "ov-ln ov-l" }, "Nothing selected yet")]));
     // a tall overlay shrinks to fit the little screen (the real one is drawn at full size)
     body.style.transform = "";
@@ -434,18 +437,30 @@ export function ovColorsTab(st) {
 
 // ------------------------------------------------------------------- Graph tab
 
+/** The graph's top: all the way left is Auto (four average frames, the value it comes to now
+ *  shown), else a fixed top in ms with the framerate it stands for. */
+export function ovTopRow(st, onset) {
+  const label = (v) => {
+    if (v) return `${v} ms · ${Math.round(1000 / v)} FPS`;
+    const t = ovGraphTop({ ...st, graph_max: 0 });
+    return t ? `Auto · ${t.toFixed(t < 10 ? 1 : 0)} ms` : "Auto";
+  };
+  const val = h("b", { class: "num" }, label(st.graph_max));
+  const s = slider(st.graph_max, 0, 100, 1, (v) => (val.textContent = label(v)), onset);
+  s.setAttribute("aria-label", "Top of the graph");
+  return h("div", { class: "srow ov-top" }, h("span", { class: "dim" }, "Top of the graph", helpTip("ov.graph_top")), s, val);
+}
+
 export function ovGraphTab(st) {
   const put = (patch) => ovStyle(patch);
   return [
     ovSwitch("Frametime graph", "RivaTuner's own graph of every frame, as in MSI Afterburner", st.graph, (v) => put({ graph: v }), "ov.graph"),
     st.graph ? [
-      ovRow("Look", seg([["modern", "Modern"], ["classic", "Classic"]], st.graph_look === "classic" ? "classic" : "modern", (v) => put({ graph_look: v })),
-        st.graph_look === "classic" ? "The graph alone, under the text" : "On an FT line lined up with the others, with the live frametime", "ov.graph_look"),
-      ovRow("Width", seg([[true, st.graph_look === "classic" ? "Fit the overlay" : "Fill the line"], [false, "Set it"]], st.graph_fit, (v) => put({ graph_fit: v })), null, "ov.graph_fit"),
+      ovRow("Width", seg([[true, "Fill the line"], [false, "Set it"]], st.graph_fit, (v) => put({ graph_fit: v })), null, "ov.graph_fit"),
       !st.graph_fit ? sliderRow("Width", st.graph_w, 8, 128, 2, " chars", (v) => put({ graph_w: v })) : null,
       sliderRow("Height", st.graph_h, 1, 24, 1, " lines", (v) => put({ graph_h: v })),
       ovRow("Style", seg([[0, "Lines"], [1, "Filled"], [2, "Bars"]], st.graph_style === 3 ? 0 : st.graph_style, (v) => put({ graph_style: v }))),
-      sliderRow("Top of the graph", st.graph_max, 0, 100, 1, st.graph_max ? " ms" : " auto", (v) => put({ graph_max: v })),
+      ovTopRow(st, (v) => put({ graph_max: v })),
     ] : null,
     ovSub("Screen edge"),
     ovSwitch("Frame time bar", "A strip along the screen edge that changes colour on every frame", st.color_bar, (v) => put({ color_bar: v }), "ov.color_bar"),
