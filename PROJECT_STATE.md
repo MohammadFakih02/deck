@@ -47,6 +47,8 @@ Handoff notes so work can resume later. Last updated: 2026-10-18 (v2.5.5 + unrel
 - **Faster CI:** the cache was never saved (it saves only after a passing run, and every run had failed), so each run compiled
   everything; now `cache-on-failure`. The setup is built only on a `v*` tag (release.yml, Tauri CLI as a ready-made binary),
   and a newer push cancels the older run.
+- **cargo audit (first run, in CI):** rustls 0.23.45 had RUSTSEC-2026-0346..0349; updated to 0.23.46 (and the yanked yoke-derive
+  0.8.3 to 0.8.4). Remaining warnings are Linux-only Tauri dependencies (glib, zbus/zvariant) and proc-macro-error.
 - **Final artifact:** `cargo tauri build --bundles nsis` with `DECK_REQUIRE_RTSS32=1` (2 m 40 s at 12 jobs): `Deck_2.5.5_x64-setup.exe`,
   7.6 MB; `deck.exe` holds 3 PE images (Deck, the RivaTuner helper and one more, as before) and no `vcruntime140.dll` import
   anywhere. Not installed (Phase 4: no install without the owner).

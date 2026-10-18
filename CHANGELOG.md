@@ -23,6 +23,7 @@ All notable changes to Deck. Setups for each version are on the [Releases](https
 - **Deck checks RivaTuner's shared memory before using it**, so a program pretending to be RivaTuner can't make Deck read or write outside it.
 - **GPU and power libraries load only from Windows' own folder** (or NVIDIA's), never from a folder you or a program could write to.
 - **"Open as your normal account" never falls back to admin.** If Explorer can't take a launch, Deck says so instead of starting the program with admin rights.
+- **TLS library updated** (rustls 0.23.46) for four advisories published on 2026-10-14 (RUSTSEC-2026-0346 to 0349).
 - **The RustDesk password no longer appears on PowerShell's command line.**
 
 ### Changed
