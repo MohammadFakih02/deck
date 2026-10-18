@@ -1,12 +1,16 @@
 # Deck — project state
 
-Handoff notes so work can resume later. Last updated: 2026-10-18 (v2.5.5 + unreleased security remediation).
+Handoff notes so work can resume later. Last updated: 2026-10-18 (v2.5.6 released).
 
 **Start with `DECK.md`** (full overview: features, hardware, files, build/test, status). This file is the dated history.
 
 > **RULE: before every commit, update the docs.** Add today's dated entry here, add user-visible changes to `CHANGELOG.md`, update `DECK.md` / `README.md` when facts change, and stage them in the same commit. The pre-commit hook enforces it; never bypass it. No personal data in these files (that goes in the git-ignored `PRIVATE_NOTES.md`).
 
-## 2026-10-18: Clock and battery fixes, faster tests, UI theme pass (not committed)
+## 2026-10-18: v2.5.6 — Clock and battery fixes, security remediation, faster tests, UI theme pass
+
+- **Released as 2.5.6:** version bumped in `tauri.conf.json`, `Cargo.toml`, `Cargo.lock`, DECK.md and README.md; the
+  CHANGELOG's Unreleased section became `## 2.5.6`; tag `v2.5.6` pushed so `release.yml` builds and publishes the setup.
+  The six `docs/audits/2026-10-17-*` files can be committed once the release is out.
 
 - **Overlay clocks (a friend's report):** the "Threads" table showed each core's base clock (3500 P / 2600 E) because sysinfo and
   `CallNtPowerInformation` only return the nominal value. Now PDH `Processor Frequency` x `% Processor Performance` per thread
@@ -51,7 +55,7 @@ Handoff notes so work can resume later. Last updated: 2026-10-18 (v2.5.5 + unrel
   0.8.3 to 0.8.4). Remaining warnings are Linux-only Tauri dependencies (glib, zbus/zvariant) and proc-macro-error.
 - **Final artifact:** `cargo tauri build --bundles nsis` with `DECK_REQUIRE_RTSS32=1` (2 m 40 s at 12 jobs): `Deck_2.5.5_x64-setup.exe`,
   7.6 MB; `deck.exe` holds 3 PE images (Deck, the RivaTuner helper and one more, as before) and no `vcruntime140.dll` import
-  anywhere. Not installed (Phase 4: no install without the owner).
+  anywhere. Not installed (Phase 4: no install without the owner).
 - **Performance check (running build, hidden, no game):** Deck 1.88 % of one core over 60 s (P1 was 1.88 %, Phase 1 ~3 %),
   watchdog 0 %, WebView2 0.03 %. Memory: three read-only tours of every page over CDP left private bytes at 323-327 MB
   and handles at 1225-1227 (no growth; the one-time rise from 221 MB is caches filled on first visit). Live page switches
