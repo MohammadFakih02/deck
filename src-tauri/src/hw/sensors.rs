@@ -77,9 +77,11 @@ pub fn core_mhz(mask: u64, threads: &[Option<f32>]) -> Option<f32> {
 }
 
 /// The real clock of each logical processor in MHz, in logical-processor order (None: no reading
-/// yet). Each one is its own nominal clock ("Processor Frequency": P- and E-cores differ) times
-/// its "% Processor Performance" (above 100 while boosting), as Task Manager shows it. The
-/// CurrentMhz Windows hands out elsewhere (and `sysinfo` passes on) never leaves the nominal clock.
+/// yet): the base clock times its "% Processor Performance" (above 100 while boosting). That
+/// percentage is measured against the base clock on every core, also on E-cores, whose own
+/// "Processor Frequency" is lower (2600 vs 3500 on an i5-14600KF): multiplying by that read an
+/// E-core at 4.0 GHz as 2.97. The base clock is the highest "Processor Frequency". The CurrentMhz
+/// Windows hands out elsewhere (and `sysinfo` passes on) never leaves the nominal clock.
 pub fn thread_mhz(nominal: &[(String, f64)], perf: &[(String, f64)]) -> Vec<Option<f32>> {
     // instances are "group,number"; "_Total" and "group,_Total" are sums
     let key = |n: &str| {
@@ -88,7 +90,8 @@ pub fn thread_mhz(nominal: &[(String, f64)], perf: &[(String, f64)]) -> Vec<Opti
     };
     let mut cpus: Vec<((u32, u32), f64)> = nominal.iter().filter_map(|(n, v)| Some((key(n)?, *v))).collect();
     cpus.sort_by_key(|c| c.0);
-    cpus.iter().map(|(k, nom)| perf.iter().find(|(n, _)| key(n) == Some(*k)).map(|(_, p)| (nom * p / 100.0).round() as f32)).collect()
+    let base = cpus.iter().map(|c| c.1).fold(0.0, f64::max);
+    cpus.iter().map(|(k, _)| perf.iter().find(|(n, _)| key(n) == Some(*k)).map(|(_, p)| (base * p / 100.0).round() as f32)).collect()
 }
 
 /// Live clock of every logical processor (no admin rights needed), see `thread_mhz`.
@@ -555,12 +558,13 @@ mod clock_tests {
     }
 
     #[test]
-    fn each_thread_runs_at_its_own_nominal_clock_times_its_performance() {
-        // Windows reports P-cores at 3500 and E-cores at 2600 nominal; "% Processor Performance"
-        // is relative to each thread's own nominal clock and goes above 100 while boosting
+    fn every_thread_counts_against_the_base_clock() {
+        // Windows reports P-cores at 3500 and E-cores at 2600 nominal, but "% Processor Performance"
+        // is measured against the base clock (3500 on an i5-14600KF) on every core: an E-core at
+        // 114 % runs at 4000 MHz (its own register said 40x), not 2964
         let nominal = named(&[("0,1", 3500.0), ("0,0", 3500.0), ("0,2", 2600.0), ("0,_Total", 3500.0), ("_Total", 3500.0)]);
-        let perf = named(&[("0,2", 106.0), ("0,0", 91.0), ("0,1", 150.0), ("_Total", 100.0), ("0,_Total", 100.0)]);
-        assert_eq!(thread_mhz(&nominal, &perf), vec![Some(3185.0), Some(5250.0), Some(2756.0)], "in logical-processor order, totals left out");
+        let perf = named(&[("0,2", 114.3), ("0,0", 91.0), ("0,1", 150.0), ("_Total", 100.0), ("0,_Total", 100.0)]);
+        assert_eq!(thread_mhz(&nominal, &perf), vec![Some(3185.0), Some(5250.0), Some(4001.0)], "in logical-processor order, totals left out");
     }
 
     #[test]

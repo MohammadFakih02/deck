@@ -2,6 +2,11 @@
 
 All notable changes to Deck. Setups for each version are on the [Releases](https://github.com/MohammadFakih02/deck/releases) page.
 
+## Unreleased
+
+### Fixed
+- **E-core clocks read about a quarter too low** in the overlay, on Sensors and in the per-thread rows (2.97 GHz for an E-core really at 4.0 GHz on an i5-14600KF). Windows measures every core's performance against the CPU's base clock, and Deck multiplied the E-cores' by their own lower one.
+
 ## 2.5.7 — 2026-10-18
 
 > **When you update:** if you typed your own PC to PC pairing code or Claude Code sync key, it keeps working. A new one you type must now pass the "too easy to guess" check.

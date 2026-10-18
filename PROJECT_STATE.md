@@ -6,6 +6,16 @@ Handoff notes so work can resume later. Last updated: 2026-10-18 (v2.5.7).
 
 > **RULE: before every commit, update the docs.** Add today's dated entry here, add user-visible changes to `CHANGELOG.md`, update `DECK.md` / `README.md` when facts change, and stage them in the same commit. The pre-commit hook enforces it; never bypass it. No personal data in these files (that goes in the git-ignored `PRIVATE_NOTES.md`).
 
+## 2026-10-18: E-core clock fix, Cinebench investigation (after 2.5.7, unreleased)
+
+- **Bug:** `thread_mhz` multiplied each thread's PDH `% Processor Performance` by its own `Processor Frequency`. On hybrid Intel the percentage is against the base clock (the TSC rate, 3500 on an i5-14600KF) on every core, so E-cores (2600 nominal) read 26 % low: 2.97 GHz under Cinebench while APERF/MPERF and IA32_PERF_STATUS (40x) said 4.0. Fixed: base = the highest `Processor Frequency`. Test `every_thread_counts_against_the_base_clock`.
+- **User report "Deck lowers Cinebench scores / clocks" (moudi's PC, MSI MAG B660M Bazooka, i5-14600KF), measured with Cinebench R23 multi, one pass each, via an elevated throwaway test reading MSRs:**
+  - The board sets PL1 = PL2 = 130 W (MSR 0x610; also what Deck captured as "stock"). At 130 W: P-cores 4.81 GHz, E 4.0, ~130 W, 73 °C, scores 21,370 / 21,893 / 21,989 / 22,030 / 22,049 / 22,003.
+  - Deck closed vs running: no difference (21,893 / 22,049 off, 21,989 / 22,030 on; window open on Sensors 22,003). One early pass with Deck on scored 20,773: noise.
+  - PL1 = PL2 = 253 W (written temporarily, then put back to 130): P 5.30, E 4.0, ~175 W, 88 °C, scores 23,411 / 23,446 (one earlier outlier 21,204).
+  - Conclusion: Deck costs nothing; the board's 130 W cap costs ~6.5 % in all-core loads. Deck's CPU profile "Custom" power limits (PL1/PL2 sliders, any Intel CPU) lift it; the user wants it optional and nothing CPU- or board-specific (a "Rated 181 W" option was written and dropped). The BIOS cap was left as is.
+  - The friend's lower game clocks: his "Normal" profile has Energy preference "Plan's own" (Balanced's) and a 5,300 MHz cap on; moudi's "Full" has EPP 0, no cap, Aggressive turbo.
+
 ## 2026-10-18: v2.5.7 — CPU clock fix, thick-client audit fixes
 
 - **Released as 2.5.7:** version bumped in `tauri.conf.json`, `Cargo.toml`, `Cargo.lock`, DECK.md and README.md; the CHANGELOG's Unreleased section became `## 2.5.7`; tag `v2.5.7` pushed so `release.yml` builds and publishes the setup. Ships the CPU clock fix below and every thick-client audit fix (F1–F8).
