@@ -164,7 +164,7 @@
       if (st.align && st.layout !== "line") { const w = Math.max(0, ...lines.map((l) => l.label.length)); lines.forEach((l) => { if (l.label) l.label = l.label.padEnd(w); }); }
       const ft = Array.from({ length: 600 }, (_, i) => 6.9 + Math.sin(i / 7) * 0.5 + (i % 97 === 40 ? 9 : 0) + (i % 211 === 100 ? 16 : 0));
       return { installed: true, running: true, profiles: true, fps: 143, frametime: 6.9, app: "cs2.exe", frames: 4200, lines,
-        ft_recent: ft, graph: ft.slice(-120).map((x, i) => 6.9 + Math.sin(i / 9) * 0.6), stats: { avg: 139.4, min: 52.1, max: 201.7, low1: 88.3, low01: 61.2, secs: 60 },
+        ft_recent: ft, graph: window.__noGame ? [] : ft.slice(-120).map((x, i) => (i === 71 ? 24 : i === 33 ? 15 : 6.6 + ((i * 7) % 5) * 0.18)), stats: { avg: 139.4, min: 52.1, max: 201.7, low1: 88.3, low01: 61.2, secs: 60 },
         cats: [["gpu", "Graphics card"], ["cpu", "Processor"], ["mem", "Memory"], ["game", "Game and frames"], ["pc", "Fans, sensors and network"], ["info", "Info"]],
         items: D.map((d) => ({ id: d[0], label: d[1], short: d[2], cat: d[3], have: d[0] !== "gpu_volt", stat: ["fps_avg", "fps_1low", "fps_01low", "fps_min", "fps_max"].includes(d[0]) })) };
     },

@@ -49,6 +49,9 @@ pub struct Snap {
     pub fps_01low: Option<f32>,
     /// what holds the GPU clock back right now ("" = nothing)
     pub gpu_limit: String,
+    /// the game's graphics API and resolution as RivaTuner recorded them (the preview's API and Res)
+    pub game_api: Option<&'static str>,
+    pub game_res: Option<(u32, u32)>,
     pub cpu_volt: Option<f32>,
     /// MB/s
     pub net_down: Option<f32>,
@@ -189,6 +192,31 @@ fn write_graph(v: &View, graph: &[u8]) -> bool {
 /// The OSD entry's object buffer (RTSS_SHARED_MEMORY_OSD_ENTRY.buffer, after szOSD, szOSDOwner and szOSDEx).
 const OSD_OBJECTS: usize = 256 + 256 + 4096;
 
+/// Where the overlay text goes in a slot, and how many bytes the field holds (with its closing
+/// zero): RivaTuner 7.3.5 and newer (shared memory v2.20) read the 32 KB szOSDEx2 after the object
+/// buffer, as RivaTuner's own Overlay Editor writes it; older ones the 4 KB szOSDEx.
+fn text_field(version: u32, slot_size: usize) -> (usize, usize) {
+    const EX2: usize = OSD_OBJECTS + 262_144;
+    if version >= 0x0002_0014 && slot_size >= EX2 + 32_768 {
+        (EX2, 32_768)
+    } else {
+        (512, 4096)
+    }
+}
+
+/// `text` cut to whole lines that fit a `cap`-byte field with its closing zero: a cut inside a
+/// colour tag would garble everything after it.
+fn fit_lines(text: &[u8], cap: usize) -> &[u8] {
+    let room = cap.saturating_sub(1);
+    if text.len() <= room {
+        return text;
+    }
+    &text[..text[..room + 1].iter().rposition(|&c| c == b'\n').unwrap_or(0)]
+}
+
+/// Set when the last overlay written didn't fit RivaTuner's text field and lost lines at its end.
+static TRIMMED: AtomicBool = AtomicBool::new(false);
+
 /// `graph`: an embedded object to put at the start of the slot's object buffer, for `<OBJ=00000000>`.
 fn write_osd_with(v: &View, text: &str, graph: Option<Vec<u8>>) -> bool {
     unsafe {
@@ -220,9 +248,15 @@ fn write_osd_with(v: &View, text: &str, graph: Option<Vec<u8>>) -> bool {
                     }
                 }
                 let bytes = ansi(text);
-                let n = bytes.len().min(4095);
+                let (at, cap) = text_field(rd(p, 4), size);
+                let fit = fit_lines(&bytes, cap);
+                TRIMMED.store(fit.len() < bytes.len(), Ordering::Relaxed);
+                // both fields are cleared, so the one not used now never shows an old overlay
                 std::ptr::write_bytes(e.add(512), 0, 4096);
-                std::ptr::copy_nonoverlapping(bytes.as_ptr(), e.add(512), n);
+                if at != 512 {
+                    std::ptr::write_bytes(e.add(at), 0, cap);
+                }
+                std::ptr::copy_nonoverlapping(fit.as_ptr(), e.add(at), fit.len());
                 // the short field too, for old readers
                 std::ptr::write_bytes(e, 0, 256);
                 if text.is_empty() {
@@ -242,19 +276,50 @@ fn write_osd_with(v: &View, text: &str, graph: Option<Vec<u8>>) -> bool {
     }
 }
 
-/// Framerate and frametime of the foreground app as RTSS measured them.
+/// Framerate and frametime of the game as RTSS measured them (see `fps_at`).
 fn fps(v: &View) -> Option<(f32, f32, String, u32)> {
-    unsafe { fps_at(v.p, v.len) }
+    let now = unsafe { windows_sys::Win32::System::SystemInformation::GetTickCount() };
+    let follow = FRAMES.lock().1.map(|(_, pid)| pid);
+    unsafe { fps_at(v.p, v.len, now, follow) }
 }
 
+/// The graphics API and resolution RivaTuner recorded for process `pid`: the API from the low
+/// word of the entry's dwFlags (APPFLAG_API_USAGE_MASK), the size from dwResolutionX/Y (shared
+/// memory v2.20 and newer). None for what isn't known.
+unsafe fn game_info_at(p: *const u8, len: usize, pid: u32) -> (Option<&'static str>, Option<(u32, u32)>) {
+    const RES: usize = 9224;
+    let (size, off, n) = array(p, len, 8, APP_ENTRY);
+    let Some(e) = (0..n).map(|i| p.add(off + i * size)).find(|e| rd(*e, 0) == pid) else { return (None, None) };
+    let api = match rd(e, 264) & 0xFFFF {
+        1 => Some("OpenGL"),
+        2 => Some("DirectDraw"),
+        3 => Some("D3D8"),
+        4 => Some("D3D9"),
+        5 => Some("D3D9Ex"),
+        6 => Some("D3D10"),
+        7 => Some("D3D11"),
+        8 | 9 => Some("D3D12"),
+        10 => Some("Vulkan"),
+        _ => None,
+    };
+    let res = (rd(p, 4) >= 0x0002_0014 && size >= RES + 8).then(|| (rd(e, RES), rd(e, RES + 4))).filter(|(w, h)| *w > 0 && *h > 0);
+    (api, res)
+}
+
+/// RivaTuner measures the framerate over periods of about a second; a period that ended longer
+/// ago than this is an app that stopped drawing (alt-tabbed, paused, closed), not a framerate.
+const STALE_MS: u32 = 2500;
+
 /// `fps` on RivaTuner's shared memory at `p`: (framerate, frametime ms, exe name, process id) of
-/// RivaTuner's foreground app, else of the app drawing fastest.
-unsafe fn fps_at(p: *const u8, len: usize) -> Option<(f32, f32, String, u32)> {
+/// the app the framerate figures follow (`follow`, so a line never mixes two programs), else
+/// RivaTuner's foreground app, else the app drawing fastest. Only apps drawing now count: their
+/// last period ended within `STALE_MS` of `now` (ms since boot, the clock RivaTuner stamps with).
+unsafe fn fps_at(p: *const u8, len: usize, now: u32, follow: Option<u32>) -> Option<(f32, f32, String, u32)> {
     {
         let (size, off, n) = array(p, len, 8, APP_ENTRY);
         // dwLastForegroundAppProcessID sits after dwDesktopVideoCaptureFlags + Stat[5] + dwLastForegroundApp
         let fg_pid = rd(p, 40 + 4 + 20 + 4);
-        let mut best: Option<(f32, f32, String, u32)> = None;
+        let (mut fg, mut best): (Option<(f32, f32, String, u32)>, Option<(f32, f32, String, u32)>) = (None, None);
         for i in 0..n {
             let e = p.add(off + i * size);
             let pid = rd(e, 0);
@@ -262,7 +327,7 @@ unsafe fn fps_at(p: *const u8, len: usize) -> Option<(f32, f32, String, u32)> {
                 continue;
             }
             let (t0, t1, frames, ft) = (rd(e, 268), rd(e, 272), rd(e, 276), rd(e, 280));
-            if t1 <= t0 || frames == 0 {
+            if t1 <= t0 || frames == 0 || now.wrapping_sub(t1) > STALE_MS {
                 continue;
             }
             let rate = 1000.0 * frames as f32 / (t1 - t0) as f32;
@@ -271,14 +336,16 @@ unsafe fn fps_at(p: *const u8, len: usize) -> Option<(f32, f32, String, u32)> {
             let name = String::from_utf8_lossy(&raw[..raw.iter().position(|&c| c == 0).unwrap_or(260)]).to_string();
             let name = name.rsplit('\\').next().unwrap_or("").to_string();
             let item = (rate, ft as f32 / 1000.0, name, pid);
-            if pid == fg_pid {
+            if Some(pid) == follow {
                 return Some(item);
             }
-            if best.as_ref().map(|b| b.0 < item.0).unwrap_or(true) {
+            if pid == fg_pid {
+                fg = Some(item);
+            } else if best.as_ref().map(|b| b.0 < item.0).unwrap_or(true) {
                 best = Some(item);
             }
         }
-        best
+        fg.or(best)
     }
 }
 
@@ -454,8 +521,9 @@ static LAST: Mutex<Option<(Snap, Option<String>)>> = Mutex::new(None);
 static APP: OnceLock<Arc<App>> = OnceLock::new();
 /// when the Sensors page last asked how the overlay looks
 static PREVIEW_AT: Mutex<Option<Instant>> = Mutex::new(None);
-/// the foreground game's recent frametimes, and the RTSS app slot they came from
-static FRAMES: Mutex<(FrameWindow, u32)> = Mutex::new((FrameWindow::new(), u32::MAX));
+/// the game's recent frametimes, and the RTSS app slot and process they came from (a game that
+/// closes and another that takes its slot are two games)
+static FRAMES: Mutex<(FrameWindow, Option<(u32, u32)>)> = Mutex::new((FrameWindow::new(), None));
 static STOP: AtomicBool = AtomicBool::new(false);
 /// held while the loop writes the slot and the monitoring block, and by `stop`
 static WRITE: Mutex<()> = Mutex::new(());
@@ -690,10 +758,27 @@ fn rtss32_helper() -> Option<std::path::PathBuf> {
     None
 }
 
+/// RivaTuner's RTSS.exe: where its installer recorded it (the folder can be chosen when it is
+/// installed; HKLM, so only an admin can change it), else the default folder.
 pub fn rtss_exe() -> Option<std::path::PathBuf> {
-    let base = crate::util::program_files_x86();
-    let p = base.join("RivaTuner Statistics Server").join("RTSS.exe");
-    p.exists().then_some(p)
+    let recorded = [r"SOFTWARE\WOW6432Node\Unwinder\RTSS", r"SOFTWARE\Unwinder\RTSS"].iter().find_map(|k| hklm_string(k, "InstallPath")).map(std::path::PathBuf::from);
+    let default = crate::util::program_files_x86().join("RivaTuner Statistics Server").join("RTSS.exe");
+    recorded
+        .filter(|p| p.file_name().is_some_and(|n| n.eq_ignore_ascii_case("RTSS.exe")))
+        .into_iter()
+        .chain(Some(default))
+        .find(|p| p.is_file())
+}
+
+/// A text value under HKEY_LOCAL_MACHINE.
+fn hklm_string(key: &str, value: &str) -> Option<String> {
+    use windows::core::HSTRING;
+    use windows::Win32::System::Registry::{RegGetValueW, HKEY_LOCAL_MACHINE, RRF_RT_REG_SZ};
+    let mut buf = vec![0u16; 1024];
+    let mut len = (buf.len() * 2) as u32;
+    unsafe { RegGetValueW(HKEY_LOCAL_MACHINE, &HSTRING::from(key), &HSTRING::from(value), RRF_RT_REG_SZ, None, Some(buf.as_mut_ptr() as *mut _), Some(&mut len)) }.ok().ok()?;
+    let s = String::from_utf16_lossy(&buf[..(len as usize / 2).saturating_sub(1)]);
+    (!s.is_empty()).then_some(s)
 }
 
 pub fn rtss_running() -> bool {
@@ -711,37 +796,35 @@ pub fn start_rtss() -> Result<(), String> {
 }
 
 /// RivaTuner's windows: its main window ("RivaTunerStatisticsServer", which also owns the tray
-/// icon) and a helper window ("RTSS") that shows up blank when made visible.
+/// icon) and a helper window ("RTSS", of the same process) that shows up blank when made visible.
+/// Found by their titles, not a process list: the tray switch looks every 5 s, also in games,
+/// and starting `tasklist` that often cost a process each time.
 fn rtss_windows() -> (Option<windows::Win32::Foundation::HWND>, Option<windows::Win32::Foundation::HWND>) {
     use windows::core::BOOL;
     use windows::Win32::Foundation::{HWND, LPARAM};
     use windows::Win32::UI::WindowsAndMessaging::{EnumWindows, GetWindowTextW, GetWindowThreadProcessId};
-    let Some(pid) = crate::util::run_hidden("tasklist", &["/FI", "IMAGENAME eq RTSS.exe", "/FO", "CSV", "/NH"]).ok().and_then(|o| {
-        String::from_utf8_lossy(&o.stdout).lines().find_map(|l| l.split("\",\"").nth(1).and_then(|x| x.trim_matches('"').parse::<u32>().ok()))
-    }) else {
-        return (None, None);
-    };
-    struct Found(u32, Option<HWND>, Option<HWND>);
+    // (title, process) of every window called one of the two names
+    struct Found(Vec<(bool, u32, HWND)>);
     unsafe extern "system" fn cb(h: HWND, l: LPARAM) -> BOOL {
         let f = &mut *(l.0 as *mut Found);
+        let mut buf = [0u16; 32];
+        let n = GetWindowTextW(h, &mut buf) as usize;
+        let main = match String::from_utf16_lossy(&buf[..n]).as_str() {
+            "RivaTunerStatisticsServer" => true,
+            "RTSS" => false,
+            _ => return BOOL(1),
+        };
         let mut p = 0;
         GetWindowThreadProcessId(h, Some(&mut p));
-        if p == f.0 {
-            let mut buf = [0u16; 64];
-            let n = GetWindowTextW(h, &mut buf) as usize;
-            match String::from_utf16_lossy(&buf[..n]).as_str() {
-                "RivaTunerStatisticsServer" => f.1 = Some(h),
-                "RTSS" => f.2 = Some(h),
-                _ => {}
-            }
-        }
+        f.0.push((main, p, h));
         BOOL(1)
     }
-    let mut f = Found(pid, None, None);
+    let mut f = Found(vec![]);
     unsafe {
         let _ = EnumWindows(Some(cb), LPARAM(&mut f as *mut _ as isize));
     }
-    (f.1, f.2)
+    let Some(&(_, pid, main)) = f.0.iter().find(|w| w.0) else { return (None, None) };
+    (Some(main), f.0.iter().find(|w| !w.0 && w.1 == pid).map(|w| w.2))
 }
 
 /// Removes RivaTuner's tray icon (it keeps running; Deck's Overlay page opens it instead) or
@@ -899,6 +982,8 @@ pub fn status() -> Value {
         "app": name,
         "profiles": profiles_dir().map(|d| d.join("Global").exists()).unwrap_or(false),
         "frames": FRAMES.lock().0.len(),
+        // the overlay is longer than RivaTuner's text field: its last lines are left out
+        "trimmed": TRIMMED.load(Ordering::Relaxed),
         // the Sensors page's frametime graph: the last 600 frames, and the figures over the whole window
         "ft_recent": FRAMES.lock().0.recent(600),
         "graph": GRAPH.lock().0.points.iter().copied().collect::<Vec<_>>(),
@@ -1016,6 +1101,9 @@ fn snapshot(app: &App, sys: &mut sysinfo::System, clocks: &crate::hw::sensors::T
         s.frametime = Some(ft);
         app_name = Some(name);
         game = Some(pid);
+        if let Some(v) = rt {
+            (s.game_api, s.game_res) = unsafe { game_info_at(v.p, v.len, pid) };
+        }
     }
     {
         let st = FRAMES.lock().0.stats();
@@ -1127,9 +1215,10 @@ fn frame_loop() {
         let mut new_frames = vec![];
         if let Some(app) = pick_app(fg, &drew, now) {
             let mut f = FRAMES.lock();
-            if f.1 != app {
+            let who = seen.get(&app).map(|(pid, _)| (app, *pid));
+            if f.1 != who {
                 f.0.clear();
-                f.1 = app;
+                f.1 = who;
                 GRAPH.lock().0.clear();
             }
             new_frames = fresh.remove(&app).unwrap_or_default();
@@ -1415,7 +1504,7 @@ mod tests {
         put(&mut m, 8, 300);
         put(&mut m, 12, u32::MAX - 10);
         put(&mut m, 16, 255);
-        assert_eq!(unsafe { fps_at(m.as_ptr(), m.len()) }, None);
+        assert_eq!(unsafe { fps_at(m.as_ptr(), m.len(), 0, None) }, None);
     }
 
     /// (DllCharacteristics, extended DLL characteristics) of a PE file.
@@ -1557,6 +1646,25 @@ mod tests {
         }
     }
 
+    /// RivaTuner 7.3.5+ (shared memory v2.20) has a 32 KB text field after the object buffer, the
+    /// one its own Overlay Editor writes; older ones only the 4 KB one.
+    #[test]
+    fn long_overlays_go_to_rivatuners_big_text_field() {
+        assert_eq!(text_field(0x0002_0015, 299_520), (OSD_OBJECTS + 262_144, 32_768));
+        assert_eq!(text_field(0x0002_0013, 299_520), (512, 4096), "too old a RivaTuner");
+        assert_eq!(text_field(0x0002_0015, 266_752), (512, 4096), "a slot too small for the big field");
+    }
+
+    /// Text over the field's size is cut at the end of a whole line, never inside a colour tag
+    /// (which garbled everything after it).
+    #[test]
+    fn a_too_long_overlay_loses_whole_lines() {
+        let t = b"<C0=FF>GPU 50\nCPU 40\nRAM 8";
+        assert_eq!(fit_lines(t, 64), &t[..], "it fits");
+        assert_eq!(fit_lines(t, 22), b"<C0=FF>GPU 50\nCPU 40", "room for 21 bytes and the closing zero");
+        assert_eq!(fit_lines(t, 10), b"", "not even one line fits");
+    }
+
     #[test]
     fn ring_gives_only_the_frames_written_since() {
         let mut buf = vec![0u32; 8];
@@ -1594,11 +1702,55 @@ mod tests {
     #[test]
     fn the_game_ram_belongs_to_the_game_rivatuner_draws_in() {
         let b = rtss_block(900, &[(500, "C:\\Games\\League of Legends.exe", 60), (600, "C:\\Other\\menu.exe", 30)]);
-        let (rate, ft, name, pid) = unsafe { fps_at(b.as_ptr(), b.len()) }.expect("a game is drawing");
+        let (rate, ft, name, pid) = unsafe { fps_at(b.as_ptr(), b.len(), 2500, None) }.expect("a game is drawing");
         assert_eq!((rate, ft, name.as_str(), pid), (60.0, 16.6, "League of Legends.exe", 500), "a screenshot tool in front (pid 900) is not the game");
         let b = rtss_block(600, &[(500, "a.exe", 60), (600, "b.exe", 30)]);
-        assert_eq!(unsafe { fps_at(b.as_ptr(), b.len()) }.map(|x| x.3), Some(600), "RivaTuner's own foreground app wins");
-        assert_eq!(unsafe { let b = rtss_block(1, &[]); fps_at(b.as_ptr(), b.len()) }, None);
+        assert_eq!(unsafe { fps_at(b.as_ptr(), b.len(), 2500, None) }.map(|x| x.3), Some(600), "RivaTuner's own foreground app wins");
+        assert_eq!(unsafe { let b = rtss_block(1, &[]); fps_at(b.as_ptr(), b.len(), 2500, None) }, None);
+    }
+
+    /// The framerate, frametime and game RAM come from the game the lows and the average count, so
+    /// one line never mixes two programs (a launcher drawing at 300 FPS beside the game).
+    #[test]
+    fn the_framerate_comes_from_the_game_the_figures_follow() {
+        let b = rtss_block(500, &[(500, "launcher.exe", 300), (600, "game.exe", 60)]);
+        assert_eq!(unsafe { fps_at(b.as_ptr(), b.len(), 2500, Some(600)) }.map(|x| x.3), Some(600));
+        assert_eq!(unsafe { fps_at(b.as_ptr(), b.len(), 2500, Some(42)) }.map(|x| x.3), Some(500), "a followed game that left: RivaTuner's foreground app");
+    }
+
+    /// RivaTuner keeps an app's last framerate after it stops drawing (alt-tabbed, paused, a
+    /// closed window it still lists): a period that ended over 2.5 s ago is no framerate at all.
+    #[test]
+    fn a_game_that_stopped_drawing_has_no_framerate() {
+        let b = rtss_block(500, &[(500, "game.exe", 60)]);
+        assert!(unsafe { fps_at(b.as_ptr(), b.len(), 4400, None) }.is_some(), "the period ended at 2000");
+        assert_eq!(unsafe { fps_at(b.as_ptr(), b.len(), 4600, None) }, None);
+        assert_eq!(unsafe { fps_at(b.as_ptr(), b.len(), 4600, Some(500)) }, None, "following it doesn't keep it alive");
+    }
+
+    /// The preview's API and resolution are the game's own (a D3D11 game at 1920x1080 showed
+    /// "D3D12" and the desktop's size), read from RivaTuner's entry for it; nothing when unknown.
+    #[test]
+    fn the_api_and_resolution_are_the_games_own() {
+        // an entry big enough for the v2.20 resolution fields (dwResolutionX at 9224)
+        let (size, off) = (9300usize, 256usize);
+        let mut b = vec![0u8; off + size];
+        let put = |b: &mut Vec<u8>, at: usize, v: u32| b[at..at + 4].copy_from_slice(&v.to_le_bytes());
+        put(&mut b, 4, 0x0002_0015);
+        put(&mut b, 8, size as u32);
+        put(&mut b, 12, off as u32);
+        put(&mut b, 16, 1);
+        put(&mut b, off, 500);
+        put(&mut b, off + 264, 0x0001_0007); // x64, D3D11
+        put(&mut b, off + 9224, 1920);
+        put(&mut b, off + 9228, 1080);
+        assert_eq!(unsafe { game_info_at(b.as_ptr(), b.len(), 500) }, (Some("D3D11"), Some((1920, 1080))));
+        assert_eq!(unsafe { game_info_at(b.as_ptr(), b.len(), 501) }, (None, None), "another process");
+        put(&mut b, off + 264, 0x0001_000A);
+        put(&mut b, 4, 0x0002_0013);
+        assert_eq!(unsafe { game_info_at(b.as_ptr(), b.len(), 500) }, (Some("Vulkan"), None), "a RivaTuner too old for the resolution");
+        put(&mut b, off + 264, 0x0001_0000);
+        assert_eq!(unsafe { game_info_at(b.as_ptr(), b.len(), 500) }.0, None, "no API recorded yet");
     }
 
     #[test]
@@ -1684,7 +1836,7 @@ mod tests {
                 if owner.is_empty() {
                     continue;
                 }
-                let text = std::ffi::CStr::from_ptr(e.add(512) as *const i8).to_string_lossy().to_string();
+                let text = std::ffi::CStr::from_ptr(e.add(text_field(rd(p, 4), size).0) as *const i8).to_string_lossy().to_string();
                 let obj: Vec<u8> = (0..36).map(|k| *e.add(OSD_OBJECTS + k)).collect();
                 println!("slot {i} owner {owner:?} size {size} text tail {:?}
 object {:?}", &text[text.len().saturating_sub(60)..], obj);

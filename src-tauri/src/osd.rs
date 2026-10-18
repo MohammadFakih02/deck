@@ -203,6 +203,9 @@ pub struct OsdStyle {
     pub graph_secs: u32,
     /// each point is the average of its frames (else the slowest one, so every hitch shows)
     pub graph_smooth: bool,
+    /// "modern": a labelled line of its own on a background panel, the live frametime at its end,
+    /// scaled to typical frames; "classic": the bare graph under the text, scaled to the slowest point
+    pub graph_look: String,
     /// a coloured strip along the screen edge that shows each frame's time
     pub color_bar: bool,
     /// shrink the overlay when it would not fit the screen
@@ -270,6 +273,7 @@ impl Default for OsdStyle {
             graph_fit: true,
             graph_secs: 10,
             graph_smooth: true,
+            graph_look: "modern".into(),
             color_bar: false,
             fit: false,
             int_fps: true,
@@ -424,13 +428,14 @@ fn value(id: &str, s: &Snap, st: &OsdStyle, app: &str) -> Option<Part> {
             p.rtss = Some("<APP>");
             p
         }
+        // RivaTuner fills these in on the overlay; the preview shows what it recorded for the game
         "res" => {
-            let mut p = part(screen_size(), "");
+            let mut p = part(s.game_res.map(|(w, h)| format!("{w}x{h}")).unwrap_or_else(|| "–".into()), "");
             p.rtss = Some("<RES>");
             p
         }
         "api" => {
-            let mut p = part("D3D12".into(), "");
+            let mut p = part(s.game_api.unwrap_or("–").to_string(), "");
             p.rtss = Some("<API>");
             p
         }
@@ -448,11 +453,6 @@ fn clock(st: &OsdStyle) -> String {
     };
     let (h, ampm) = if st.clock_12h { (if t.wHour % 12 == 0 { 12 } else { t.wHour % 12 }, if t.wHour < 12 { " AM" } else { " PM" }) } else { (t.wHour, "") };
     if st.clock_secs { format!("{:02}:{:02}:{:02}{}", h, t.wMinute, t.wSecond, ampm) } else { format!("{:02}:{:02}{}", h, t.wMinute, ampm) }
-}
-
-fn screen_size() -> String {
-    use windows_sys::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN};
-    unsafe { format!("{}x{}", GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN)) }
 }
 
 /// Grid items (one number per thread or core), wrapped `cores_per_row` to a line.
@@ -771,6 +771,21 @@ pub fn osd_text_width(items: &[String], st: &OsdStyle, s: &Snap, app: &str) -> (
     let ls = lines(items, st, s, app);
     let width = text_width(&ls, st);
     let mut t = render(&ls, st);
+    if st.graph && !t.is_empty() && st.graph_look != "classic" {
+        // modern: "FT  <graph> 8.3 ms", the graph starting in the values' column (labels are padded
+        // to one width) and as wide as the overlay leaves after the label and the live value
+        let c = if st.group_colors { 7 } else { 0 };
+        let lw = if st.labels { ls.iter().map(|l| l.label.chars().count()).max().unwrap_or(0).max(2) } else { 0 };
+        let label = if st.labels { format!("<C{c}>{:<lw$}<C>  ", "FT") } else { String::new() };
+        let unit = match st.units.as_str() {
+            "off" => "",
+            "normal" => "<C0> ms<C>",
+            _ => "<C0><S0> ms<S><C>",
+        };
+        t += &format!("\n{label}<C{c}><OBJ=00000000><C> <C1><FT><C>{unit}");
+        let used = if st.labels { lw + 2 } else { 0 } + if st.units == "off" { 5 } else { 8 };
+        return (t, width.saturating_sub(used));
+    }
     if st.graph && !t.is_empty() {
         // the frametime graph object Deck puts at the start of its slot's object buffer (see graph_object)
         let c = if st.group_colors { 7 } else { 0 };
@@ -836,20 +851,32 @@ impl GraphFeed {
 
 /// RivaTuner's embedded graph (RTSS_EMBEDDED_OBJECT_GRAPH, shared memory v2.12+) holding Deck's
 /// own points (ms, oldest first; see GraphFeed). Width and height are in characters (negative);
-/// `width` is the overlay's longest line, used when the graph fits the overlay.
+/// `width` is the room `osd_text_width` worked out for it, used when the graph fits the overlay.
 pub fn graph_object(st: &OsdStyle, width: usize, points: &[f32]) -> Vec<u8> {
     const FILLED: u32 = 1;
     const BAR: u32 = 8;
+    const BGND: u32 = 16;
     const AUTOSCALE: u32 = 128;
+    let modern = st.graph_look != "classic";
     let style = match st.graph_style {
         1 => FILLED,
         2 => BAR,
         _ => 0,
+    } | if modern { BGND } else { 0 };
+    let top = if st.graph_max > 0 {
+        st.graph_max.min(1000) as f32
+    } else if modern {
+        // twice the typical frame: normal frames sit mid-height and a hitch reaches the top
+        let mut v: Vec<f32> = points.iter().copied().filter(|p| p.is_finite() && *p > 0.0).collect();
+        v.sort_by(|a, b| a.total_cmp(b));
+        v.get(v.len() / 2).map(|m| m * 2.0).unwrap_or(0.0).max(4.0)
+    } else {
+        // the top follows the slowest point when it isn't set (and never squashes a flat line flat)
+        (points.iter().cloned().fold(0.0, f32::max) * 1.25).max(4.0)
     };
-    // the top follows the slowest point when it isn't set (and never squashes a flat line flat)
-    let top = if st.graph_max > 0 { st.graph_max.min(1000) as f32 } else { (points.iter().cloned().fold(0.0, f32::max) * 1.25).max(4.0) };
-    let flags = style | if st.graph_max == 0 { AUTOSCALE } else { 0 };
-    let w = if st.graph_fit && width > 0 { width.clamp(8, 160) as i32 } else { st.graph_w.clamp(8, 128) as i32 };
+    let flags = style | if st.graph_max == 0 && !modern { AUTOSCALE } else { 0 };
+    let w = if st.graph_fit && width > 0 { width.clamp(if modern { 12 } else { 8 }, 160) as i32 } else { st.graph_w.clamp(8, 128) as i32 };
+    let w = if modern && st.graph_fit { w.max(12) } else { w };
     let mut b = Vec::with_capacity(36 + points.len() * 4);
     b.extend(0x4752_3030u32.to_le_bytes()); // 'GR00'
     b.extend(((36 + points.len() * 4) as u32).to_le_bytes());
@@ -990,9 +1017,47 @@ mod tests {
         v.iter().map(|x| x.to_string()).collect()
     }
 
+    /// The modern graph: a line of its own, labelled like the others, the graph starting in the
+    /// values' column on a background panel, the live frametime at its right end, and the graph as
+    /// wide as the rest of that line leaves.
+    #[test]
+    fn the_modern_graph_has_its_own_labelled_line_with_the_live_frametime() {
+        let st = OsdStyle { graph: true, units: "normal".into(), ..Default::default() };
+        assert_eq!(st.graph_look, "modern", "the default look");
+        let (t, gw) = osd_text_width(&items(&["gpu_temp", "gpu_usage", "fps"]), &st, &snap(), "");
+        let last = t.lines().last().unwrap();
+        assert_eq!(last, "<C0>FT <C>  <C0><OBJ=00000000><C> <C1><FT><C><C0> ms<C>", "FT padded to the labels' width (GPU, FPS); the graph in the labels' colour");
+        // the overlay is "GPU  65 °C  98 %" wide (16); the graph gets what the label and the value leave
+        assert_eq!(gw, 16 - 5 - 8, "label and gap 5, a gap and the value 8");
+        let b = graph_object(&st, gw, &[8.0, 8.0, 8.0, 30.0]);
+        assert_eq!(i32::from_le_bytes(b[8..12].try_into().unwrap()), -(gw.max(12) as i32), "never narrower than 12 characters");
+        assert_eq!(u32::from_le_bytes(b[20..24].try_into().unwrap()) & 16, 16, "the background panel");
+        let with_groups = osd_text(&items(&["fps"]), &OsdStyle { graph: true, group_colors: true, ..Default::default() }, &snap(), "");
+        assert!(with_groups.lines().last().unwrap().starts_with("<C7>FT"), "the framerate's colour when parts have colours");
+        let bare = osd_text(&items(&["fps"]), &OsdStyle { graph: true, labels: false, ..Default::default() }, &snap(), "");
+        assert!(bare.lines().last().unwrap().starts_with("<C0><OBJ=00000000>"), "no labels: no label in front of the graph");
+    }
+
+    /// The modern graph's top follows typical frames (twice the median), so a hitch shoots to the
+    /// top instead of squashing every normal frame flat at the bottom (the classic look's top is
+    /// the slowest point).
+    #[test]
+    fn the_modern_scale_follows_typical_frames_not_the_worst() {
+        let st = OsdStyle { graph: true, ..Default::default() };
+        let mut pts = vec![8.0f32; 100];
+        pts[50] = 60.0;
+        let b = graph_object(&st, 20, &pts);
+        assert_eq!(f32::from_le_bytes(b[28..32].try_into().unwrap()), 16.0);
+        assert_eq!(u32::from_le_bytes(b[20..24].try_into().unwrap()) & 128, 0, "Deck's own scale, not RivaTuner's autoscale");
+        let fixed = graph_object(&OsdStyle { graph_max: 25, ..st.clone() }, 20, &pts);
+        assert_eq!(f32::from_le_bytes(fixed[28..32].try_into().unwrap()), 25.0, "a top the user set wins");
+        let classic = graph_object(&OsdStyle { graph_look: "classic".into(), ..st }, 20, &pts);
+        assert_eq!(f32::from_le_bytes(classic[28..32].try_into().unwrap()), 75.0, "classic: 1.25 x the slowest point");
+    }
+
     #[test]
     fn frametime_graph_is_an_embedded_object() {
-        let mut st = OsdStyle { graph: true, graph_w: 48, graph_h: 6, graph_fit: false, ..Default::default() };
+        let mut st = OsdStyle { graph: true, graph_w: 48, graph_h: 6, graph_fit: false, graph_look: "classic".into(), ..Default::default() };
         let (t, width) = osd_text_width(&items(&["gpu_temp", "gpu_usage", "fps"]), &st, &snap(), "");
         assert!(t.ends_with("<OBJ=00000000><C>"));
         let b = graph_object(&st, width, &[5.0, 7.0, 6.0]);
@@ -1173,6 +1238,19 @@ mod tests {
         assert!(osd_text(&items(&["fps"]), &st, &snap(), "").contains("<C2><FR><C>"), "143 is under 144");
         assert_eq!(osd_text(&[], &st, &snap(), ""), "");
         assert!(osd_text(&items(&["gpu_temp", "app", "res", "time"]), &OsdStyle::default(), &snap(), "cs2.exe").contains("<APP>"));
+    }
+
+    /// The preview shows the game's own API and resolution (RivaTuner fills the overlay's in);
+    /// with no game it shows a dash, not the desktop's size or a made-up "D3D12".
+    #[test]
+    fn the_preview_never_makes_up_the_api_or_resolution() {
+        let st = OsdStyle { layout: "list".into(), ..Default::default() };
+        let text = |s: &Snap| lines(&items(&["api", "res"]), &st, s, "").iter().map(|l| l.parts[0].text.clone()).collect::<Vec<_>>();
+        assert_eq!(text(&snap()), vec!["–", "–"]);
+        let s = Snap { game_api: Some("D3D11"), game_res: Some((1920, 1080)), ..snap() };
+        assert_eq!(text(&s), vec!["D3D11", "1920x1080"]);
+        let t = osd_text(&items(&["api", "res"]), &st, &s, "");
+        assert!(t.contains("<API>") && t.contains("<RES>"), "the overlay itself still gets RivaTuner's tags");
     }
 
     #[test]

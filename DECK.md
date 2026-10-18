@@ -39,7 +39,7 @@ Read this section first. `CLAUDE.md` in this folder points here, so it loads aut
 
 ### Workflow
 - **Build:** `cargo build --release` in `src-tauri`. Set `CARGO_TARGET_DIR` to build elsewhere (the maintainer's value is in `PRIVATE_NOTES.md`). A build takes about 2 minutes. **The UI is embedded in the exe, so UI changes also need a rebuild and reinstall.**
-- **Tests:** `cargo test`, run in `src-tauri` (dev profile: dependencies are optimised once, so a rerun rebuilds only Deck); 223 should pass (31 ignored live tests; which are safe to run is in the T4 table of `docs/audits/2026-10-17-test-plan.md`). `cargo clippy --all-targets -- -D warnings` must be clean (CI fails otherwise). Check the JS with `node --check ui/js/*.js`.
+- **Tests:** `cargo test`, run in `src-tauri` (dev profile: dependencies are optimised once, so a rerun rebuilds only Deck); 232 should pass (31 ignored live tests; which are safe to run is in the T4 table of `docs/audits/2026-10-17-test-plan.md`). `cargo clippy --all-targets -- -D warnings` must be clean (CI fails otherwise). Check the JS with `node --check ui/js/*.js`.
 - **Install and run:** Deck runs elevated, so installing needs admin. `Start-Process powershell -Verb RunAs -WindowStyle Hidden -File tools\testing\elev-install.ps1` (one UAC prompt unless UAC is off). That script quits Deck, runs `install.ps1 -NoBuild`, and starts Deck **with the CDP debug port 9222**. Always finish with `tools\testing\restart-normal.ps1`, **run elevated as well** (`Start-Process powershell -Verb RunAs -File ...`; from a normal shell its `--quit` can't reach the elevated Deck, so the debug instance silently keeps running). It quits Deck and runs the `\Deck\Open` task. Then check that port 9222 is no longer listening.
   - In Git Bash, run `powercfg` and `schtasks` with `MSYS_NO_PATHCONV=1`, because Git Bash rewrites `/flags` and `\paths`.
 - **Live testing** (`tools\testing\`):
@@ -184,6 +184,10 @@ Every way of switching runs the same code:
 
 ### In-game overlay (RTSS)
 - Deck writes its text into one RTSS overlay slot (owner "Deck"). RTSS draws it and fills in FPS and frame time.
+  - The text goes into `szOSDEx2` (32 KB, after the 256 KB object buffer) on shared memory v2.20+ (RTSS 7.3.5+), as RTSS's own Overlay Editor writes it, else `szOSDEx` (4 KB); both are cleared on every write (`text_field`). Text that doesn't fit loses whole lines at its end (`fit_lines`; `rtss_state.trimmed`), never half a tag.
+  - **Which game:** the frame loop follows the app whose frametime ring moved in the last 2 s (RTSS's foreground app first) and keys its figures on (slot, process), so a new game in a reused slot starts over. `fps_at` takes FPS, frametime and the game RAM's process from that same app (else RTSS's foreground app, else the fastest), and skips any app whose last framerate period (`dwTime1`, `GetTickCount` ms) ended over 2.5 s ago (`STALE_MS`): RTSS keeps an app's last numbers after it stops drawing.
+  - The preview's API and resolution are the game's own (`game_info_at`: the low word of the app entry's `dwFlags` at 264, `dwResolutionX/Y` at 9224 on v2.20+); "–" with no game. The 1 % / 0.1 % lows are the average of the slowest 1 % / 0.1 % of frames over `stats_secs` (checked against a 60 s count straight from RTSS's ring: 119 avg / 62 low both ways).
+  - **Graph looks** (`graph_look`): *modern* (default) adds a line `FT  <OBJ> <FT> ms` with the label padded to the labels' width, `RTSS_EMBEDDED_OBJECT_GRAPH_FLAG_BGND` (16), the width the line leaves, and Deck's own top at twice the median point (no autoscale). *classic* is the graph alone under the text, autoscaled to 1.25 × the slowest point.
 - Deck also publishes Afterburner's `MAHMSharedMemory`, so RTSS OverlayEditor's "MSI Afterburner" data source keeps working.
 - The items and keys are set on the **Overlay** page (Monitor → Overlay). It has three parts. A strip with `osd_on`, RivaTuner's state, the show/hide key and the frame limiter (limit, on/off, key). The preview, pinned while the page scrolls, with the quick looks under it. Tabbed settings: Items · Layout · Look · Colours · Graph · Warnings · Behaviour. The open tab is kept per viewer in `localStorage` (`deck.ovTab`).
 - Settings: `osd_on`, `rtss_autostart`, `rtss_tray_hidden`, `osd_hotkey`, `osd_reset_hotkey`, `limiter_hotkey`.
@@ -191,7 +195,7 @@ Every way of switching runs the same code:
   - On/off is RTSSHooks' `LIMITER_DISABLED` flag. Deck sets it in both copies: the 64-bit RTSSHooks64.dll, which Deck loads itself, and the 32-bit one through `rtss-osd32.exe`. RivaTuner's window and 32-bit games use the 32-bit copy.
   - The state is read from the 64-bit hooks, then the helper, then what the key set last.
   - The limit is written to `Profiles\Global` (`[Framerate] Limit`), then set through the hooks' profile calls (`LoadProfile("")`, `SetProfileProperty("FramerateLimit")`, `SaveProfile`, `UpdateProfiles`), so a running RivaTuner uses it at once.
-- **RivaTuner's tray icon** (`rtss_tray_hidden`): RivaTuner has no setting for it, so Deck removes the icon itself with `Shell_NotifyIcon(NIM_DELETE)`. RivaTuner's icon belongs to its window titled "RivaTunerStatisticsServer", with that window's handle as the icon id. The rtss loop repeats this every 5 s, because RivaTuner adds the icon back when it or Explorer restarts. Posting `TaskbarCreated` to that window brings the icon back with no restart. **Open RivaTuner** restarts RivaTuner. Its window is drawn properly only when RivaTuner opens it itself, on start or from its tray icon; shown from outside it stays black, and the tray icon can't be clicked from outside. With RivaTuner's own *Start minimized* on (`StartMinimized=1` under `[Settings]` in `Profiles\Config`) a fresh start stays in the tray, so Deck sets it to 0 for that start, waits until the main window is visible, and sets it back to 1. A running game's overlay blinks for a moment.
+- **RivaTuner's tray icon** (`rtss_tray_hidden`): RivaTuner has no setting for it, so Deck removes the icon itself with `Shell_NotifyIcon(NIM_DELETE)`. RivaTuner's icon belongs to its window titled "RivaTunerStatisticsServer", with that window's handle as the icon id. The rtss loop repeats this every 5 s, because RivaTuner adds the icon back when it or Explorer restarts; the window is found by title with `EnumWindows` (it used to start `tasklist` each time). RTSS.exe is found through `HKLM\SOFTWARE\WOW6432Node\Unwinder\RTSS` `InstallPath`, else the default folder. Posting `TaskbarCreated` to that window brings the icon back with no restart. **Open RivaTuner** restarts RivaTuner. Its window is drawn properly only when RivaTuner opens it itself, on start or from its tray icon; shown from outside it stays black, and the tray icon can't be clicked from outside. With RivaTuner's own *Start minimized* on (`StartMinimized=1` under `[Settings]` in `Profiles\Config`) a fresh start stays in the tray, so Deck sets it to 0 for that start, waits until the main window is visible, and sets it back to 1. A running game's overlay blinks for a moment.
 
 ---
 
@@ -241,7 +245,7 @@ Every way of switching runs the same code:
 
 ```powershell
 cd src-tauri
-cargo test                # 223 tests (+31 ignored live tests)
+cargo test                # 232 tests (+31 ignored live tests)
 cargo clippy --all-targets -- -D warnings   # must be clean; CI enforces it
 cargo build --release     # set CARGO_TARGET_DIR to build elsewhere
 ..\install.ps1 -NoBuild   # elevates itself, quits Deck, copies to Program Files, (re)creates the tasks

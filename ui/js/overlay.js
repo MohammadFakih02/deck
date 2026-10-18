@@ -15,7 +15,7 @@ export const OV_DEF = {
   gpu_color: "76B900", cpu_color: "4FA3FF", ram_color: "C77DFF", fps_color: "FFD60A", info_color: "9AA3B5",
   warn: true, warn_gpu_temp: 85, warn_cpu_temp: 90, warn_fps: 0, cores_per_row: 8, mem_unit: "MB", stats_secs: 60,
   corner: "tr", margin_x: 1, margin_y: 1, zoom: 2, shadow: true, box_on: false, box_opacity: 50, font: "Unispace", bold: false,
-  graph: false, graph_w: 32, graph_h: 4, graph_style: 0, graph_max: 0, graph_fit: true, graph_secs: 10, graph_smooth: true, color_bar: false, fit: false, int_fps: true, all_games: true,
+  graph: false, graph_w: 32, graph_h: 4, graph_style: 0, graph_max: 0, graph_fit: true, graph_secs: 10, graph_smooth: true, graph_look: "modern", color_bar: false, fit: false, int_fps: true, all_games: true,
 };
 
 export const OV_FONTS = ["Unispace", "Consolas", "Lucida Console", "Courier New", "Cascadia Mono", "Segoe UI", "Tahoma", "Arial", "Verdana", "Calibri"];
@@ -106,20 +106,27 @@ export function ovColorField(title, key, st) {
 
 // ------------------------------------------------------------------- the preview
 
-/** The frametime graph in the preview: the game's last frames when one is running, else a made-up trace. */
-export function ovGraphSvg(st, ms) {
+/** The frametime graph in the preview, from the game's real frames (the points the overlay gets).
+ *  No game drawing: an empty graph, never a made-up trace. Scaled like the overlay: modern to twice
+ *  the typical frame, classic to the slowest point. */
+export function ovGraphSvg(st) {
   const r0 = S.cache.rtss || {};
-  const real = (r0.graph || []).length >= 20 ? r0.graph : (r0.ft_recent || []).slice(-120);
-  const n = real.length >= 20 ? real.length : 60, base = Math.max(1, ms || 7);
-  const top = st.graph_max || (real.length >= 20 ? Math.max(...real) * 1.2 : base * 2.4);
-  let pts = "";
-  for (let i = 0; i < n; i++) {
-    const spike = i % 17 === 9 ? 1.9 : 1 + 0.12 * Math.sin(i * 1.7) + 0.08 * Math.sin(i * 0.6);
-    const v = Math.min(1, (real.length >= 20 ? real[i] : base * spike) / top);
-    pts += `${(i / (n - 1)) * 100},${100 - v * 96} `;
+  const real = (r0.graph || []).length >= 2 ? r0.graph : (r0.ft_recent || []).slice(-120);
+  if (real.length < 2) return `<svg viewBox="0 0 100 100" preserveAspectRatio="none"></svg>`;
+  const sorted = [...real].sort((a, b) => a - b);
+  const top = st.graph_max || (st.graph_look === "classic" ? Math.max(4, sorted[sorted.length - 1] * 1.25) : Math.max(4, sorted[sorted.length >> 1] * 2));
+  const n = real.length;
+  const y = (v) => 100 - Math.min(1, v / top) * 96;
+  let shape;
+  if (st.graph_style === 2) {
+    const w = 100 / n;
+    shape = real.map((v, i) => `<rect x="${i * w}" y="${y(v)}" width="${Math.max(0.4, w * 0.7)}" height="${100 - y(v)}" fill="currentColor"/>`).join("");
+  } else {
+    const pts = real.map((v, i) => `${(i / (n - 1)) * 100},${y(v)}`).join(" ");
+    shape = `<polyline points="${pts}" fill="none" stroke="currentColor" stroke-width="2.4" vector-effect="non-scaling-stroke"/>`
+      + (st.graph_style === 1 ? `<polygon points="0,100 ${pts} 100,100" fill="currentColor" opacity=".35"/>` : "");
   }
-  const fill = st.graph_style === 1 ? `<polygon points="0,100 ${pts}100,100" fill="currentColor" opacity=".35"/>` : "";
-  return `<svg viewBox="0 0 100 100" preserveAspectRatio="none"><polyline points="${pts}" fill="none" stroke="currentColor" stroke-width="2.4" vector-effect="non-scaling-stroke"/>${fill}</svg>`;
+  return `<svg viewBox="0 0 100 100" preserveAspectRatio="none">${shape}</svg>`;
 }
 
 /** Downloads and installs RivaTuner through winget (from Guru3D), then refreshes the page. */
@@ -161,10 +168,21 @@ export function ovScreen(st) {
         h("span", { class: "ov-v" }, p.t),
         p.u ? h("span", { class: "ov-u " + st.units }, " " + p.u) : null,
         i < l.parts.length - 1 ? "  " : null))));
-    if (st.graph && nodes.length) {
+    if (st.graph && nodes.length && st.graph_look === "classic") {
       const g = h("div", { class: "ov-graph" + (st.graph_fit ? " fit" : "") + (gc ? " g7" : ""), style: { width: st.graph_fit ? "" : st.graph_w * 1.6 + "px", height: st.graph_h * 4 + "px" } });
-      g.innerHTML = ovGraphSvg(st, (S.cache.rtss || {}).frametime);
+      g.innerHTML = ovGraphSvg(st);
       nodes.push(g);
+    } else if (st.graph && nodes.length) {
+      // modern: "FT  [graph on its panel] 8.3 ms", the graph from the values' column to the line's end
+      const ft = (S.cache.rtss || {}).frametime;
+      const pad = st.labels ? Math.max(2, ...lines.map((l) => (l.label || "").length)) : 0;
+      const g = h("span", { class: "ov-graph modern", style: { height: st.graph_h * 4 + "px", width: st.graph_fit ? "" : st.graph_w * 1.6 + "px" } });
+      g.innerHTML = ovGraphSvg(st);
+      nodes.push(h("div", { class: "ov-ln ov-gline" + (gc ? " g7" : "") + (st.graph_fit ? " fit" : ""),
+        style: gc ? { color: "var(--g7)" } : { color: "var(--lc)" } },
+        st.labels ? h("span", { class: "ov-l" }, "FT".padEnd(pad) + "  ") : null,
+        g,
+        h("span", { class: "ov-p" }, " ", h("span", { class: "ov-v" }, ft != null ? ft.toFixed(1) : "–"), st.units !== "off" ? h("span", { class: "ov-u " + st.units }, " ms") : null)));
     }
     body.replaceChildren(...(nodes.length ? nodes : [h("div", { class: "ov-ln ov-l" }, "Nothing selected yet")]));
     // a tall overlay shrinks to fit the little screen (the real one is drawn at full size)
@@ -429,7 +447,9 @@ export function ovGraphTab(st) {
   return [
     ovSwitch("Frametime graph", "How long the game's frames take, drawn under the text", st.graph, (v) => put({ graph: v }), "ov.graph"),
     st.graph ? [
-      ovRow("Width", seg([[true, "Fit the overlay"], [false, "Set it"]], st.graph_fit, (v) => put({ graph_fit: v })), null, "ov.graph_fit"),
+      ovRow("Look", seg([["modern", "Modern"], ["classic", "Classic"]], st.graph_look === "classic" ? "classic" : "modern", (v) => put({ graph_look: v })),
+        st.graph_look === "classic" ? "The bare graph under the text, scaled to the slowest frame" : "A line of its own on a dark panel, with the live frametime; scaled to typical frames so hitches stand out", "ov.graph_look"),
+      ovRow("Width", seg([[true, st.graph_look === "classic" ? "Fit the overlay" : "Fill the line"], [false, "Set it"]], st.graph_fit, (v) => put({ graph_fit: v })), null, "ov.graph_fit"),
       !st.graph_fit ? sliderRow("Width", st.graph_w, 8, 128, 2, " chars", (v) => put({ graph_w: v })) : null,
       sliderRow("Height", st.graph_h, 1, 24, 1, " lines", (v) => put({ graph_h: v })),
       ovRow("Style", seg([[0, "Lines"], [1, "Filled"], [2, "Bars"]], st.graph_style === 3 ? 0 : st.graph_style, (v) => put({ graph_style: v }))),

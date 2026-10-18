@@ -489,7 +489,13 @@ export const HELP = {
     t: "Frametime graph",
     what: "A line of how long the game's frames take, drawn by RivaTuner under the overlay text. Deck feeds it a steady number of points a second, so it scrolls at the same pace at 60 or 1000 FPS.",
     why: "Stutter shows up as spikes even when the framerate number looks fine.",
-    change: "Width and height are in characters and lines of the overlay text. Graph top auto follows the slowest point.",
+    change: "Width and height are in characters and lines of the overlay text. With the top on auto, the modern look puts it at twice a typical frame and the classic look at the slowest point.",
+  },
+  "ov.graph_look": {
+    t: "Graph look",
+    what: "Modern: the graph on a line of its own, labelled FT like the other lines, on a dark panel, with the live frametime at its end. Classic: the bare graph under the text, as Deck drew it before.",
+    why: "With the top at twice a typical frame, normal frames sit mid-height and a hitch shoots up. Scaled to the slowest frame (classic), one big hitch squashes every other frame into a flat line at the bottom.",
+    change: "Both use your style (lines, filled or bars), height, width and the time they cover.",
   },
   "ov.graph_fit": {
     t: "Graph width",

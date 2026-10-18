@@ -65,8 +65,6 @@ pub struct Cpu {
     threads: crate::hw::sysmon::ThreadLoad,
     /// Windows "% Processor Performance" counter (PDH query, counter): the clock when the MSR driver is not available
     clk: (usize, usize),
-    /// Windows "Processor Frequency" (each logical processor's nominal clock), for `clk`
-    nominal: (usize, usize),
     /// this tick's live clock of every logical processor (`clock` reads it, `details` reuses it)
     mhz: Vec<Option<f32>>,
 }
@@ -75,58 +73,67 @@ pub struct Cpu {
 pub fn core_mhz(mask: u64, threads: &[Option<f32>]) -> Option<f32> {
     (0..64usize).filter(|b| mask & (1u64 << b) != 0).filter_map(|b| threads.get(b).copied().flatten()).reduce(f32::max)
 }
-
-/// The real clock of each logical processor in MHz, in logical-processor order (None: no reading
-/// yet): the base clock times its "% Processor Performance" (above 100 while boosting). That
-/// percentage is measured against the base clock on every core, also on E-cores, whose own
-/// "Processor Frequency" is lower (2600 vs 3500 on an i5-14600KF): multiplying by that read an
-/// E-core at 4.0 GHz as 2.97. The base clock is the highest "Processor Frequency". The CurrentMhz
-/// Windows hands out elsewhere (and `sysinfo` passes on) never leaves the nominal clock.
-pub fn thread_mhz(nominal: &[(String, f64)], perf: &[(String, f64)]) -> Vec<Option<f32>> {
+/// Live clock of each logical processor in MHz, in processor order (totals left out; nothing
+/// until Windows has a performance reading): the base clock times its "% Processor Performance"
+/// (above 100 while boosting). That percentage is measured against the base clock on every core,
+/// also on E-cores (an E-core at 114 % on an i5-14600KF runs at 4000 MHz). The base is fixed
+/// (`base_mhz`): Windows' "Processor Frequency" counter is the current nominal clock, which a
+/// power plan moves (2784 in a game, E-cores 2600), and every clock came out 20 % low against it.
+pub fn thread_mhz(base: f64, perf: &[(String, f64)]) -> Vec<Option<f32>> {
     // instances are "group,number"; "_Total" and "group,_Total" are sums
     let key = |n: &str| {
         let (g, i) = n.split_once(',')?;
         Some((g.parse::<u32>().ok()?, i.parse::<u32>().ok()?))
     };
-    let mut cpus: Vec<((u32, u32), f64)> = nominal.iter().filter_map(|(n, v)| Some((key(n)?, *v))).collect();
+    let mut cpus: Vec<((u32, u32), f64)> = perf.iter().filter_map(|(n, v)| Some((key(n)?, *v))).collect();
     cpus.sort_by_key(|c| c.0);
-    let base = cpus.iter().map(|c| c.1).fold(0.0, f64::max);
-    cpus.iter().map(|(k, _)| perf.iter().find(|(n, _)| key(n) == Some(*k)).map(|(_, p)| (base * p / 100.0).round() as f32)).collect()
+    cpus.iter().map(|(_, p)| (base > 0.0).then(|| (base * p / 100.0).round() as f32)).collect()
+}
+
+/// The CPU's base clock in MHz: the highest MaxMhz Windows gives any logical processor (the same
+/// on P- and E-cores; it never moves), 0 when Windows doesn't say.
+pub fn base_mhz() -> f64 {
+    static BASE: std::sync::OnceLock<f64> = std::sync::OnceLock::new();
+    *BASE.get_or_init(|| {
+        use windows_sys::Win32::System::Power::{CallNtPowerInformation, ProcessorInformation, PROCESSOR_POWER_INFORMATION};
+        let n = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1);
+        let mut buf: Vec<PROCESSOR_POWER_INFORMATION> = vec![unsafe { std::mem::zeroed() }; n];
+        let st = unsafe { CallNtPowerInformation(ProcessorInformation, std::ptr::null(), 0, buf.as_mut_ptr() as *mut _, (n * std::mem::size_of::<PROCESSOR_POWER_INFORMATION>()) as u32) };
+        if st != 0 {
+            return 0.0;
+        }
+        buf.iter().map(|p| p.MaxMhz as f64).fold(0.0, f64::max)
+    })
 }
 
 /// Live clock of every logical processor (no admin rights needed), see `thread_mhz`.
 pub struct ThreadClocks {
-    nominal: (usize, usize),
     perf: (usize, usize),
 }
 
 impl ThreadClocks {
     pub fn open() -> ThreadClocks {
-        ThreadClocks { nominal: pdh_open(r"\Processor Information(*)\Processor Frequency"), perf: pdh_open(r"\Processor Information(*)\% Processor Performance") }
+        ThreadClocks { perf: pdh_open(r"\Processor Information(*)\% Processor Performance") }
     }
 
     /// Since the previous read (the first one gives nothing: performance is measured between two reads).
     pub fn read(&self) -> Vec<Option<f32>> {
-        thread_mhz(&pdh_values(self.nominal), &pdh_values(self.perf))
+        thread_mhz(base_mhz(), &pdh_values(self.perf))
     }
 }
 
 impl Drop for Cpu {
     fn drop(&mut self) {
-        for (q, _) in [self.clk, self.nominal] {
-            if q != 0 {
-                unsafe { windows_sys::Win32::System::Performance::PdhCloseQuery(q as _) };
-            }
+        if self.clk.0 != 0 {
+            unsafe { windows_sys::Win32::System::Performance::PdhCloseQuery(self.clk.0 as _) };
         }
     }
 }
 
 impl Drop for ThreadClocks {
     fn drop(&mut self) {
-        for (q, _) in [self.nominal, self.perf] {
-            if q != 0 {
-                unsafe { windows_sys::Win32::System::Performance::PdhCloseQuery(q as _) };
-            }
+        if self.perf.0 != 0 {
+            unsafe { windows_sys::Win32::System::Performance::PdhCloseQuery(self.perf.0 as _) };
         }
     }
 }
@@ -221,7 +228,7 @@ impl Cpu {
             },
             _ => (CpuTemp::None, Some(format!("CPU temperature not supported for this CPU ({})", brand))),
         };
-        let mut c = Cpu { t, prev: None, brand, error, cores: crate::hw::sysmon::cores(), energy_unit: 0.0, last_energy: None, threads: crate::hw::sysmon::ThreadLoad::new(), clk: pdh_open(r"\Processor Information(*)\% Processor Performance"), nominal: pdh_open(r"\Processor Information(*)\Processor Frequency"), mhz: vec![] };
+        let mut c = Cpu { t, prev: None, brand, error, cores: crate::hw::sysmon::cores(), energy_unit: 0.0, last_energy: None, threads: crate::hw::sysmon::ThreadLoad::new(), clk: pdh_open(r"\Processor Information(*)\% Processor Performance"), mhz: vec![] };
         // RAPL energy unit (Intel 0x606, AMD 0xC0010299): joules = count / 2^bits[12:8]
         let unit_msr = match &c.t {
             CpuTemp::Intel { m, .. } => m.exec("ioctl_read_msr", &[0x606], 1).ok(),
@@ -331,10 +338,9 @@ impl Cpu {
         }
     }
 
-    /// Fastest live thread clock in MHz, from Windows (each thread against its own nominal clock:
-    /// an E-core's is lower than the P-cores' base). Also keeps every thread's clock for `details`.
+    /// Fastest live thread clock in MHz, from Windows (see `thread_mhz`). Also keeps every thread's clock for `details`.
     pub fn clock(&mut self) -> Option<u32> {
-        self.mhz = thread_mhz(&pdh_values(self.nominal), &pdh_values(self.clk));
+        self.mhz = thread_mhz(base_mhz(), &pdh_values(self.clk));
         let best = self.mhz.iter().flatten().fold(0.0f32, |a, b| a.max(*b));
         (best > 1.0).then(|| best.round() as u32)
     }
@@ -559,20 +565,27 @@ mod clock_tests {
 
     #[test]
     fn every_thread_counts_against_the_base_clock() {
-        // Windows reports P-cores at 3500 and E-cores at 2600 nominal, but "% Processor Performance"
-        // is measured against the base clock (3500 on an i5-14600KF) on every core: an E-core at
-        // 114 % runs at 4000 MHz (its own register said 40x), not 2964
-        let nominal = named(&[("0,1", 3500.0), ("0,0", 3500.0), ("0,2", 2600.0), ("0,_Total", 3500.0), ("_Total", 3500.0)]);
+        // "% Processor Performance" is measured against the base clock (3500 on an i5-14600KF) on
+        // every core: an E-core at 114 % runs at 4000 MHz (its own register said 40x), not 2964
         let perf = named(&[("0,2", 114.3), ("0,0", 91.0), ("0,1", 150.0), ("_Total", 100.0), ("0,_Total", 100.0)]);
-        assert_eq!(thread_mhz(&nominal, &perf), vec![Some(3185.0), Some(5250.0), Some(4001.0)], "in logical-processor order, totals left out");
+        assert_eq!(thread_mhz(3500.0, &perf), vec![Some(3185.0), Some(5250.0), Some(4001.0)], "in logical-processor order, totals left out");
+    }
+
+    /// Windows' "Processor Frequency" is the current nominal clock, not the base: in a game under a
+    /// power plan it read 2784 (E-cores 2600) while the base stayed 3500, and every clock came out
+    /// 20 % low (2150 MHz where HWiNFO showed 27 x 99.8 = 2693).
+    #[test]
+    fn the_base_is_fixed_whatever_windows_calls_the_current_clock() {
+        let perf = named(&[("0,0", 76.9), ("0,12", 79.8)]);
+        assert_eq!(thread_mhz(3500.0, &perf), vec![Some(2692.0), Some(2793.0)]);
+        assert!(thread_mhz(0.0, &perf).iter().all(|m| m.is_none()), "no base known: no clock rather than a made-up one");
     }
 
     #[test]
-    fn processor_groups_come_in_order_and_gaps_stay_empty() {
-        let nominal = named(&[("1,0", 3000.0), ("0,1", 3000.0), ("0,0", 3000.0)]);
-        let perf = named(&[("1,0", 50.0), ("0,0", 100.0)]);
-        assert_eq!(thread_mhz(&nominal, &perf), vec![Some(3000.0), None, Some(1500.0)], "no performance reading yet: no clock rather than a made-up one");
-        assert!(thread_mhz(&[], &perf).is_empty());
+    fn processor_groups_come_in_order() {
+        let perf = named(&[("1,0", 50.0), ("0,1", 0.0), ("0,0", 100.0)]);
+        assert_eq!(thread_mhz(3000.0, &perf), vec![Some(3000.0), Some(0.0), Some(1500.0)]);
+        assert!(thread_mhz(3000.0, &[]).is_empty());
     }
 
     /// A core runs at the clock of its busiest thread; the ratio register it used to come from

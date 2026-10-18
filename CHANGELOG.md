@@ -2,6 +2,21 @@
 
 All notable changes to Deck. Setups for each version are on the [Releases](https://github.com/MohammadFakih02/deck/releases) page.
 
+## Unreleased
+
+### Fixed
+- **CPU clocks read about 20 % low under some power plans.** Deck measured against Windows' "current" CPU clock, which a power plan lowers, instead of the CPU's fixed base clock. In a game, cores at 2.69 GHz (HWiNFO) showed 2.15 GHz on the overlay, the CPU page and Sensors. Now checked against HWiNFO core by core.
+- **The overlay's framerate could come from a different program than its lows and average**, for example a launcher drawing faster than the game. FPS, frametime, game RAM and the framerate figures now all follow the same game.
+- **The framerate no longer stays frozen** on a game that stopped drawing (alt-tabbed, paused or closed).
+- **A new game no longer starts with the previous game's frames** in its average and lows.
+- **The preview's API and resolution are the game's own.** They used to say "D3D12" and the desktop's size for every game. With no game, the preview's graph is empty instead of a made-up line.
+- **Long overlays are no longer cut off in the middle.** RivaTuner 7.3.5 and newer get the 32 KB text field; on older versions, whole lines are left off the end instead of breaking the colours of everything after the cut.
+- **Hiding RivaTuner's tray icon no longer starts a process every 5 seconds**, also while gaming.
+- **RivaTuner installed outside its default folder is found.**
+
+### Changed
+- **A modern frametime graph** (Overlay → Graph → Look): on a line of its own, labelled FT like the other lines, on a dark panel, with the live frametime at its end. It's scaled to typical frames, so hitches stand out instead of one big hitch flattening the whole line. **Classic** keeps the old graph.
+
 ## 2.5.8 — 2026-10-18
 
 ### Changed
