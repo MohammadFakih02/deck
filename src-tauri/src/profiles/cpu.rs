@@ -103,8 +103,17 @@ fn plan_values(p: &CpuProfile, prev: Option<&CpuProfile>, battery_too: bool) -> 
     out
 }
 
+/// The profile as it acts on this CPU: caps at its top turbo are no caps (`without_silent_caps`),
+/// once the top turbo is known (CPUID or the CPU's registers, never an estimate).
+pub fn effective(p: &CpuProfile) -> CpuProfile {
+    let lim = crate::hw::cpupower::limits();
+    p.without_silent_caps(if lim.turbo_known { lim.turbo.max(0) as u32 } else { 0 })
+}
+
 /// Writes a profile's values into its plan (see `plan_values`).
 pub fn write_plan(p: &CpuProfile, prev: Option<&CpuProfile>, battery_too: bool) -> Result<GUID, String> {
+    let (p, prev) = (&effective(p), prev.map(effective));
+    let prev = prev.as_ref();
     let g = plans::parse(&p.plan).ok_or("This profile has no Windows power plan.")?;
     for (s, v, dc) in plan_values(p, prev, battery_too) {
         if dc {
@@ -263,6 +272,8 @@ fn power_mode(p: &Option<CpuPower>) -> (i32, i32, i32) {
 /// Applies the extras (everything that is not a plan value). Called after the plan switched,
 /// by Deck or by something else. Returns notes for the toast.
 pub fn apply_extras(app: &App, p: Option<&CpuProfile>) -> Vec<String> {
+    let p = p.map(effective);
+    let p = p.as_ref();
     let mut notes = vec![];
     game_mode(app, p.map(|p| p.hold_in_games && capped(p)).unwrap_or(false));
     let Some(sh) = hw(app) else {

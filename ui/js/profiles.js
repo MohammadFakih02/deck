@@ -8,7 +8,7 @@ import { head } from "./pages1.js";
 import { clearRamCard } from "./pages2.js";
 import { curveEditor, niceSteps, placeTip } from "./curve.js";
 import { hotkeyField, selectBox } from "./hw.js";
-import { render } from "./app.js";
+import { go, render } from "./app.js";
 
 
 export const TURBO = [[0, "Off"], [1, "On"], [2, "Aggressive"], [3, "Efficient"], [4, "Efficient aggressive"]];
@@ -26,8 +26,9 @@ export function popMenu(anchor, items) {
 export function profileCard(kind, x, active, opts) {
   const p = x.p;
   const hk = p.hotkey ? h("span", { class: "chip sm-chip2" + (x.hotkey_state === "busy" ? " warn" : ""), title: x.hotkey_state === "busy" ? "In use by another program (Deck keeps trying)" : "Keyboard shortcut" }, I("keyboard"), p.hotkey.replaceAll("+", " + ")) : null;
-  const more = h("button", { class: "icon-btn sm more", title: "More", onclick: (e) => { e.stopPropagation(); popMenu(e.currentTarget, opts.menu()); } }, I("more"));
-  return h("div", { class: "prof-card" + (active ? " on" : ""), onclick: () => opts.switchTo() },
+  const more = h("button", { class: "icon-btn sm more", title: "More", "aria-label": "More for " + p.name, onclick: (e) => { e.stopPropagation(); popMenu(e.currentTarget, opts.menu()); } }, I("more"));
+  const edit = opts.edit ? h("button", { class: "icon-btn sm more" + (opts.editing ? " on" : ""), title: "Edit", "aria-label": "Edit " + p.name, onclick: (e) => { e.stopPropagation(); opts.edit(); } }, I("edit")) : null;
+  return h("div", { class: "prof-card" + (active ? " on" : "") + (opts.editing ? " editing" : ""), onclick: () => opts.switchTo() },
     x.icon_url ? h("img", { class: "prof-ic", src: x.icon_url, alt: "" }) : h("div", { class: "prof-ic ph" }, (p.name || "?")[0]),
     h("div", { class: "grow", style: { minWidth: 0 } },
       h("div", { class: "row", style: { gap: "6px" } }, h("b", { class: "ell" }, p.name), active ? h("span", { class: "chip on sm-chip2" }, "On") : null),
@@ -37,7 +38,7 @@ export function profileCard(kind, x, active, opts) {
         p.start_menu ? h("span", { class: "chip sm-chip2", title: "Start menu shortcut" }, I("grid")) : null,
         x.plan_missing && kind === "cpu" ? h("span", { class: "chip warn sm-chip2" }, "Plan missing") : null,
         x.risky ? h("span", { class: "chip warn sm-chip2", title: "Overclock: not re-applied automatically after an unexpected restart" }, "OC") : null)),
-    more);
+    edit, more);
 }
 
 export async function switchProfile(kind, id) {
@@ -110,7 +111,13 @@ export function pushHist(h, vals) {
 // -------------------------------------------------------------------- CPU
 
 Pages.cpu = {
-  async load() { S.cache.cpu = await invoke("cpu_state"); S.cache.cpuLive = await invoke("cpu_live").catch(() => null); },
+  async load() {
+    S.cache.cpu = await invoke("cpu_state");
+    S.cache.cpuLive = await invoke("cpu_live").catch(() => null);
+    // an open editor whose profile is gone (deleted elsewhere) closes
+    const ed = S.cache.cpuEdit;
+    if (ed && !S.cache.cpu.profiles.some((x) => x.p.id === ed.id)) S.cache.cpuEdit = null;
+  },
   async tick() {
     S.cache.cpuLive = await invoke("cpu_live").catch(() => null);
     pushHist(S.cache.cpuHist ||= {}, { mhz: S.cache.cpuLive?.mhz, temp: S.cache.cpuLive?.temp, load: S.cache.cpuLive?.load, power: S.cache.cpuLive?.power });
@@ -121,58 +128,132 @@ Pages.cpu = {
   render() {
     const st = S.cache.cpu;
     S.cache.cpuUpd = [];
-    const el = h("div", null, head("CPU", "Profiles switch the Windows power plan plus Deck's extras (power limits, clock lock). Click one to switch.",
-      st ? h("button", { class: "btn", onclick: adoptPlans }, I("download"), "Use my existing plans") : null,
+    const el = h("div", null, head("CPU", "Click a profile to switch to it. Each one is a Windows power plan plus Deck's extras: power limits, a clock floor, an overclock.",
+      st ? h("button", { class: "btn ghost", onclick: adoptPlans }, I("download"), "Use my existing plans") : null,
       st ? helpTip("cpu.adopt") : null,
       st ? h("button", { class: "btn primary", onclick: newCpuProfile }, I("plus"), "New profile") : null));
     if (!st) return el.append(h("div", { class: "empty" }, "Loading…")), el;
-    // live strip
-    const L = () => S.cache.cpuLive || {};
-    const lv = (fn) => liveSpan(fn, S.cache.cpuUpd);
-    const hist = (S.cache.cpuHist ||= {});
-    const vital = (label, fn, key, color, max, sub) => {
-      const cv = h("canvas");
-      const draw = () => spark(cv, hist[key], max, color);
-      S.cache.cpuUpd.push(draw);
-      requestAnimationFrame(draw);
-      return h("div", { class: "vital" }, h("div", { class: "k" }, label), h("div", { class: "v" }, lv(fn)), sub ? h("div", { class: "s" }, sub) : null, cv);
-    };
-    const acc = accent();
-    el.append(h("div", { class: "section" }, h("h2", null, "Right now", helpTip("cpu.vitals"))));
-    el.append(h("div", { class: "live-strip" },
-      vital("Clock", () => (L().mhz ? fmtClock(L().mhz) : "–"), "mhz", acc, st.limits?.turbo || 0),
-      vital("Temperature", () => fmtTemp(L().temp), "temp", "#ff9f43", 100),
-      vital("Load", () => (L().load != null ? Math.round(L().load) + "%" : "–"), "load", "#b98cff", 100),
-      vital("Power", () => (L().power != null ? Math.round(L().power) + " W" : "–"), "power", "#3ddc97", 0, lv(() => (L().power_short ? "limits " + L().power_short : "")))));
-    if (!st.admin) el.append(h("div", { class: "banner" }, I("info"), h("div", { class: "grow" }, "Plans and caps work now. Power limits, the clock lock and overclocking need Deck to run as admin."), h("button", { class: "btn sm", onclick: () => invoke("elevate_setup").catch((e) => note(String(e), true)) }, "Set up")));
+    const main = h("div", { class: "cpu-main" });
+    if (!st.admin) main.append(h("div", { class: "banner" }, I("info"), h("div", { class: "grow" }, "Plans and caps work now. Power limits, live per-core clocks, the clock floor and overclocking need Deck to run as admin."), h("button", { class: "btn sm", onclick: () => invoke("elevate_setup").catch((e) => note(String(e), true)) }, "Set up")));
+    const ed = S.cache.cpuEdit;
     if (!st.profiles.length) {
-      el.append(h("div", { class: "card col setup-card" },
+      main.append(h("div", { class: "card col setup-card" },
         h("div", { class: "boost-say" }, "No CPU profiles yet."),
         h("div", { class: "dim" }, "Turn power plans you already have into profiles, or make a new one from the current plan."),
         h("div", { class: "row" }, h("button", { class: "btn primary", onclick: adoptPlans }, "Use my existing plans"), h("button", { class: "btn", onclick: newCpuProfile }, "New profile"))));
     } else {
-      el.append(h("div", { class: "section" }, h("h2", null, "Profiles", helpTip("cpu.profiles"))));
-      el.append(h("div", { class: "prof-grid" }, st.profiles.map((x) => profileCard("cpu", x, x.p.id === st.active, {
+      main.append(h("div", { class: "section" }, h("h2", null, "Profiles", helpTip("cpu.profiles"))));
+      main.append(h("div", { class: "prof-grid" }, st.profiles.map((x) => profileCard("cpu", x, x.p.id === st.active, {
+        editing: ed?.id === x.p.id,
+        edit: () => editCpu(x),
         switchTo: () => switchProfile("cpu", x.p.id),
-        menu: () => [["Edit…", () => editCpu(x)], ["Duplicate", async () => { await run("cpu_duplicate", { id: x.p.id }, "Copied"); await Pages.cpu.load(); render(); }],
+        menu: () => [["Edit", () => editCpu(x)], ["Duplicate", async () => { await run("cpu_duplicate", { id: x.p.id }, "Copied"); await Pages.cpu.load(); render(); }],
           ["Delete…", () => deleteCpu(x), true]],
       }))));
-      if (st.battery) el.append(...batteryProfiles(st));
+      if (ed) main.append(cpuEditor(st));
+      if (st.battery) main.append(...batteryProfiles(st));
     }
-    // in-game clock check
-    const c = st.clock;
-    el.append(h("div", { class: "section" }, h("h2", null, "In-game clock check", helpTip("cpu.clockcheck"))));
-    el.append(h("div", { class: "card row" }, I("gauge"),
+    main.append(...clockCheck(st));
+    main.append(h("div", { style: { marginTop: "14px" } }, clearRamCard()));
+    el.append(h("div", { class: "cpu-page" }, main, cpuRail(st)));
+    return el;
+  },
+};
+
+/** "Held at the power limit": under load, the package draws all the sustained (or burst) watts it may. */
+export function heldByPower(live) {
+  const l = live?.limits, w = live?.power;
+  if (!l || w == null || (live.load ?? 0) < 60 || l.pl1 >= 1000) return false;
+  return w >= l.pl1 * 0.95 || (l.pl2 > l.pl1 + 1 && w >= l.pl2 * 0.95);
+}
+
+/** The live column: clock, temperature, load, power against the limit in force, and every core. */
+function cpuRail(st) {
+  const L = () => S.cache.cpuLive || {};
+  const lv = (fn, cls) => liveSpan(fn, S.cache.cpuUpd, cls);
+  const hist = (S.cache.cpuHist ||= {});
+  const up = (f) => (S.cache.cpuUpd.push(f), f);
+  const cv = h("canvas", { class: "rail-spark", "aria-hidden": "true" });
+  const acc = accent();
+  up(() => spark(cv, hist.mhz, st.limits?.turbo || 0, acc));
+  requestAnimationFrame(() => spark(cv, hist.mhz, st.limits?.turbo || 0, acc));
+  const stat = (k, fn) => h("div", { class: "rail-stat" }, h("div", { class: "k" }, k), h("div", { class: "v" }, lv(fn)));
+  // power against the limit in force
+  const fill = h("i");
+  const bar = h("div", { class: "rail-bar", role: "meter", "aria-label": "Power against the sustained limit", "aria-valuemin": "0" }, fill);
+  const held = h("div", { class: "rail-held", hidden: true }, I("alert", "sm"), h("span", null, "Held at the power limit"));
+  up(() => {
+    const l = L().limits, w = L().power;
+    const pct = l && w != null ? Math.min(100, (w / Math.min(l.pl1, 1000)) * 100) : 0;
+    fill.style.transform = `scaleX(${pct / 100})`;
+    bar.setAttribute("aria-valuemax", String(Math.round(l?.pl1 ?? 0)));
+    bar.setAttribute("aria-valuenow", String(Math.round(w ?? 0)));
+    const isHeld = heldByPower(L());
+    held.hidden = !isHeld;
+    bar.classList.toggle("held", isHeld);
+  })();
+  const limitText = () => {
+    const l = L().limits;
+    if (!l) return st.admin ? "–" : "needs admin";
+    const fw = (x) => (x >= 1000 ? "no limit" : Math.round(x) + " W");
+    return Math.abs(l.pl1 - l.pl2) < 1 ? fw(l.pl1) : `${fw(l.pl1)} · ${fw(l.pl2)} burst`;
+  };
+  const source = () => (!L().limits ? "" : L().limits_by_deck ? "Set by the active profile" : "Set by your motherboard");
+  // cores
+  const cores = h("div", { class: "rail-cores", role: "list" });
+  const coresNote = h("div", { class: "faint small" });
+  const drawCores = () => {
+    const list = L().cores || [];
+    coresNote.textContent = list.length ? "" : st.admin ? "Starting…" : "Per-core clocks need Deck to run as admin.";
+    coresNote.hidden = !!list.length;
+    if (cores.childElementCount !== list.length) {
+      cores.replaceChildren(...list.map((c) => h("div", { class: "rc", role: "listitem" },
+        h("span", { class: "rc-n" }, c.n.replace("P-core ", "P").replace("E-core ", "E").replace("Core ", "C")),
+        h("span", { class: "rc-bar" }, h("i")),
+        h("span", { class: "rc-v num" }))));
+    }
+    list.forEach((c, i) => {
+      const row = cores.children[i];
+      row.title = `${c.n}: ${fmtClock(c.mhz)}, ${c.load != null ? Math.round(c.load) + "% load" : "load –"}${c.temp != null ? ", " + fmtTemp(c.temp) : ""}`;
+      row.querySelector(".rc-bar i").style.transform = `scaleX(${Math.max(0, Math.min(100, c.load ?? 0)) / 100})`;
+      row.querySelector(".rc-v").textContent = c.mhz ? fmtClock(c.mhz) : "–";
+    });
+  };
+  up(drawCores)();
+  return h("aside", { class: "cpu-rail", "aria-label": "Live CPU readings" },
+    h("div", { class: "rail-card" },
+      h("div", { class: "rail-h" }, h("span", null, "Right now"), helpTip("cpu.vitals")),
+      h("div", { class: "rail-clock" }, lv(() => (L().mhz ? fmtClock(L().mhz) : "–"), "num")),
+      cv,
+      h("div", { class: "rail-stats" },
+        stat("Temp", () => fmtTemp(L().temp)),
+        stat("Load", () => (L().load != null ? Math.round(L().load) + "%" : "–")),
+        stat("Power", () => (L().power != null ? Math.round(L().power) + " W" : "–"))),
+      h("div", { class: "rail-limit" },
+        h("div", { class: "rail-limit-h" }, h("span", null, "Power limit", helpTip("cpu.limit")), lv(limitText, "num")),
+        bar,
+        held,
+        h("div", { class: "rail-src faint small" }, lv(source, "")))),
+    h("div", { class: "rail-card" },
+      h("div", { class: "rail-h" }, h("span", null, "Cores"), h("span", { class: "faint small" }, "load · clock")),
+      coresNote,
+      cores));
+}
+
+/** In-game clock check: the real clock recorded while a game was in front. */
+function clockCheck(st) {
+  const c = st.clock;
+  return [
+    h("div", { class: "section" }, h("h2", null, "In-game clock check", helpTip("cpu.clockcheck"))),
+    h("div", { class: "card row" }, I("gauge"),
       c ? h("div", { class: "grow" },
         h("b", null, `${c.on ? "In game" : "Last game"}: average ${fmtClock(c.avg)}`, c.cap ? ` (cap ${fmtClock(c.cap)})` : "", ` · peak ${fmtClock(c.max)}`),
         h("div", { class: "dim small" }, [c.game, c.profile ? "profile " + c.profile : null, c.on ? "now" : c.ago_s != null ? ago(Date.now() - c.ago_s * 1000) : null].filter(Boolean).join(" · "),
           c.cap && c.avg > c.cap * 1.05 ? h("span", { class: "chip warn sm-chip2", style: { marginLeft: "8px" } }, "Above the cap") : null))
         : h("div", { class: "grow dim" }, "Play something with a capped profile on: Deck records the real clock while the game is in front, so you can check the cap without alt-tabbing."),
-      st.game_mode_off ? h("span", { class: "chip", title: "Windows Game Mode would lift the cap in games. It comes back when no capped profile is on." }, "Game Mode held off") : null));
-    el.append(h("div", { style: { marginTop: "14px" } }, clearRamCard()));
-    return el;
-  },
-};
+      st.game_mode_off ? h("span", { class: "chip", title: "Windows Game Mode would lift the cap in games. It comes back when no capped profile is on." }, "Game Mode held off") : null),
+  ];
+}
 
 /** PCs with a battery: a profile for plugged in and one for battery, switched when the power source changes. */
 export function batteryProfiles(st) {
@@ -228,60 +309,141 @@ export async function deleteCpu(x) {
   ]);
 }
 
+/** Opens a profile's settings on the page, below the profiles (a draft until Save). */
 export function editCpu(x) {
-  const st = S.cache.cpu, lim = st.limits;
+  const cur = S.cache.cpuEdit;
+  if (cur && cur.id !== x.p.id && JSON.stringify(cur.p) !== cur.orig) note(`Unsaved changes to "${cur.name}" were discarded`);
   const p = structuredClone(x.p);
-  const body = h("div");
-  const redraw = () => body.replaceChildren(cpuForm(p, st, lim, redraw));
-  redraw.icon = x.icon_url;
-  redraw();
-  modal("Edit CPU profile", body, (close) => [
-    h("span", { class: "dim small grow" }, x.plan_name ? "Windows plan: " + x.plan_name : ""),
-    h("button", { class: "btn ghost", onclick: close }, "Cancel"),
-    h("button", { class: "btn primary", onclick: async () => {
-      try {
-        const r = await invoke("cpu_save", { p });
-        close();
-        if (r.plan_error) note(r.plan_error, true);
-        else if (r.link_error) note("Saved, but the shortcut failed: " + r.link_error, true);
-        else note("Saved");
-      } catch (e) { note(String(e), true); return; }
-      await Pages.cpu.load(); render();
-    } }, "Save"),
-  ], { wide: true, keep: true });
+  S.cache.cpuEdit = { id: x.p.id, name: x.p.name, p, orig: JSON.stringify(p), icon: x.icon_url, advanced: S.cache.cpuEdit?.advanced || false };
+  if (S.page !== "cpu") go("cpu"); else render();
+  requestAnimationFrame(() => document.querySelector(".cpu-editor")?.scrollIntoView({ behavior: "smooth", block: "nearest" }));
 }
 
-export function cpuForm(p, st, lim, redraw) {
+/** The profile caps the clock: what "Hold the cap in games" protects. */
+const isCapped = (p) => p.cap_p != null || p.cap_e != null || p.max_state < 100 || p.turbo === 0;
+
+/** A slider whose one end means "off" ("No cap" at the top, "Off" at the bottom): no separate switch. */
+function endSlider({ label, help, value, min, max, step, offAt, offLabel, fmt, set }) {
+  const offV = offAt === "max" ? max : min;
+  const v = value == null ? offV : Math.max(min, Math.min(max, value));
+  const show = (x) => (x === offV ? offLabel : fmt(x));
+  const out = h("b", { class: "num" + (value == null ? " off" : "") }, show(v));
+  const s = slider(v, min, max, step, (x) => { out.textContent = show(x); out.classList.toggle("off", x === offV); }, (x) => set(x === offV ? null : x));
+  s.setAttribute("aria-label", label);
+  s.setAttribute("aria-valuetext", show(v));
+  s.addEventListener("input", () => s.setAttribute("aria-valuetext", show(+s.value)));
+  return h("div", { class: "ce-row" }, h("span", { class: "ce-l" }, label, help ? helpTip(help) : null), s, out);
+}
+
+/** A plain slider row (no off position). */
+function rangeRow({ label, help, value, min, max, step, fmt, set }) {
+  const out = h("b", { class: "num" }, fmt(value));
+  const s = slider(value, min, max, step, (x) => (out.textContent = fmt(x)), set);
+  s.setAttribute("aria-label", label);
+  return h("div", { class: "ce-row" }, h("span", { class: "ce-l" }, label, help ? helpTip(help) : null), s, out);
+}
+
+/** A switch row: title, a line of explanation, the switch on the right. */
+function switchRow(title, help, desc, on, set) {
+  const t = toggle(on, set);
+  t.querySelector("input").setAttribute("aria-label", title);
+  return h("label", { class: "ce-switch" }, h("div", { class: "grow" }, h("div", { class: "t" }, title, help ? helpTip(help) : null), desc ? h("div", { class: "d" }, desc) : null), t);
+}
+
+/** The profile editor on the page: plain settings first, Windows plan details folded under Advanced. */
+function cpuEditor(st) {
+  const ed = S.cache.cpuEdit;
+  const x = st.profiles.find((q) => q.p.id === ed.id);
+  const box = h("section", { class: "cpu-editor", "aria-label": `Edit ${ed.name}` });
+  const draw = () => {
+    const keep = document.activeElement && box.contains(document.activeElement) ? document.activeElement.getAttribute("aria-label") : null;
+    box.replaceChildren(...editorBody(st, x, ed, draw));
+    if (keep) box.querySelector(`[aria-label="${CSS.escape(keep)}"]`)?.focus({ preventScroll: true });
+  };
+  draw();
+  return box;
+}
+
+function editorBody(st, x, ed, draw) {
+  const p = ed.p, lim = st.limits;
+  const live = S.cache.cpuLive || {};
   const step = 100, lo = lim.min, hi = lim.turbo;
-  const mhz = (v) => fmtClock(v);
-  const set = (k) => (v) => { p[k] = v; redraw(); };
-  const power = p.power?.mode || "none";
-  return h("div", { class: "col", style: { gap: "14px" } },
-    identityFields(p, "cpu", redraw.icon, redraw),
-    h("div", { class: "ed-sec" }, "Clock"),
-    st.hybrid
-      ? [optSlider("P-cores max", p.cap_p, lo, hi, step, "", "No cap", set("cap_p"), mhz, "cpu.cap_p"), optSlider("E-cores max", p.cap_e, lo, hi, step, "", "No cap", set("cap_e"), mhz, "cpu.cap_e")]
-      : optSlider("Max clock", p.cap_p, lo, hi, step, "", "No cap", (v) => { p.cap_p = v; p.cap_e = v; redraw(); }, mhz, "cpu.cap"),
-    h("div", { class: "row wrap" }, h("span", { class: "dim", style: { minWidth: "120px" } }, "Turbo boost", helpTip("cpu.turbo")), seg(TURBO, p.turbo, set("turbo"))),
-    plainSlider("Max processor state", p.max_state, 5, 100, 1, (v) => v + "%", set("max_state"), "cpu.max_state"),
-    plainSlider("Min processor state", p.min_state, 0, 100, 1, (v) => v + "%", set("min_state"), "cpu.min_state"),
-    plainSlider("Cores kept awake", p.min_cores, 0, 100, 5, (v) => v + "%", set("min_cores"), "cpu.min_cores"),
-    optSlider("Energy preference", p.epp, 0, 100, 5, "", "Plan's own", set("epp"), (v) => (v === 0 ? "0 · speed" : v === 100 ? "100 · saving" : String(v)), "cpu.epp"),
-    h("div", { class: "ed-sec" }, "Power limits", helpTip("cpu.power"), !st.rapl ? h("span", { class: "chip warn sm-chip2" }, "needs admin") : null),
-    h("div", { class: "row wrap" }, seg([["none", "Stock"], ["saver", "Saver 15 W"], ["performance", "Performance"], ["custom", "Custom"]], power === "balanced" ? "none" : power, (v) => {
-      p.power = v === "none" ? null : { mode: v, pl1: p.power?.pl1 || 65, pl2: p.power?.pl2 || 125 };
-      redraw();
-    })),
-    power === "custom" ? [
-      plainSlider("Sustained (PL1)", p.power.pl1, 5, 253, 1, (v) => v + " W", (v) => { p.power.pl1 = v; if (p.power.pl2 < v) p.power.pl2 = v; redraw(); }, "cpu.pl1"),
-      plainSlider("Burst (PL2)", p.power.pl2, 5, 253, 1, (v) => v + " W", (v) => { p.power.pl2 = Math.max(v, p.power.pl1); redraw(); }, "cpu.pl2"),
-    ] : null,
-    h("div", { class: "ed-sec" }, "Extras"),
-    optSlider("Keep the clock at least", p.min_lock, lo, p.cap_p || hi, step, "", "Off", set("min_lock"), mhz, "cpu.min_lock"),
-    p.min_lock != null ? h("div", { class: "dim small" }, "Released by itself if the CPU passes 92 °C.") : null,
-    lim.oc ? optSlider("Overclock turbo to", p.oc, lim.turbo, lim.oc_max, 100, "", "Off", set("oc"), mhz, "cpu.oc") : null,
-    h("label", { class: "boost-opt" }, toggle(p.hold_in_games, set("hold_in_games")),
-      h("div", null, h("div", { class: "t" }, "Hold the cap in games", helpTip("cpu.hold")), h("div", { class: "s" }, "Turns Windows Game Mode off while this profile is on (Game Mode lifts power-plan caps in games). Put back when you switch to an uncapped profile."))));
+  const set = (k) => (v) => { p[k] = v; draw(); };
+  const dirty = JSON.stringify(p) !== ed.orig;
+  // the icon picker sets .icon on the function it calls
+  const iconRedraw = () => { ed.icon = iconRedraw.icon; draw(); };
+  iconRedraw.icon = ed.icon;
+  const power = p.power?.mode && p.power.mode !== "balanced" ? p.power.mode : "none";
+  const board = live.board;
+  const bw = (l) => (l ? (Math.abs(l.pl1 - l.pl2) < 1 ? `${Math.round(l.pl1)} W` : `${Math.round(l.pl1)} W sustained, ${Math.round(l.pl2)} W burst`) : null);
+  const warns = [];
+  if (p.oc != null && p.cap_p != null && p.cap_p < p.oc) warns.push(`The P-core cap (${fmtClock(p.cap_p)}) stops the CPU before the overclock (${fmtClock(p.oc)}) can take effect.`);
+  if (p.min_lock != null && p.cap_p != null && p.min_lock > p.cap_p) warns.push("The clock floor is above the cap: the cap wins.");
+  const capRow = (label, key, help) => endSlider({ label, help, value: p[key], min: lo, max: hi, step, offAt: "max", offLabel: "No cap", fmt: fmtClock, set: set(key) });
+  const eppText = (v) => (v === 0 ? "0 · speed" : v === 100 ? "100 · saving" : String(v));
+  const planEpp = x?.plan_epp;
+  const powerNote = {
+    none: board ? `Your motherboard's own limits: ${bw(board)}.` : "Your motherboard's own limits.",
+    saver: "15 W sustained, 25 W bursts, and Windows set to best power efficiency.",
+    performance: `Your motherboard's own limits${board ? ` (${bw(board)})` : ""}, and Windows set to best performance.`,
+    custom: board ? `Your motherboard's own: ${bw(board)}. Higher lets the CPU hold its clocks under long all-core loads, and run hotter.` : "Higher lets the CPU hold its clocks under long all-core loads, and run hotter.",
+  }[power];
+  const plMax = Math.max(253, Math.ceil((board?.pl2 || 0) / 10) * 10);
+  const sec = (title, help, ...kids) => h("div", { class: "ce-sec" }, h("h3", null, title, help ? helpTip(help) : null), ...kids);
+  return [
+    h("div", { class: "ce-head" },
+      h("div", { class: "grow" }, h("h2", null, "Edit ", h("span", null, ed.name)), h("div", { class: "faint small" }, x?.plan_name ? "Windows plan: " + x.plan_name : "")),
+      dirty ? h("span", { class: "chip warn sm-chip2" }, "Unsaved") : null),
+    identityFields(p, "cpu", ed.icon, iconRedraw),
+    sec("Speed", null,
+      st.hybrid
+        ? [capRow("P-cores max", "cap_p", "cpu.cap_p"), capRow("E-cores max", "cap_e", "cpu.cap_e")]
+        : endSlider({ label: "Max clock", help: "cpu.cap", value: p.cap_p, min: lo, max: hi, step, offAt: "max", offLabel: "No cap", fmt: fmtClock, set: (v) => { p.cap_p = v; p.cap_e = v; draw(); } }),
+      switchRow("Turbo boost", "cpu.turbo", p.turbo === 0 ? "Off: the CPU stays at its base clock. Much cooler, much slower." : "The CPU boosts above its base clock when there's work.", p.turbo !== 0, (v) => { p.turbo = v ? 2 : 0; draw(); }),
+      endSlider({ label: "Energy preference", help: "cpu.epp", value: p.epp, min: -5, max: 100, step: 5, offAt: "min", offLabel: planEpp != null ? `Plan's own · ${planEpp}` : "Plan's own", fmt: eppText, set: set("epp") }),
+      p.epp == null && planEpp > 0 ? h("div", { class: "ce-hint" }, I("info", "sm"), h("span", null, `The plan leans to saving (${planEpp}): light loads such as games climb to high clocks slower than at 0 · speed.`)) : null),
+    sec("Power limits", "cpu.power",
+      h("div", { class: "row wrap", style: { gap: "10px" } },
+        seg([["none", "Motherboard"], ["saver", "Saver 15 W"], ["performance", "Performance"], ["custom", "Custom"]], power, (v) => {
+          p.power = v === "none" ? null : { mode: v, pl1: p.power?.pl1 || Math.round(board?.pl1 || 65), pl2: p.power?.pl2 || Math.round(board?.pl2 || 125) };
+          draw();
+        }),
+        !st.rapl ? h("span", { class: "chip warn sm-chip2" }, "needs admin") : null),
+      h("div", { class: "faint small" }, powerNote),
+      power === "custom" ? [
+        rangeRow({ label: "Sustained (PL1)", help: "cpu.pl1", value: p.power.pl1, min: 5, max: plMax, step: 1, fmt: (v) => v + " W", set: (v) => { p.power.pl1 = v; if (p.power.pl2 < v) p.power.pl2 = v; draw(); } }),
+        rangeRow({ label: "Burst (PL2)", help: "cpu.pl2", value: p.power.pl2, min: 5, max: plMax, step: 1, fmt: (v) => v + " W", set: (v) => { p.power.pl2 = Math.max(v, p.power.pl1); draw(); } }),
+      ] : null),
+    sec("Extras", null,
+      endSlider({ label: "Clock floor", help: "cpu.min_lock", value: p.min_lock, min: lo, max: p.cap_p || hi, step, offAt: "min", offLabel: "Off", fmt: fmtClock, set: set("min_lock") }),
+      p.min_lock != null ? h("div", { class: "ce-hint" }, I("thermo", "sm"), h("span", null, "Released by itself if the CPU passes 92 °C.")) : null,
+      lim.oc ? endSlider({ label: "Overclock turbo to", help: "cpu.oc", value: p.oc, min: lim.turbo, max: lim.oc_max, step: 100, offAt: "min", offLabel: "Off", fmt: fmtClock, set: set("oc") }) : null,
+      isCapped(p)
+        ? switchRow("Hold the cap in games", "cpu.hold", "Turns Windows Game Mode off while this profile is on (Game Mode lifts power-plan caps in games).", p.hold_in_games, set("hold_in_games"))
+        : null,
+      warns.map((w) => h("div", { class: "ce-hint warn" }, I("alert", "sm"), h("span", null, w)))),
+    h("details", { class: "ce-adv", open: ed.advanced || null, ontoggle: (e) => (ed.advanced = e.target.open) },
+      h("summary", null, h("span", { class: "t" }, "Advanced"), h("span", { class: "faint small" }, "Windows plan settings: turbo mode, processor states, parked cores"), h("span", { class: "chev" }, I("chevron", "sm"))),
+      h("div", { class: "ce-sec flat" },
+        h("div", { class: "ce-row" }, h("span", { class: "ce-l" }, "Turbo mode", helpTip("cpu.turbo_mode")), seg(TURBO, p.turbo, set("turbo"))),
+        rangeRow({ label: "Max processor state", help: "cpu.max_state", value: p.max_state, min: 5, max: 100, step: 1, fmt: (v) => v + "%", set: set("max_state") }),
+        rangeRow({ label: "Min processor state", help: "cpu.min_state", value: p.min_state, min: 0, max: 100, step: 1, fmt: (v) => v + "%", set: set("min_state") }),
+        rangeRow({ label: "Cores kept awake", help: "cpu.min_cores", value: p.min_cores, min: 0, max: 100, step: 5, fmt: (v) => v + "%", set: set("min_cores") }))),
+    h("div", { class: "ce-foot" },
+      h("span", { class: "faint small grow" }, dirty ? "Changes apply when you save." : "No changes yet."),
+      h("button", { class: "btn ghost", onclick: () => { S.cache.cpuEdit = null; render(); } }, dirty ? "Discard" : "Close"),
+      h("button", { class: "btn primary", disabled: !dirty || null, onclick: async (e) => {
+        e.currentTarget.disabled = true;
+        try {
+          const r = await invoke("cpu_save", { p });
+          if (r.plan_error) note(r.plan_error, true);
+          else if (r.link_error) note("Saved, but the shortcut failed: " + r.link_error, true);
+          else note("Saved");
+          S.cache.cpuEdit = null;
+        } catch (err) { note(String(err), true); }
+        await Pages.cpu.load(); render();
+      } }, I("save"), "Save")),
+  ];
 }
 
 // -------------------------------------------------------------------- GPU

@@ -19,6 +19,11 @@ pub struct Limits {
     pub raw: u64,
 }
 
+/// The power-limit register as watts (`unit` = watts per register step).
+fn limits_from(raw: u64, unit: f64) -> Limits {
+    Limits { pl1: ((raw & 0x7FFF) as f64 * unit) as f32, pl2: (((raw >> 32) & 0x7FFF) as f64 * unit) as f32, locked: raw >> 63 != 0, raw }
+}
+
 impl Rapl {
     pub fn open() -> Option<Rapl> {
         let (vendor, _, _) = crate::hw::sensors::cpu_id();
@@ -35,7 +40,12 @@ impl Rapl {
 
     pub fn read(&self) -> Option<Limits> {
         let raw = self.m.exec("ioctl_read_msr", &[MSR_PKG_LIMIT], 1).ok()?[0] as u64;
-        Some(Limits { pl1: ((raw & 0x7FFF) as f64 * self.unit) as f32, pl2: (((raw >> 32) & 0x7FFF) as f64 * self.unit) as f32, locked: raw >> 63 != 0, raw })
+        Some(limits_from(raw, self.unit))
+    }
+
+    /// A raw register value (such as the stock one kept in settings) as watts.
+    pub fn decode(&self, raw: u64) -> Limits {
+        limits_from(raw, self.unit)
     }
 
     /// Time-window field (bits 21:17 = Y, 23:22 = Z; seconds = 2^Y * (1 + Z/4) * unit) closest to `secs`, already shifted into place.
@@ -78,5 +88,15 @@ impl Rapl {
     /// Puts a previously read raw register value back.
     pub fn restore(&self, raw: u64) {
         let _ = self.m.exec("ioctl_write_msr", &[MSR_PKG_LIMIT, raw as i64], 0);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// The register an MSI B660M sets for an i5-14600KF: 130 W sustained, 130 W burst, units of 1/8 W.
+    #[test]
+    fn limits_decode_from_the_register() {
+        let l = super::limits_from(0x0042_8410_00DF_8410, 0.125);
+        assert_eq!((l.pl1, l.pl2, l.locked), (130.0, 130.0, false));
     }
 }

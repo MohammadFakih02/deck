@@ -32,6 +32,15 @@ fn stock(st: &Settings, r: &Rapl) -> Option<u64> {
     Some(raw)
 }
 
+/// The board's own limits: the ones captured before Deck first changed them, or the ones in force
+/// while Deck has never changed them.
+pub fn board(st: &Settings, r: &Rapl) -> Option<crate::hw::rapl::Limits> {
+    if st.int("PowerStockSet", 0) == 1 {
+        return Some(r.decode((st.int("PowerStockLo", 0) as u32 as u64) | ((st.int("PowerStockHi", 0) as u32 as u64) << 32)));
+    }
+    r.read()
+}
+
 /// Applies `mode`. Returns a one-line description of the result. Safe to call repeatedly (it re-asserts limits the firmware reset).
 pub fn apply(mode: i32, st: &Settings, rapl: Option<&Rapl>) -> String {
     let mut parts: Vec<String> = vec![];

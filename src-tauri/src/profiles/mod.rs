@@ -47,6 +47,21 @@ pub struct CpuProfile {
     pub hold_in_games: bool,
 }
 
+impl CpuProfile {
+    /// The profile without caps that don't cap: a clock cap at or above `top` (the CPU's top turbo)
+    /// still holds the CPU at it and stops any overclock, so it means "no cap"; an overclock to
+    /// `top` or below changes nothing.
+    pub fn without_silent_caps(&self, top: u32) -> CpuProfile {
+        let mut p = self.clone();
+        if top > 0 {
+            p.cap_p = p.cap_p.filter(|c| *c < top);
+            p.cap_e = p.cap_e.filter(|c| *c < top);
+            p.oc = p.oc.filter(|o| *o > top);
+        }
+        p
+    }
+}
+
 impl Default for CpuProfile {
     fn default() -> Self {
         Self {
@@ -284,6 +299,19 @@ mod tests {
         let b = GpuProfile { name: "B".into(), id: "x".into(), ..a.clone() };
         assert!(a.same_settings(&b));
         assert!(!a.same_settings(&GpuProfile { lock_mv: Some(800.0), ..b }));
+    }
+
+    /// A cap at the CPU's top turbo still caps (and stops an overclock): it means "no cap". An
+    /// overclock to the top turbo or below is no overclock.
+    #[test]
+    fn a_cap_at_the_top_is_no_cap() {
+        let c = CpuProfile { cap_p: Some(5300), cap_e: Some(5300), oc: Some(5300), ..Default::default() };
+        let n = c.without_silent_caps(5300);
+        assert_eq!((n.cap_p, n.cap_e, n.oc), (None, None, None));
+        let c = CpuProfile { cap_p: Some(4600), cap_e: Some(5400), oc: Some(5600), ..Default::default() };
+        let n = c.without_silent_caps(5300);
+        assert_eq!((n.cap_p, n.cap_e, n.oc), (Some(4600), None, Some(5600)));
+        assert_eq!(cpu_summary(&CpuProfile { cap_p: Some(5300), cap_e: Some(5300), ..Default::default() }.without_silent_caps(5300)), "no cap");
     }
 
     #[test]

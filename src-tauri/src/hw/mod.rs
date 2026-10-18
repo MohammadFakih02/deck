@@ -168,6 +168,9 @@ pub struct Shared {
     pub power_msg: Mutex<String>,
     /// short form for the narrow space beside the buttons ("15 / 25 W")
     pub power_short: Mutex<String>,
+    /// the CPU's power limits in force right now and the board's own (sustained, burst W), read every 2 s
+    pub power_now: Mutex<Option<(f32, f32)>>,
+    pub power_board: Mutex<Option<(f32, f32)>>,
     /// the minimum-clock lock was released automatically because the CPU got too hot
     pub lock_released: AtomicBool,
     /// the lights self-test is running: the board thread stays off the controller
@@ -212,6 +215,8 @@ impl Shared {
             in_game: AtomicBool::new(false),
             power_msg: Mutex::new(String::new()),
             power_short: Mutex::new(String::new()),
+            power_now: Mutex::new(None),
+            power_board: Mutex::new(None),
             lock_released: AtomicBool::new(false),
             rgb_hold: AtomicBool::new(false),
             reconnect: AtomicBool::new(true),
@@ -440,6 +445,10 @@ pub fn spawn_all(sh: &Arc<Shared>) -> Workers {
                 *s.power_short.lock_anyway() = rapl.as_ref().and_then(|r| r.read()).map(|l| format!("{:.0} / {:.0} W", l.pl1, l.pl2)).unwrap_or_default();
             }
             done = Some(want_key);
+            if let Some(r) = rapl.as_ref() {
+                *s.power_now.lock_anyway() = r.read().map(|l| (l.pl1, l.pl2));
+                *s.power_board.lock_anyway() = crate::hw::powermode::board(&s.s, r).map(|l| (l.pl1, l.pl2));
+            }
             nap(&s, 2000);
         }
     }));

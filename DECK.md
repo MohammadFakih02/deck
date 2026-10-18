@@ -39,7 +39,7 @@ Read this section first. `CLAUDE.md` in this folder points here, so it loads aut
 
 ### Workflow
 - **Build:** `cargo build --release` in `src-tauri`. Set `CARGO_TARGET_DIR` to build elsewhere (the maintainer's value is in `PRIVATE_NOTES.md`). A build takes about 2 minutes. **The UI is embedded in the exe, so UI changes also need a rebuild and reinstall.**
-- **Tests:** `cargo test`, run in `src-tauri` (dev profile: dependencies are optimised once, so a rerun rebuilds only Deck); 220 should pass (31 ignored live tests; which are safe to run is in the T4 table of `docs/audits/2026-10-17-test-plan.md`). `cargo clippy --all-targets -- -D warnings` must be clean (CI fails otherwise). Check the JS with `node --check ui/js/*.js`.
+- **Tests:** `cargo test`, run in `src-tauri` (dev profile: dependencies are optimised once, so a rerun rebuilds only Deck); 223 should pass (31 ignored live tests; which are safe to run is in the T4 table of `docs/audits/2026-10-17-test-plan.md`). `cargo clippy --all-targets -- -D warnings` must be clean (CI fails otherwise). Check the JS with `node --check ui/js/*.js`.
 - **Install and run:** Deck runs elevated, so installing needs admin. `Start-Process powershell -Verb RunAs -WindowStyle Hidden -File tools\testing\elev-install.ps1` (one UAC prompt unless UAC is off). That script quits Deck, runs `install.ps1 -NoBuild`, and starts Deck **with the CDP debug port 9222**. Always finish with `tools\testing\restart-normal.ps1`, **run elevated as well** (`Start-Process powershell -Verb RunAs -File ...`; from a normal shell its `--quit` can't reach the elevated Deck, so the debug instance silently keeps running). It quits Deck and runs the `\Deck\Open` task. Then check that port 9222 is no longer listening.
   - In Git Bash, run `powercfg` and `schtasks` with `MSYS_NO_PATHCONV=1`, because Git Bash rewrites `/flags` and `\paths`.
 - **Live testing** (`tools\testing\`):
@@ -133,12 +133,13 @@ The search box covers Start-menu and Store apps, Deck actions, a calculator, uni
 ### CPU profiles (the CPU page)
 A CPU profile is **a real Windows power plan plus extras that Deck applies itself**:
 
-- **Plan values:** max clock for P-cores and E-cores, max and min processor state, turbo/boost mode, minimum cores awake, and EPP.
+- **Plan values:** max clock for P-cores and E-cores, max and min processor state, turbo/boost mode, minimum cores awake, and EPP. A cap at or above the CPU's known top turbo is treated as no cap (`CpuProfile::without_silent_caps`, applied by `cpu::effective` on save, plan writes and extras).
 - **Extras:**
   - RAPL power limits PL1/PL2, either the Saver/Balanced/Performance presets or custom watts. Deck re-asserts them if the firmware resets them.
   - A minimum-clock lock. It lands about 8% under target, and a **heat guard** releases it above 92 °C.
   - A turbo-ratio overclock (unlocked Intel CPUs only). Deck re-applies it after a restart.
   - "Hold the cap in games": turns off Windows Game Mode while the profile is active.
+- **The page** (`ui/js/profiles.js`): profiles and an on-page editor (draft in `S.cache.cpuEdit`) on the left; a sticky live column on the right fed by `cpu_live` (clock, temperature, load, power, `limits` / `board` / `limits_by_deck` from the power thread's 2 s RAPL read, `cores` from the sensor table). "Held at the power limit" (`heldByPower`): load ≥ 60 % and power ≥ 95 % of PL1 (or of PL2 when higher). Each profile in `cpu_state` carries `plan_epp`, the plan's own EPP when the profile leaves it to the plan.
 - **Switching** is instant, through `PowerSetActiveScheme`. Deck watches for plan changes made elsewhere (every 2 s) and marks the matching profile as active.
 - **If a profile's plan gets deleted**, the CPU page shows "Plan missing". Applying or saving the profile then **rebuilds the plan** from the profile's saved values, as "Deck · <name>".
 - The maintainer's own profiles are listed in `PRIVATE_NOTES.md`.
@@ -240,7 +241,7 @@ Every way of switching runs the same code:
 
 ```powershell
 cd src-tauri
-cargo test                # 220 tests (+31 ignored live tests)
+cargo test                # 223 tests (+31 ignored live tests)
 cargo clippy --all-targets -- -D warnings   # must be clean; CI enforces it
 cargo build --release     # set CARGO_TARGET_DIR to build elsewhere
 ..\install.ps1 -NoBuild   # elevates itself, quits Deck, copies to Program Files, (re)creates the tasks

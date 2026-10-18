@@ -4,7 +4,19 @@ All notable changes to Deck. Setups for each version are on the [Releases](https
 
 ## Unreleased
 
+### Changed
+- **The CPU page is reworked.**
+  - **A live column stays in view** while you scroll or edit: clock with its last minute, temperature, load, power, the power limit in force and who set it (your motherboard or the active profile), and every core's clock and load.
+  - **"Held at the power limit"** appears when the CPU draws all the watts it may under load, so a low motherboard limit is no longer invisible.
+  - **Profiles are edited on the page**, not in a popup: an edit button on each card opens the settings under the profiles, with an "Unsaved" mark and Save / Discard.
+  - **Plain settings first:** clock caps, Turbo boost on/off, energy preference, power limits and extras. Windows' processor states, parked cores and the five turbo modes are folded under Advanced.
+  - **A slider's end means off:** all the way right is "No cap", all the way left is "Off" for the clock floor (was "Keep the clock at least") and the overclock.
+  - **"Plan's own" energy preference shows the plan's real value** ("Plan's own · 33"), with a note when it leans to saving.
+  - **"Stock" power limits are now "Motherboard"** and show the board's own watts. Custom PL1/PL2 go above 253 W when the board's own limits do.
+  - **Warnings** for settings that cancel each other (a cap below the overclock, a clock floor above the cap). "Hold the cap in games" only shows when the profile caps.
+
 ### Fixed
+- **A clock cap at the CPU's top turbo no longer caps.** A profile saved with its cap slider at the top (5,300 MHz on an i5-14600KF) still held the CPU at that clock and blocked any overclock. Such caps now count as no cap when saving and applying, once Deck has read the CPU's real top turbo.
 - **E-core clocks read about a quarter too low** in the overlay, on Sensors and in the per-thread rows (2.97 GHz for an E-core really at 4.0 GHz on an i5-14600KF). Windows measures every core's performance against the CPU's base clock, and Deck multiplied the E-cores' by their own lower one.
 
 ## 2.5.7 — 2026-10-18

@@ -36,8 +36,12 @@ fn cpu_state_now(app: &App) -> Value {
         .iter()
         .map(|p| {
             let key = hotkeys::parse(&p.hotkey).map(|(m, v)| hotkeys::format(m, v));
+            let p = &cpu::effective(p);
+            let g = profiles::plans::parse(&p.plan);
             json!({
                 "p": p, "summary": profiles::cpu_summary(p), "icon_url": icon_of(&p.icon),
+                // what "Plan's own" energy preference is: the plan's value right now
+                "plan_epp": if p.epp.is_none() { g.and_then(|g| profiles::plans::read(&g, &profiles::plans::EPP[0])).map(|v| v.0) } else { None },
                 "hotkey_state": key.as_ref().and_then(|k| hk.get(k).cloned()),
                 "plan_name": profiles::plans::parse(&p.plan).map(|g| profiles::plans::name(&g)),
                 "plan_missing": profiles::plans::parse(&p.plan).map(|g| !all_plans.contains(&g)).unwrap_or(true),
@@ -71,9 +75,39 @@ pub fn cpu_live(app: A) -> Value {
         "mhz": l.as_ref().and_then(|l| l.cpu_mhz), "temp": l.as_ref().and_then(|l| l.cpu_t), "load": l.as_ref().and_then(|l| l.cpu_l),
         "power": hw.as_ref().and_then(|h| h.table.lock_anyway().rows.iter().find(|r| r.group.starts_with("CPU") && r.name == "Package power").and_then(|r| r.cur)),
         "power_short": hw.as_ref().map(|h| h.power_short.lock_anyway().clone()),
+        "limits": hw.as_ref().and_then(|h| *h.power_now.lock_anyway()).map(|(a, b)| json!({ "pl1": a, "pl2": b })),
+        "board": hw.as_ref().and_then(|h| *h.power_board.lock_anyway()).map(|(a, b)| json!({ "pl1": a, "pl2": b })),
+        // Deck's own limits (a profile's Saver / Performance / Custom) or the board's
+        "limits_by_deck": hw.as_ref().map(|h| h.s.int("PowerTouched", 0) == 1),
+        "cores": hw.as_ref().map(|h| core_rows(&h.table.lock_anyway())).unwrap_or_default(),
         "clock": cpu::clock_check(),
         "active": app.settings.lock().active_cpu,
     })
+}
+
+/// Each core's clock, load and temperature from the sensor table ("P-core 0 clock", ...), in order.
+fn core_rows(t: &crate::hw::sysmon::Table) -> Vec<Value> {
+    let mut out: Vec<(String, [Option<f64>; 3])> = vec![];
+    for r in t.rows.iter().filter(|r| r.group.starts_with("CPU")) {
+        let (label, k) = match (r.name.strip_suffix(" clock"), r.name.strip_suffix(" load"), r.name.strip_suffix(" temperature")) {
+            (Some(l), _, _) => (l, 0),
+            (_, Some(l), _) => (l, 1),
+            (_, _, Some(l)) => (l, 2),
+            _ => continue,
+        };
+        if matches!(label, "Package" | "Core max" | "Total") {
+            continue;
+        }
+        let at = match out.iter().position(|c| c.0 == label) {
+            Some(i) => i,
+            None => {
+                out.push((label.to_string(), [None; 3]));
+                out.len() - 1
+            }
+        };
+        out[at].1[k] = r.cur;
+    }
+    out.into_iter().map(|(n, [mhz, load, temp])| json!({ "n": n, "mhz": mhz, "load": load, "temp": temp })).collect()
 }
 
 #[tauri::command]
@@ -111,7 +145,7 @@ pub fn cpu_create(app: A, name: String) -> R<CpuProfile> {
 /// Saves an edited profile (plan values, extras when active, shortcuts, hotkey).
 #[tauri::command]
 pub async fn cpu_save(app: A<'_>, p: CpuProfile) -> R<Value> {
-    let mut p = p;
+    let mut p = cpu::effective(&p);
     p.hotkey = hotkeys::check(&app, &p.hotkey, &p.id)?;
     let prev = {
         let mut s = app.settings.lock();
@@ -475,4 +509,23 @@ pub async fn rtss_tray(app: A<'_>, hidden: bool) -> R<()> {
 #[tauri::command]
 pub async fn rtss_install() -> R<()> {
     tauri::async_runtime::spawn_blocking(crate::rtss::install_rtss).await.map_err(|e| e.to_string())?
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::hw::sysmon::{Row, Table};
+
+    fn row(name: &str, cur: f64) -> Row {
+        Row { group: "CPU: Intel".into(), name: name.into(), unit: "", dec: 0, cur: Some(cur), min: cur, max: cur, sum: cur, n: 1 }
+    }
+
+    /// The CPU page's per-core list: one entry per core in table order, package rows left out.
+    #[test]
+    fn cores_come_from_the_sensor_table() {
+        let t = Table { rows: vec![row("Package temperature", 60.0), row("P-core 0 temperature", 58.0), row("Core max temperature", 61.0), row("P-core 0 clock", 5300.0), row("E-core 0 clock", 4000.0), row("Total load", 30.0), row("P-core 0 load", 99.0)], ..Default::default() };
+        let c = super::core_rows(&t);
+        assert_eq!(c.len(), 2);
+        assert_eq!(c[0], serde_json::json!({ "n": "P-core 0", "mhz": 5300.0, "load": 99.0, "temp": 58.0 }));
+        assert_eq!(c[1], serde_json::json!({ "n": "E-core 0", "mhz": 4000.0, "load": null, "temp": null }));
+    }
 }

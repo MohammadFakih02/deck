@@ -216,8 +216,19 @@ await d.sleep(600);
 const back2 = await d.ev(`(() => { const a = document.activeElement; return a && a.closest(".modal") ? "editor" : (a && a.id) || "none"; })()`);
 check("alt-tab keeps an open profile editor and its trial; focus returns to it", kept.editor && !kept.question && kept.undone === 0 && back2 === "editor", JSON.stringify({ ...kept, focus: back2 }));
 await d.ev(`document.querySelectorAll(".modal-back").forEach((m) => m.remove())`);
-const both = await d.ev(`fetch("js/profiles.js").then((r) => r.text()).then((s) => (s.match(/wide: true, keep: true/g) || []).length)`);
-check("both profile editors are kept while hidden", both === 2, `found ${both}`);
+// the GPU editor is a kept popup; the CPU editor is on the page, its draft in the page's state
+await d.ev(`go("cpu")`);
+await d.sleep(400);
+await d.ev(`(() => { editCpu(S.cache.cpu.profiles[1]); S.cache.cpuEdit.p.name = "Kept draft"; })()`);
+await d.ev(`window.__emit("hiding")`);
+await d.sleep(200);
+await d.ev(`window.__emit("shown", {})`);
+await d.sleep(600);
+await d.ev(`(async () => { if (S.page !== "cpu") await go("cpu"); })()`);
+await d.sleep(300);
+const both = await d.ev(`fetch("js/profiles.js").then((r) => r.text()).then((s) => ({ gpu: (s.match(/wide: true, keep: true/g) || []).length, cpu: document.querySelector(".cpu-editor input[type=text]")?.value || null }))`);
+check("both profile editors are kept while hidden", both.gpu === 1 && both.cpu === "Kept draft", JSON.stringify(both));
+await d.ev(`S.cache.cpuEdit = null`);
 
 // 15. The sidebar: Notes is gone; Snap zones and Workspaces are tabs of Windows; Tools is one page
 //     with parts (Screen tools, Locked files, Windows panels).
@@ -260,12 +271,12 @@ await d.ev(`go("cpu")`);
 await d.sleep(500);
 await d.ev(`editCpu(S.cache.cpu.profiles[1])`);
 await d.sleep(300);
-const cpuTips = await d.ev(`document.querySelectorAll(".modal .help-q").length`);
-await d.ev(`document.querySelector(".modal .help-q").dispatchEvent(new MouseEvent("mouseenter"))`);
+const cpuTips = await d.ev(`document.querySelectorAll(".cpu-editor .help-q").length`);
+await d.ev(`document.querySelector(".cpu-editor .help-q").dispatchEvent(new MouseEvent("mouseenter"))`);
 const card = await d.ev(`(() => { const c = document.querySelector(".help-card"); return c ? c.textContent.slice(0, 40) : null; })()`);
-await d.ev(`document.querySelector(".modal .help-q").dispatchEvent(new MouseEvent("mouseleave"))`);
+await d.ev(`document.querySelector(".cpu-editor .help-q").dispatchEvent(new MouseEvent("mouseleave"))`);
 const gone = await d.ev(`!document.querySelector(".help-card")`);
-await d.ev(`document.querySelectorAll(".modal-back").forEach((m) => m.remove())`);
+await d.ev(`S.cache.cpuEdit = null`);
 await d.ev(`(async () => { await go("gpu"); await editGpu(S.cache.gpu.profiles[0]); })()`);
 await d.sleep(400);
 const gpuTips = await d.ev(`document.querySelectorAll(".modal .help-q").length`);
