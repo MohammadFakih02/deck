@@ -67,6 +67,9 @@ pub struct Cpu {
     clk: (usize, usize),
     /// this tick's live clock of every logical processor (`clock` reads it, `details` reuses it)
     mhz: Vec<Option<f32>>,
+    /// each logical processor's (MPERF, APERF) at the last tick; empty when the driver can't read them
+    cycles: Vec<Option<(u64, u64)>>,
+    cycles_ok: bool,
 }
 
 /// A core's live clock: the fastest of its threads (`mask` = its logical processors).
@@ -88,6 +91,42 @@ pub fn thread_mhz(base: f64, perf: &[(String, f64)]) -> Vec<Option<f32>> {
     let mut cpus: Vec<((u32, u32), f64)> = perf.iter().filter_map(|(n, v)| Some((key(n)?, *v))).collect();
     cpus.sort_by_key(|c| c.0);
     cpus.iter().map(|(_, p)| (base > 0.0).then(|| (base * p / 100.0).round() as f32)).collect()
+}
+
+/// A thread's clock between two reads of its cycle counters (MPERF, APERF): APERF counts the core's
+/// own cycles and MPERF base-clock (TSC) cycles, both only while it runs, so this is the clock it
+/// ran at, the figure MSI Afterburner and HWiNFO show. None when it ran under a millisecond.
+pub fn counted_mhz(tsc_mhz: f64, before: (u64, u64), now: (u64, u64)) -> Option<f32> {
+    let dm = now.0.wrapping_sub(before.0);
+    let da = now.1.wrapping_sub(before.1);
+    (tsc_mhz > 0.0 && dm as f64 >= tsc_mhz * 1000.0 && da > 0).then(|| (tsc_mhz * da as f64 / dm as f64).round() as f32)
+}
+
+/// Each thread's counted clock, else Windows' estimate of it.
+pub fn merge_clocks(counted: &[Option<f32>], windows: &[Option<f32>]) -> Vec<Option<f32>> {
+    (0..counted.len().max(windows.len())).map(|i| counted.get(i).copied().flatten().or_else(|| windows.get(i).copied().flatten())).collect()
+}
+
+/// The rate MPERF counts at (the TSC's, the base clock times the real bus clock), measured once;
+/// the base clock where it can't be.
+pub fn tsc_mhz() -> f64 {
+    static TSC: std::sync::OnceLock<f64> = std::sync::OnceLock::new();
+    *TSC.get_or_init(|| {
+        #[cfg(target_arch = "x86_64")]
+        #[allow(unused_unsafe)]
+        {
+            use std::arch::x86_64::_rdtsc;
+            let t0 = std::time::Instant::now();
+            let c0 = unsafe { _rdtsc() };
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            let c1 = unsafe { _rdtsc() };
+            let m = c1.wrapping_sub(c0) as f64 / t0.elapsed().as_secs_f64() / 1e6;
+            if m.is_finite() && m > 400.0 && m < 10_000.0 {
+                return m;
+            }
+        }
+        base_mhz()
+    })
 }
 
 /// The CPU's base clock in MHz: the highest MaxMhz Windows gives any logical processor (the same
@@ -228,7 +267,7 @@ impl Cpu {
             },
             _ => (CpuTemp::None, Some(format!("CPU temperature not supported for this CPU ({})", brand))),
         };
-        let mut c = Cpu { t, prev: None, brand, error, cores: crate::hw::sysmon::cores(), energy_unit: 0.0, last_energy: None, threads: crate::hw::sysmon::ThreadLoad::new(), clk: pdh_open(r"\Processor Information(*)\% Processor Performance"), mhz: vec![] };
+        let mut c = Cpu { t, prev: None, brand, error, cores: crate::hw::sysmon::cores(), energy_unit: 0.0, last_energy: None, threads: crate::hw::sysmon::ThreadLoad::new(), clk: pdh_open(r"\Processor Information(*)\% Processor Performance"), mhz: vec![], cycles: vec![], cycles_ok: true };
         // RAPL energy unit (Intel 0x606, AMD 0xC0010299): joules = count / 2^bits[12:8]
         let unit_msr = match &c.t {
             CpuTemp::Intel { m, .. } => m.exec("ioctl_read_msr", &[0x606], 1).ok(),
@@ -338,11 +377,37 @@ impl Cpu {
         }
     }
 
-    /// Fastest live thread clock in MHz, from Windows (see `thread_mhz`). Also keeps every thread's clock for `details`.
+    /// Fastest live thread clock in MHz: each thread's cycle counters (`counted_mhz`), Windows'
+    /// estimate (`thread_mhz`, a few % low) where they have nothing. Also keeps every thread's
+    /// clock for `details`.
     pub fn clock(&mut self) -> Option<u32> {
-        self.mhz = thread_mhz(base_mhz(), &pdh_values(self.clk));
+        let counted = self.counted_clocks();
+        self.mhz = merge_clocks(&counted, &thread_mhz(base_mhz(), &pdh_values(self.clk)));
         let best = self.mhz.iter().flatten().fold(0.0f32, |a, b| a.max(*b));
         (best > 1.0).then(|| best.round() as u32)
+    }
+
+    /// Every logical processor's clock since the last tick from its MPERF / APERF (Intel 0xE7 / 0xE8,
+    /// AMD's read-only copies 0xC00000E7 / 0xC00000E8); empty without the driver.
+    fn counted_clocks(&mut self) -> Vec<Option<f32>> {
+        let (mperf, aperf) = match self.t {
+            CpuTemp::Intel { .. } => (0xE7, 0xE8),
+            CpuTemp::Amd(_) => (0xC000_00E7, 0xC000_00E8),
+            CpuTemp::None => return vec![],
+        };
+        if !self.cycles_ok {
+            return vec![];
+        }
+        let n = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1).min(64);
+        let now: Vec<Option<(u64, u64)>> = (0..n).map(|i| on_cpu(i as u32, || Some((self.msr(mperf)?, self.msr(aperf)?)))).collect();
+        if now.iter().all(|c| c.is_none()) {
+            self.cycles_ok = false; // the driver won't read them: Windows' clocks from now on
+            return vec![];
+        }
+        let tsc = tsc_mhz();
+        let out = now.iter().enumerate().map(|(i, c)| counted_mhz(tsc, self.cycles.get(i).copied().flatten()?, (*c)?)).collect();
+        self.cycles = now;
+        out
     }
 
     /// Total CPU load in % since the previous call.
@@ -579,6 +644,40 @@ mod clock_tests {
         let perf = named(&[("0,0", 76.9), ("0,12", 79.8)]);
         assert_eq!(thread_mhz(3500.0, &perf), vec![Some(2692.0), Some(2793.0)]);
         assert!(thread_mhz(0.0, &perf).iter().all(|m| m.is_none()), "no base known: no clock rather than a made-up one");
+    }
+
+    /// A user's i5-14600KF in a game: MSI Afterburner showed 5292 on every P-core (53 x 99.85) and
+    /// 3994 on every E-core, Windows' "% Processor Performance" gave 4836-5227 and 3225-3878. The
+    /// core's own counters (APERF: its cycles, MPERF: base-clock cycles, both only while it runs)
+    /// give Afterburner's figure.
+    #[test]
+    fn the_clock_comes_from_the_cores_own_cycle_counters() {
+        let tsc = 3494.75; // 35 x 99.85
+        // a second at 53x, half of it asleep: both counters stop while it sleeps
+        let half = 1_747_375_000u64;
+        assert_eq!(counted_mhz(tsc, (1_000, 9_000), (1_000 + half, 9_000 + half * 53 / 35)), Some(5292.0));
+        // an E-core at 40x
+        assert_eq!(counted_mhz(tsc, (0, 0), (half, half * 40 / 35)), Some(3994.0));
+        // the counters wrap around
+        assert_eq!(counted_mhz(tsc, (u64::MAX - 10, u64::MAX - 10), (half - 11, half - 11)), Some(3495.0));
+    }
+
+    /// A thread that barely ran gives no reading (not the 800 MHz Afterburner shows for a sleeping
+    /// core), and nothing is made up without a base clock.
+    #[test]
+    fn a_thread_that_slept_has_no_counted_clock() {
+        assert_eq!(counted_mhz(3494.75, (0, 0), (3_000, 6_000)), None, "under a millisecond of running");
+        assert_eq!(counted_mhz(3494.75, (5, 5), (5, 5)), None);
+        assert_eq!(counted_mhz(0.0, (0, 0), (1 << 32, 1 << 33)), None);
+    }
+
+    #[test]
+    fn windows_fills_in_where_the_counters_have_nothing() {
+        let counted = [Some(5292.0), None, Some(3994.0)];
+        let windows = [Some(5227.0), Some(4907.0), Some(3824.0), Some(3785.0)];
+        assert_eq!(merge_clocks(&counted, &windows), vec![Some(5292.0), Some(4907.0), Some(3994.0), Some(3785.0)]);
+        assert_eq!(merge_clocks(&[], &windows), windows.to_vec(), "no driver: Windows' clocks");
+        assert_eq!(merge_clocks(&counted, &[]), counted.to_vec());
     }
 
     #[test]

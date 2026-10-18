@@ -6,6 +6,12 @@ Handoff notes so work can resume later. Last updated: 2026-10-18 (v2.5.9).
 
 > **RULE: before every commit, update the docs.** Add today's dated entry here, add user-visible changes to `CHANGELOG.md`, update `DECK.md` / `README.md` when facts change, and stage them in the same commit. The pre-commit hook enforces it; never bypass it. No personal data in these files (that goes in the git-ignored `PRIVATE_NOTES.md`).
 
+## 2026-10-19: CPU clocks from each core's cycle counters (APERF/MPERF)
+
+- **Why:** a user's friend (same i5-14600KF) saw different clocks than MSI Afterburner after 2.5.9. A read-only check script (Windows' inputs + Afterburner's `MAHMSharedMemory`) in his game: Afterburner 5292 on every P-core (53 x 99.85), 3994 on every E-core (799 for a core that slept); Deck (PDH `% Processor Performance` x 3500) 4836-5227 and 3225-3878, max 5227. Windows' counter is an estimate from its own sampling; Afterburner's figures fit APERF/MPERF (not IA32_PERF_STATUS, which stays at the top step while a core naps, the 2.5.x bug).
+- **Fix (`hw/sensors.rs`):** `Cpu::clock` reads every logical processor's MPERF/APERF (Intel 0xE7/0xE8, AMD's read-only 0xC00000E7/0xC00000E8; both PawnIO modules allow them) each tick; `counted_mhz` = TSC MHz x dAPERF / dMPERF (TSC rate measured once with `rdtsc`, `tsc_mhz`; base clock otherwise); a thread that ran under 1 ms gives nothing and `merge_clocks` takes Windows' value for it. Without the driver (or if every read fails once) it's Windows' clocks as before. Feeds the overlay, the CPU page, Sensors and the core table.
+- **Tests:** `the_clock_comes_from_the_cores_own_cycle_counters` (the friend's figures), `a_thread_that_slept_has_no_counted_clock`, `windows_fills_in_where_the_counters_have_nothing`.
+
 ## 2026-10-18: v2.5.9 — overlay backend audit — readings checked against HWiNFO, Afterburner graph
 
 - **Why:** user: "I'm sick and tired of finding bugs in this app, or having fake readings, or incorrect readings", focus on how the overlay works in the backend; the graph "looks ugly", make a better one but keep the classic one. Part of a whole-app UI audit (hardware pages the way the CPU page was done, overlay first).
