@@ -8,7 +8,7 @@ import { pathToFileURL, fileURLToPath } from "node:url";
 export async function openDeck({ w = 1260, h = 900, port = 9370, page = null } = {}) {
   const edge = spawn("C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe", ["--headless=new", `--remote-debugging-port=${port}`, "--allow-file-access-from-files", "--disable-gpu", "--hide-scrollbars", `--user-data-dir=${process.env.TEMP}\\deck-test-edge-${process.pid}-${port}`, `--window-size=${w},${h}`, "about:blank"], { stdio: "ignore" });
   let list;
-  for (let i = 0; i < 50; i++) { try { list = await (await fetch(`http://127.0.0.1:${port}/json`)).json(); if (list.find((t) => t.type === "page" && t.url === "about:blank")) break; } catch {} await new Promise((r) => setTimeout(r, 200)); }
+  for (let i = 0; i < 150; i++) { try { list = await (await fetch(`http://127.0.0.1:${port}/json`)).json(); if (list.find((t) => t.type === "page" && t.url === "about:blank")) break; } catch {} await new Promise((r) => setTimeout(r, 200)); }
   const t = list.find((x) => x.type === "page" && x.url === "about:blank");
   const ws = new WebSocket(t.webSocketDebuggerUrl);
   let id = 0; const pend = new Map(); const logs = [];

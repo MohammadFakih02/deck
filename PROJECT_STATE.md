@@ -36,8 +36,16 @@ process still trusting user-controlled locations. All fixed with tests:
 - **F8 (Low):** beacons carry a code fingerprint, so reordering the handshake would gain nothing. Instead `kdf::too_easy`
   turns down typed codes with repeats, runs or under 10 distinct characters (`kdf::gen_code` replaces both generators,
   rejection-sampled), and `util::Slot` caps each listener at 64 connections with 10 s to prove the code.
-- 219 passed / 31 ignored; clippy `-D warnings` clean. Not run live yet (Warframe was running): install, then check PC to
-  PC pairing, the phone page and the overlay still work under CFG/CET.
+- 219 passed / 31 ignored; clippy `-D warnings` clean.
+- **Installed and checked live:** the installed exe matches the build; Deck and its watchdog start through `\Deck\Open`;
+  debug port closed; `dumpbin` shows Control Flow Guard and CET compatible; `remote_token` and the pairing code read
+  `dpapi:` in their files and `device.key` is no longer plain PKCS#8; no "changed outside Deck" hold in the log. The
+  installed `rtss-osd32.exe` is still the older copy until the overlay key is first used (Deck rewrites it then).
+  PC to PC pairing, the phone page and the overlay not exercised by hand yet.
+- **CI:** the first run failed in `toast-test.mjs`: headless Edge took longer than the 10 s wait, and the crash skipped the
+  test's cleanup, leaving Edge running. Locally a crashed run left 8 Edge processes, after which reruns failed the same
+  way. All four suites (`harness`, `a11y`, `phone-shot`, `toast-test`) now wait up to 30 s; `toast-test` kills its Edge on
+  exit and fails with a clear message. Rust tests and clippy passed in that run.
 
 ## 2026-10-18: v2.5.6 — Clock and battery fixes, security remediation, faster tests, UI theme pass
 
