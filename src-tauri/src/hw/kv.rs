@@ -1,5 +1,6 @@
 //! Hardware settings (fans, lighting, cooler display, alerts): settings.ini / curves.ini in
 //! %APPDATA%\Deck\hardware, the same formats MoboCtl used so its files can be imported as-is.
+use crate::util::LockAnyway;
 use crate::hw::fx::Rgb;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -13,7 +14,7 @@ pub fn dir() -> PathBuf {
 
 /// MoboCtl's install folder, if its settings are still there (for the one-time import).
 pub fn moboctl_dir() -> Option<PathBuf> {
-    let d = PathBuf::from(std::env::var("ProgramFiles").unwrap_or_else(|_| r"C:\Program Files".into())).join("MoboCtl");
+    let d = crate::util::program_files().join("MoboCtl");
     d.join("settings.ini").exists().then_some(d)
 }
 
@@ -44,7 +45,8 @@ pub fn import_moboctl() -> Result<String, String> {
     if let Ok(c) = std::fs::read_to_string(src.join("curves.ini")) {
         n_curves = c.lines().filter(|l| l.contains('|')).count();
         if n_curves > 0 {
-            std::fs::write(dir().join("curves.ini"), c).map_err(|e| e.to_string())?;
+            crate::util::write_atomic(&dir().join("curves.ini"), c.as_bytes()).map_err(|e| e.to_string())?;
+            crate::seal::record_ini("curves.ini");
         }
     }
     Ok(format!("Imported {} settings and {} fan curves from MoboCtl.", n, n_curves))
@@ -85,25 +87,23 @@ impl Settings {
         static SAVING: Mutex<()> = Mutex::new(());
         let _one_at_a_time = SAVING.lock().unwrap_or_else(|e| e.into_inner());
         let lines: Vec<String> = {
-            let d = self.d.lock().unwrap();
-            self.order.lock().unwrap().iter().filter_map(|k| d.get(k).map(|v| format!("{}={}", k, v))).collect()
+            let d = self.d.lock_anyway();
+            self.order.lock_anyway().iter().filter_map(|k| d.get(k).map(|v| format!("{}={}", k, v))).collect()
         };
-        let p = dir().join("settings.ini");
-        let tmp = dir().join("settings.ini.tmp");
-        if std::fs::write(&tmp, lines.join("\r\n") + "\r\n").is_ok() && std::fs::rename(&tmp, &p).is_err() {
-            let _ = std::fs::remove_file(&tmp);
+        if crate::util::write_atomic(&dir().join("settings.ini"), (lines.join("\r\n") + "\r\n").as_bytes()).is_ok() {
+            crate::seal::record_ini("settings.ini");
         }
     }
 
     /// Every key/value, in file order.
     pub fn all(&self) -> Vec<(String, String)> {
-        let d = self.d.lock().unwrap();
-        self.order.lock().unwrap().iter().filter_map(|k| d.get(k).map(|v| (k.clone(), v.clone()))).collect()
+        let d = self.d.lock_anyway();
+        self.order.lock_anyway().iter().filter_map(|k| d.get(k).map(|v| (k.clone(), v.clone()))).collect()
     }
     /// Puts back a snapshot taken with `all()` (keys added since are removed again).
     pub fn restore(&self, snap: &[(String, String)]) {
-        let mut d = self.d.lock().unwrap();
-        let mut o = self.order.lock().unwrap();
+        let mut d = self.d.lock_anyway();
+        let mut o = self.order.lock_anyway();
         d.clear();
         o.clear();
         for (k, v) in snap {
@@ -113,21 +113,21 @@ impl Settings {
     }
 
     pub fn get(&self, k: &str, def: &str) -> String {
-        self.d.lock().unwrap().get(k).cloned().unwrap_or_else(|| def.to_string())
+        self.d.lock_anyway().get(k).cloned().unwrap_or_else(|| def.to_string())
     }
     pub fn int(&self, k: &str, def: i32) -> i32 {
-        self.d.lock().unwrap().get(k).and_then(|v| v.trim().parse().ok()).unwrap_or(def)
+        self.d.lock_anyway().get(k).and_then(|v| v.trim().parse().ok()).unwrap_or(def)
     }
     pub fn bool(&self, k: &str, def: bool) -> bool {
-        self.d.lock().unwrap().get(k).map(|v| v == "1").unwrap_or(def)
+        self.d.lock_anyway().get(k).map(|v| v == "1").unwrap_or(def)
     }
     pub fn col(&self, k: &str, def: Rgb) -> Rgb {
-        self.d.lock().unwrap().get(k).and_then(|v| Rgb::parse(v)).unwrap_or(def)
+        self.d.lock_anyway().get(k).and_then(|v| Rgb::parse(v)).unwrap_or(def)
     }
     pub fn set(&self, k: &str, v: &str) {
-        let mut d = self.d.lock().unwrap();
+        let mut d = self.d.lock_anyway();
         if d.insert(k.to_string(), v.to_string()).is_none() {
-            self.order.lock().unwrap().push(k.to_string());
+            self.order.lock_anyway().push(k.to_string());
         }
     }
     pub fn set_int(&self, k: &str, v: i32) {
@@ -212,9 +212,8 @@ impl Curve {
                 format!("{}|{}", c.name, p.iter().map(|(x, y)| format!("{}:{}", *x as i32, *y as i32)).collect::<Vec<_>>().join(","))
             })
             .collect();
-        let (p, tmp) = (dir().join("curves.ini"), dir().join("curves.ini.tmp"));
-        if std::fs::write(&tmp, lines.join("\r\n") + "\r\n").is_ok() && std::fs::rename(&tmp, &p).is_err() {
-            let _ = std::fs::remove_file(&tmp);
+        if crate::util::write_atomic(&dir().join("curves.ini"), (lines.join("\r\n") + "\r\n").as_bytes()).is_ok() {
+            crate::seal::record_ini("curves.ini");
         }
     }
 }

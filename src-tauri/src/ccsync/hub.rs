@@ -16,12 +16,7 @@ pub struct Hub {
 }
 
 fn write_atomic(p: &Path, data: &[u8]) -> io::Result<()> {
-    if let Some(d) = p.parent() {
-        std::fs::create_dir_all(d)?;
-    }
-    let tmp = p.with_extension("ccsync-tmp");
-    std::fs::write(&tmp, data)?;
-    std::fs::rename(&tmp, p)
+    crate::util::write_atomic(p, data)
 }
 
 impl Hub {

@@ -63,7 +63,7 @@ struct State {
 }
 
 pub struct Gpu {
-    pub nvml: Nvml,
+    pub nvml: &'static Nvml,
     pub api: Option<NvApi>,
     pub caps: Caps,
     /// the card's own temperature target, when known (a profile without a limit goes back to it)
@@ -104,7 +104,7 @@ pub struct Field {
 
 impl Gpu {
     pub fn new() -> Option<Arc<Gpu>> {
-        let nvml = Nvml::load()?;
+        let nvml = Nvml::shared()?;
         let api = NvApi::load();
         let mut caps = Caps { name: nvml.name.clone(), driver: nvml.driver.clone(), pci: nvml.pci_id().unwrap_or_default(), ..Default::default() };
         if let Ok((_, lo, hi, def)) = nvml.power_limit() {

@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 #[serde(default)]
@@ -237,6 +237,12 @@ pub struct Settings {
     pub active_gpu: String,
     /// GPU profile applied when Deck starts ("" = none)
     pub gpu_startup: String,
+    /// CPU profile switched to when the PC is unplugged / plugged in ("" = don't switch)
+    pub cpu_battery_profile: String,
+    pub cpu_plugged_profile: String,
+    /// a CPU profile's values also apply on battery (false: switching leaves the plan's own
+    /// battery values alone; edits made in Deck still reach them)
+    pub cpu_battery_same: bool,
     /// small notification when a profile switches
     pub profile_toast: bool,
     /// keyboard shortcuts for profiles on/off
@@ -362,6 +368,9 @@ impl Default for Settings {
             active_cpu: String::new(),
             active_gpu: String::new(),
             gpu_startup: String::new(),
+            cpu_battery_profile: String::new(),
+            cpu_plugged_profile: String::new(),
+            cpu_battery_same: true,
             profile_toast: true,
             hotkeys_on: true,
             game_mode_orig: -1,
@@ -429,17 +438,68 @@ impl Settings {
         crate::util::appdata().join(name)
     }
 
-    fn path() -> PathBuf {
-        Self::dir().join("settings.json")
-    }
 
     pub fn load() -> Self {
-        let mut s: Settings = std::fs::read_to_string(Self::path())
-            .ok()
-            .and_then(|t| serde_json::from_str(&t).ok())
-            .unwrap_or_default();
+        Self::load_from(&Self::dir()).0
+    }
+
+    /// Loads `settings.json` from `dir`. The note, when there is one, says what was wrong with the
+    /// file and what was done about it (shown to the user). A missing file is a new install, not
+    /// damage. A file that is there but can't be read is kept aside, the backup is tried, and then
+    /// as much as still parses is merged into the defaults, so one bad field or a cut-off save
+    /// never costs every setting.
+    pub fn load_from(dir: &Path) -> (Self, Option<String>) {
+        let main = dir.join("settings.json");
+        let raw = match std::fs::read_to_string(&main) {
+            Ok(t) => t,
+            Err(_) => return (Self::from_backup(dir).unwrap_or_default().0, Self::from_backup(dir).map(|b| b.1).unwrap_or(None)),
+        };
+        if let Ok(s) = serde_json::from_str::<Settings>(&raw) {
+            let mut s = s;
+            s.repair();
+            return (s, None);
+        }
+        // the file is there but unreadable: keep it, so nothing is silently lost
+        let kept = dir.join(format!("settings.json.corrupt-{}", crate::util::now_s()));
+        let _ = std::fs::rename(&main, &kept);
+        if let Some((s, _)) = Self::from_backup(dir) {
+            return (s, Some("Your settings file was damaged; Deck restored the last good copy.".into()));
+        }
+        // no backup: rescue whatever fields still parse
+        let (mut s, rescued) = match serde_json::from_str::<serde_json::Value>(&raw) {
+            Ok(v) => (serde_json::from_value::<Settings>(Self::merge_into_default(v)).unwrap_or_default(), true),
+            Err(_) => (Settings::default(), false),
+        };
         s.repair();
-        s
+        let note = if rescued {
+            "Some settings were damaged; Deck kept the ones it could read and reset the rest."
+        } else {
+            "Your settings file was damaged and couldn't be read; Deck started with the defaults (the old file was kept)."
+        };
+        (s, Some(note.into()))
+    }
+
+    fn from_backup(dir: &Path) -> Option<(Self, Option<String>)> {
+        let t = std::fs::read_to_string(dir.join("settings.json.bak")).ok()?;
+        let mut s: Settings = serde_json::from_str(&t).ok()?;
+        s.repair();
+        Some((s, Some("Your settings file was damaged; Deck restored the last good copy.".into())))
+    }
+
+    /// Keeps only the fields of `v` that deserialize on their own, dropping the rest onto the
+    /// defaults (one wrong-typed field doesn't take the others with it).
+    fn merge_into_default(v: serde_json::Value) -> serde_json::Value {
+        let mut base = serde_json::to_value(Settings::default()).unwrap_or_else(|_| serde_json::json!({}));
+        if let (true, serde_json::Value::Object(fields)) = (base.is_object(), v) {
+            for (k, val) in fields {
+                let mut trial = base.clone();
+                trial[&k] = val.clone();
+                if serde_json::from_value::<Settings>(trial).is_ok() {
+                    base[&k] = val;
+                }
+            }
+        }
+        base
     }
 
     fn repair(&mut self) {
@@ -482,11 +542,103 @@ impl Settings {
 
     /// Atomic save (write a temp file, then rename over the old one).
     pub fn save(&self) -> Result<(), String> {
-        let dir = Self::dir();
-        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-        let tmp = dir.join("settings.json.tmp");
+        self.save_to(&Self::dir()).inspect_err(|e| crate::log::warn(format!("settings not saved: {e}")))?;
+        // Deck saved its hardware settings itself: see crate::seal
+        crate::seal::record("settings", &crate::seal::hardware_part(self));
+        Ok(())
+    }
+
+    /// `save` into `dir`. The current good file is copied to `settings.json.bak` first, so a crash
+    /// during the save still leaves a whole file to come back from.
+    pub fn save_to(&self, dir: &Path) -> Result<(), String> {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+        let main = dir.join("settings.json");
         let text = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
-        std::fs::write(&tmp, text).map_err(|e| e.to_string())?;
-        std::fs::rename(&tmp, Self::path()).map_err(|e| e.to_string())
+        // keep the previous version, but only if it parses (never back up a damaged file)
+        if let Ok(old) = std::fs::read_to_string(&main) {
+            if serde_json::from_str::<Settings>(&old).is_ok() {
+                let _ = crate::util::write_atomic(&dir.join("settings.json.bak"), old.as_bytes());
+            }
+        }
+        crate::util::write_atomic(&main, text.as_bytes()).map_err(|e| e.to_string())
+    }
+}
+
+#[cfg(test)]
+mod durability_tests {
+    use super::Settings;
+    use std::path::PathBuf;
+
+    fn dir(name: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("deck-settings-{name}-{}", crate::util::now_ms()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    fn with_place(place: &str) -> Settings {
+        Settings { place: place.into(), ..Default::default() }
+    }
+
+    fn corrupt_copies(d: &std::path::Path) -> usize {
+        std::fs::read_dir(d).unwrap().flatten().filter(|e| e.file_name().to_string_lossy().starts_with("settings.json.corrupt-")).count()
+    }
+
+    #[test]
+    fn a_damaged_file_comes_back_from_the_backup() {
+        let d = dir("bak");
+        std::fs::write(d.join("settings.json.bak"), serde_json::to_string(&with_place("Backup town")).unwrap()).unwrap();
+        std::fs::write(d.join("settings.json"), r#"{"place": "Ne"#).unwrap(); // cut off by a crash
+        let (s, note) = Settings::load_from(&d);
+        assert_eq!(s.place, "Backup town");
+        assert!(note.is_some(), "the user is told");
+        assert_eq!(corrupt_copies(&d), 1, "the damaged file is kept, not overwritten");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn one_bad_value_doesnt_cost_the_rest() {
+        let d = dir("field");
+        let mut v = serde_json::to_value(with_place("Keep me")).unwrap();
+        v["clip_max"] = serde_json::json!("lots");
+        std::fs::write(d.join("settings.json"), v.to_string()).unwrap();
+        let (s, note) = Settings::load_from(&d);
+        assert_eq!(s.place, "Keep me", "the other settings survive");
+        assert_eq!(s.clip_max, Settings::default().clip_max);
+        assert!(note.is_some());
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn an_empty_file_with_no_backup_is_kept_aside() {
+        let d = dir("empty");
+        std::fs::write(d.join("settings.json"), b"").unwrap();
+        let (s, note) = Settings::load_from(&d);
+        assert_eq!(s.place, Settings::default().place);
+        assert!(note.is_some());
+        assert_eq!(corrupt_copies(&d), 1);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn saving_keeps_the_previous_version_as_a_backup() {
+        let d = dir("save");
+        with_place("First").save_to(&d).unwrap();
+        with_place("Second").save_to(&d).unwrap();
+        assert_eq!(Settings::load_from(&d).0.place, "Second");
+        let bak: Settings = serde_json::from_str(&std::fs::read_to_string(d.join("settings.json.bak")).unwrap()).unwrap();
+        assert_eq!(bak.place, "First");
+        // a missing settings.json (a crash between the two renames) comes back from the backup
+        std::fs::remove_file(d.join("settings.json")).unwrap();
+        assert_eq!(Settings::load_from(&d).0.place, "First");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn a_new_install_has_no_note() {
+        let d = dir("new");
+        let (_, note) = Settings::load_from(&d);
+        assert!(note.is_none());
+        let _ = std::fs::remove_dir_all(&d);
     }
 }

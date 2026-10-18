@@ -3,6 +3,7 @@
 //! `apply` writes it back and hands it to the worker threads. Nothing reaches the hardware
 //! until `apply` (the pages have an Apply button, like MoboCtl).
 
+use crate::util::LockAnyway;
 use super::fx::{self, Rgb};
 use super::kv::Curve;
 use super::lcd;
@@ -208,8 +209,8 @@ pub fn load(sh: &Shared) -> HwCfg {
         flash_at: s.int("D_FlashAt", 90).clamp(50, 105),
         music: pick(&lcd::MUSIC_DISP, &s.get("D_MusicStyle", "Bars"), "Bars"),
     };
-    let hw = sh.hw.lock().unwrap().clone();
-    let curves: Vec<Curve> = sh.curves.lock().unwrap().clone();
+    let hw = sh.hw.lock_anyway().clone();
+    let curves: Vec<Curve> = sh.curves.lock_anyway().clone();
     let modes = mode_items(&curves);
     let nsrc = sh.sources().len();
     let channels = hw
@@ -348,8 +349,8 @@ pub fn apply(sh: &Shared, c: &HwCfg) {
     }
     Curve::save_all(&curves);
     let items = mode_items(&curves);
-    let names = sh.hw.lock().unwrap().fan_names.clone();
-    let chip = sh.hw.lock().unwrap().chip.clone();
+    let names = sh.hw.lock_anyway().fan_names.clone();
+    let chip = sh.hw.lock_anyway().chip.clone();
     let mut modes = vec!["Auto (BIOS)".to_string(); names.len()];
     let mut src = vec![0usize; names.len()];
     for (i, name) in names.iter().enumerate() {
@@ -372,11 +373,11 @@ pub fn apply(sh: &Shared, c: &HwCfg) {
     s.set_bool("LogCsv", a.log_csv);
     s.save();
 
-    *sh.curves.lock().unwrap() = curves;
-    *sh.modes.lock().unwrap() = modes;
-    *sh.fancfg.lock().unwrap() = FanCfg { src, hyst: f.hyst as f32, delay: f.delay as f32, stop: f.stop as f32, allow_experimental: f.allow_experimental };
-    *sh.ep.lock().unwrap() = effect_params(l);
-    *sh.dp.lock().unwrap() = dp;
+    *sh.curves.lock_anyway() = curves;
+    *sh.modes.lock_anyway() = modes;
+    *sh.fancfg.lock_anyway() = FanCfg { src, hyst: f.hyst as f32, delay: f.delay as f32, stop: f.stop as f32, allow_experimental: f.allow_experimental };
+    *sh.ep.lock_anyway() = effect_params(l);
+    *sh.dp.lock_anyway() = dp;
     sh.zmask.store((l.zones[0] as usize) | (l.zones[1] as usize) << 1 | (l.zones[2] as usize) << 2, Relaxed);
     sh.n1.store(l.n1.clamp(1, 120) as usize, Relaxed);
     sh.n2.store(l.n2.clamp(1, 120) as usize, Relaxed);
@@ -414,14 +415,14 @@ pub fn set_all_fans(sh: &Shared, mode: &str) -> Result<(), String> {
 
 /// The mode every fan is on, if they all share one (the tray ticks it); and the list to offer.
 pub fn fan_modes(sh: &Shared) -> (Option<String>, Vec<String>) {
-    let modes = sh.modes.lock().unwrap().clone();
+    let modes = sh.modes.lock_anyway().clone();
     let common = modes.first().filter(|m| modes.iter().all(|x| x == *m)).cloned();
-    (common, mode_items(&sh.curves.lock().unwrap()))
+    (common, mode_items(&sh.curves.lock_anyway()))
 }
 
 /// Cooler display off / on at once (remembered).
 pub fn set_display_off(sh: &Shared, off: bool) {
-    sh.dp.lock().unwrap().off = off;
+    sh.dp.lock_anyway().off = off;
     sh.s.set_bool("D_Off", off);
     sh.s.save();
 }

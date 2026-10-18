@@ -207,9 +207,13 @@ pub fn personality(g: &GUID) -> Option<GUID> {
 }
 
 fn powrprof(name: &str) -> Option<unsafe extern "system" fn() -> isize> {
-    use windows::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
+    use windows::Win32::Foundation::HMODULE;
+    use windows::Win32::System::LibraryLoader::GetProcAddress;
     unsafe {
-        let m = LoadLibraryW(&windows::core::HSTRING::from("powrprof.dll")).ok()?;
+        let m = HMODULE(crate::util::load_trusted_dll("powrprof.dll"));
+        if m.is_invalid() {
+            return None;
+        }
         GetProcAddress(m, windows::core::PCSTR(format!("{name}\0").as_ptr()))
     }
 }

@@ -45,6 +45,9 @@ pub struct Share {
     pub preparing: bool,
     #[serde(default)]
     pub error: String,
+    /// downloads running right now (each holds one of `max` until it ends or breaks off)
+    #[serde(skip)]
+    pub active: u32,
 }
 
 struct State {
@@ -64,7 +67,7 @@ fn dir() -> PathBuf {
 
 fn save(shares: &[Share]) {
     let _ = std::fs::create_dir_all(dir());
-    let _ = std::fs::write(dir().join("shares.json"), serde_json::to_vec_pretty(shares).unwrap_or_default());
+    let _ = crate::util::write_atomic(&dir().join("shares.json"), &serde_json::to_vec_pretty(shares).unwrap_or_default());
 }
 
 fn changed() {
@@ -78,7 +81,13 @@ pub fn init(app: Arc<App>) {
     let _ = APP.set(app);
     let mut shares: Vec<Share> = std::fs::read(dir().join("shares.json")).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
     shares.retain(|s| !s.preparing);
+    let internet = shares.iter().any(|s| s.internet);
     ST.lock().shares = shares;
+    // Funnel may still be on from before (Deck closed or crashed with an internet link open):
+    // with no internet link left it goes off now, not only after the next change
+    if !internet && crate::rdesk::tailscale_exe().is_some() {
+        std::thread::spawn(|| funnel(false));
+    }
     tidy();
     // expiry is checked once a minute
     std::thread::spawn(|| loop {
@@ -126,8 +135,9 @@ fn start_server() {
     }
     // other devices on the Wi-Fi reach it through Deck's firewall rule (home and work networks)
     std::thread::spawn(crate::remote::allow_between_pcs);
-    let page = |AxPath(t): AxPath<String>| async move { page(&t) };
-    let dl = |AxPath(t): AxPath<String>, headers: axum::http::HeaderMap| async move { download(&t, &headers).await };
+    use axum::extract::ConnectInfo;
+    let page = |AxPath(t): AxPath<String>, ConnectInfo(from): ConnectInfo<SocketAddr>, headers: axum::http::HeaderMap| async move { page(&t, via_funnel(&headers, from.ip())) };
+    let dl = |AxPath(t): AxPath<String>, ConnectInfo(from): ConnectInfo<SocketAddr>, headers: axum::http::HeaderMap| async move { download(&t, &headers, via_funnel(&headers, from.ip())).await };
     let router = Router::new()
         .route("/s/{t}", get(page))
         .route("/s/{t}/download", get(dl))
@@ -140,7 +150,7 @@ fn start_server() {
         let ip = if std::env::var("DECK_PROFILE").map(|p| p == "test").unwrap_or(false) { [127, 0, 0, 1] } else { [0, 0, 0, 0] };
         match tokio::net::TcpListener::bind(SocketAddr::from((ip, PORT))).await {
             Ok(l) => {
-                let _ = axum::serve(l, router).await;
+                let _ = axum::serve(l, router.into_make_service_with_connect_info::<SocketAddr>()).await;
             }
             Err(e) => {
                 ST.lock().funnel_error = format!("Port {PORT} is taken ({e}): links can't be served");
@@ -227,6 +237,9 @@ pub fn create(path: &str, hours: u64, max: u32, internet: bool) -> Result<Value,
     let token = crate::util::random_token(24);
     let now = crate::util::now_ms();
     let folder = meta.is_dir();
+    // Deck has admin rights: only what the signed-in user could open themselves is shared
+    let check = if folder { crate::fsguard::user_may_read_tree(&p) } else { crate::fsguard::open_read_for_user(&p).map(drop) };
+    check.map_err(|e| if e.kind() == std::io::ErrorKind::PermissionDenied { format!("Can't share that: {e}") } else { format!("Can't read that: {e}") })?;
     let share = Share {
         token: token.clone(),
         name: if folder { format!("{name}.zip") } else { name.clone() },
@@ -240,6 +253,7 @@ pub fn create(path: &str, hours: u64, max: u32, internet: bool) -> Result<Value,
         internet,
         preparing: folder,
         error: String::new(),
+        active: 0,
     };
     {
         let mut st = ST.lock();
@@ -250,8 +264,15 @@ pub fn create(path: &str, hours: u64, max: u32, internet: bool) -> Result<Value,
         // zipped by Windows' own tar (bsdtar), next to the shares list
         let (zip, parent, leaf, tok) = (share.path.clone(), p.parent().map(Path::to_path_buf).unwrap_or_default(), name.clone(), token.clone());
         std::thread::spawn(move || {
-            let _ = std::fs::create_dir_all(dir());
-            let ok = std::process::Command::new("tar.exe").args(["-a", "-c", "-f", &zip, "-C"]).arg(&parent).arg(&leaf).creation_flags_hidden().status().map(|s| s.success()).unwrap_or(false);
+            // the zip is written (by tar, with Deck's rights) only into Deck's own folder, held
+            // open meanwhile so it can't be swapped for a link to somewhere else
+            let held = crate::fsguard::open_for_user(&dir());
+            let ok = held.as_ref().is_ok_and(|d| {
+                let out = d.real().join(format!("{tok}.zip"));
+                std::process::Command::new("tar.exe").args(["-a", "-c", "-f"]).arg(&out).arg("-C").arg(&parent).arg(&leaf).creation_flags_hidden().status().map(|s| s.success()).unwrap_or(false)
+                    && crate::fsguard::real_path(&out).is_ok_and(|r| r.parent() == Some(d.real()))
+            });
+            drop(held);
             let size = std::fs::metadata(&zip).map(|m| m.len()).unwrap_or(0);
             {
                 let mut st = ST.lock();
@@ -305,9 +326,44 @@ pub fn state() -> Value {
     json!({ "shares": shares, "funnel": st.funnel, "funnel_error": st.funnel_error, "tailscale": crate::rdesk::tailscale_exe().is_some() })
 }
 
-fn live(token: &str) -> Option<Share> {
+fn live(token: &str, via_funnel: bool) -> Option<Share> {
     let now = crate::util::now_ms();
-    ST.lock().shares.iter().find(|s| s.token == token && !s.preparing && s.expires > now && (s.max == 0 || s.done < s.max)).cloned()
+    ST.lock().shares.iter().find(|s| s.token == token && !s.preparing && s.expires > now && (s.max == 0 || s.done < s.max) && may_serve(s, via_funnel)).cloned()
+}
+
+/// A download of `token` starting at `now`: takes one of the link's places, or false when the link
+/// has ended or every place is taken (a download in progress holds one).
+fn take_slot(shares: &mut [Share], token: &str, now: u64) -> bool {
+    let Some(s) = shares.iter_mut().find(|s| s.token == token && !s.preparing && s.expires > now) else { return false };
+    if s.max > 0 && s.done + s.active >= s.max {
+        return false;
+    }
+    s.active += 1;
+    true
+}
+
+/// A download ended: `done` it reached the file's end and uses the place up, otherwise (broken off)
+/// the place is free again.
+fn end_slot(shares: &mut [Share], token: &str, done: bool) {
+    if let Some(s) = shares.iter_mut().find(|s| s.token == token) {
+        s.active = s.active.saturating_sub(1);
+        if done {
+            s.done += 1;
+        }
+    }
+}
+
+/// Whether `s` may be served to this request: one that came through Tailscale Funnel (from the
+/// internet) gets only links made for the internet.
+fn may_serve(s: &Share, via_funnel: bool) -> bool {
+    s.internet || !via_funnel
+}
+
+/// Whether a request came in through Tailscale Funnel: Funnel marks what it forwards, and it hands
+/// it on from this PC itself (home links are opened by the PC's network address, not 127.0.0.1).
+fn via_funnel(headers: &axum::http::HeaderMap, from: std::net::IpAddr) -> bool {
+    let test = std::env::var("DECK_PROFILE").map(|p| p == "test").unwrap_or(false);
+    headers.contains_key("tailscale-funnel-request") || (from.is_loopback() && !test)
 }
 
 fn esc(s: &str) -> String {
@@ -325,8 +381,8 @@ a.b{display:inline-block;margin-top:20px;background:var(--acc);color:#fff;text-d
 .i{width:46px;height:46px;border-radius:12px;background:var(--acc);display:inline-grid;place-items:center;color:#fff;font-size:22px}
 </style></head><body><div class="c">{BODY}</div></body></html>"#;
 
-fn page(token: &str) -> Response {
-    let Some(s) = live(token) else {
+fn page(token: &str, via_funnel: bool) -> Response {
+    let Some(s) = live(token, via_funnel) else {
         let body = r#"<div class="i">✕</div><h1>This link has ended</h1><div class="d">It was already downloaded, it expired, or it was stopped. Ask for a new one.</div>"#;
         return (StatusCode::GONE, Html(PAGE.replace("{TITLE}", "Link ended").replace("{BODY}", body))).into_response();
     };
@@ -342,34 +398,90 @@ fn page(token: &str) -> Response {
     ([(header::CACHE_CONTROL, "no-store"), (header::REFERRER_POLICY, "no-referrer")], Html(PAGE.replace("{TITLE}", &esc(&s.name)).replace("{BODY}", &body))).into_response()
 }
 
-/// A download reached the file's end (a broken-off one doesn't use the link up; the browser can
-/// continue it, and the continued part that reaches the end counts).
-fn counted(token: &str, name: &str) {
-    {
+/// One download's place on its link, held from its start. Dropped without `done` (broken off, or
+/// the file couldn't be read) it frees the place; the browser can continue, and the continued part
+/// that reaches the end counts.
+struct Slot {
+    token: String,
+    name: String,
+    done: bool,
+}
+
+impl Drop for Slot {
+    fn drop(&mut self) {
         let left = {
             let mut st = ST.lock();
-            let Some(s) = st.shares.iter_mut().find(|s| s.token == token) else { return };
-            s.done += 1;
-            let left = if s.max == 0 { None } else { Some(s.max.saturating_sub(s.done)) };
+            end_slot(&mut st.shares, &self.token, self.done);
+            if !self.done {
+                return;
+            }
             save(&st.shares);
-            left
+            st.shares.iter().find(|s| s.token == self.token).map(|s| if s.max == 0 { None } else { Some(s.max.saturating_sub(s.done)) })
         };
-        if let Some(a) = APP.get() {
-            let body = match left {
-                Some(0) => "The link has ended.".to_string(),
-                Some(n) => format!("{n} download{} left.", if n == 1 { "" } else { "s" }),
-                None => "The link stays open until it expires.".to_string(),
-            };
-            a.toast(Toast::simple(&format!("share:{token}"), &format!("{name} was downloaded"), &body));
-        }
-        std::thread::spawn(tidy);
+        let Some(left) = left else { return };
+        counted(&self.token, &self.name, left);
     }
 }
 
-async fn download(token: &str, headers: &axum::http::HeaderMap) -> Response {
-    let Some(s) = live(token) else { return page(token) };
-    let (t, n) = (s.token.clone(), s.name.clone());
-    crate::remote::serve_file(&s.path, &s.name, headers, Some(Box::new(move || counted(&t, &n)))).await
+/// A download reached the file's end.
+fn counted(token: &str, name: &str, left: Option<u32>) {
+    if let Some(a) = APP.get() {
+        let body = match left {
+            Some(0) => "The link has ended.".to_string(),
+            Some(n) => format!("{n} download{} left.", if n == 1 { "" } else { "s" }),
+            None => "The link stays open until it expires.".to_string(),
+        };
+        a.toast(Toast::simple(&format!("share:{token}"), &format!("{name} was downloaded"), &body));
+    }
+    std::thread::spawn(tidy);
+}
+
+async fn download(token: &str, headers: &axum::http::HeaderMap, via_funnel: bool) -> Response {
+    let Some(s) = live(token, via_funnel) else { return page(token, via_funnel) };
+    if !take_slot(&mut ST.lock().shares, token, crate::util::now_ms()) {
+        return (StatusCode::CONFLICT, Html(PAGE.replace("{TITLE}", "Already downloading").replace("{BODY}", r#"<div class="i">…</div><h1>Already downloading</h1><div class="d">This link is being downloaded right now. If that download stops, try again.</div>"#))).into_response();
+    }
+    let slot = Slot { token: s.token.clone(), name: s.name.clone(), done: false };
+    // the closure owns the whole slot (not just its flag), so the place is held while the file streams
+    let on_end = move || {
+        let mut slot = slot;
+        slot.done = true;
+    };
+    crate::remote::serve_file(&s.path, &s.name, headers, Some(Box::new(on_end))).await
+}
+
+#[cfg(test)]
+mod limit_tests {
+    use super::*;
+
+    fn link(max: u32, internet: bool) -> Share {
+        Share { token: "t".into(), name: "n".into(), path: "p".into(), zipped: false, size: 1, created: 0, expires: u64::MAX, max, done: 0, internet, preparing: false, error: String::new(), active: 0 }
+    }
+
+    /// A download takes its place when it starts: two at once can't both use a one-download link.
+    /// One that breaks off gives its place back (the browser may continue it).
+    #[test]
+    fn downloads_reserve_their_place() {
+        let mut v = vec![link(1, false)];
+        assert!(take_slot(&mut v, "t", 1));
+        assert!(!take_slot(&mut v, "t", 1), "a second download at the same time");
+        end_slot(&mut v, "t", false);
+        assert!(take_slot(&mut v, "t", 1), "a broken-off download gave its place back");
+        end_slot(&mut v, "t", true);
+        assert_eq!((v[0].done, v[0].active), (1, 0));
+        assert!(!take_slot(&mut v, "t", 1), "used up");
+        let mut any = vec![link(0, false)];
+        assert!(take_slot(&mut any, "t", 1) && take_slot(&mut any, "t", 1), "no limit");
+        assert!(!take_slot(&mut any, "nope", 1));
+    }
+
+    /// Through Tailscale Funnel (the internet) only links made for the internet are served.
+    #[test]
+    fn home_links_are_not_served_to_the_internet() {
+        assert!(may_serve(&link(1, true), true) && may_serve(&link(1, true), false));
+        assert!(may_serve(&link(1, false), false));
+        assert!(!may_serve(&link(1, false), true));
+    }
 }
 
 #[cfg(test)]
@@ -423,6 +535,25 @@ mod tests {
         assert_eq!(&zip[..2], b"PK", "a zip");
         stop(&s.token);
         assert!(!Path::new(&s.path).exists(), "the zip goes with the link");
+
+        // two downloads at once of a one-download link: the second waits its turn; the first
+        // breaking off frees the place, and the next whole download uses the link up
+        create(&tmp.join("photo.bin").display().to_string(), 1, 1, false).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        let tok = ST.lock().shares.iter().find(|s| s.name == "photo.bin").unwrap().token.clone();
+        let url = format!("http://127.0.0.1:{PORT}/s/{tok}/download");
+        let mut first = ureq::get(&url).call().unwrap().into_reader();
+        let mut head = [0u8; 1000];
+        first.read_exact(&mut head).unwrap();
+        let second = ureq::get(&url).call();
+        assert!(matches!(second, Err(ureq::Error::Status(409, _))), "a second download at the same time is refused");
+        drop(first);
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        let mut whole = Vec::new();
+        ureq::get(&url).call().expect("the place was given back").into_reader().read_to_end(&mut whole).unwrap();
+        assert_eq!(whole, data);
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        assert!(ST.lock().shares.iter().all(|s| s.token != tok), "used up by the one whole download");
         let _ = std::fs::remove_dir_all(&tmp);
     }
 }

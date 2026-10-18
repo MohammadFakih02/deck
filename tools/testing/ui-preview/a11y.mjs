@@ -27,8 +27,8 @@ const html = fs.readFileSync(path.resolve(here, "../../../ui/index.html"), "utf8
 const harness = path.join(here, `harness-${port}.html`);
 fs.writeFileSync(harness, html);
 await send("Page.navigate", { url: pathToFileURL(harness).href });
-await sleep(1500);
 const ev = async (e) => { const r = await send("Runtime.evaluate", { expression: e, awaitPromise: true, returnByValue: true }); return r.result?.result?.value ?? r.result?.exceptionDetails?.exception?.description; };
+for (let i = 0; i < 100; i++) { if (await ev(`typeof go === "function" && !!document.querySelector(".panel")`) === true) break; await sleep(30); }
 await ev(`document.body.classList.add("shown","style-window")`);
 
 // The checks, run inside the page.
@@ -50,6 +50,13 @@ const CHECK = `(() => {
     if (!vis(sw || f)) continue;
     const lab = f.getAttribute("aria-label") || f.getAttribute("aria-labelledby") || f.labels?.length && [...f.labels].some((l) => l.textContent.trim()) || f.getAttribute("title") || (f.placeholder && f.type !== "range" ? f.placeholder : "");
     if (!lab) out.unlabelledFields.push((f.type || f.tagName.toLowerCase()) + " " + desc(sw || f));
+    // a placeholder disappears as soon as something is typed: it is no label for a text box
+    else if (f.tagName === "TEXTAREA" && !f.getAttribute("aria-label") && !f.getAttribute("aria-labelledby") && !f.labels?.length && !f.getAttribute("title")) out.unlabelledFields.push("textarea (placeholder only) " + desc(f));
+    // a tick box outside a label is only as big as the box itself
+    if ((f.type === "checkbox" || f.type === "radio") && !sw && !f.closest("label")) {
+      const r = f.getBoundingClientRect();
+      if (r.width < 24 || r.height < 24) out.smallTargets.push(f.type + " " + desc(f) + " " + Math.round(r.width) + "x" + Math.round(r.height));
+    }
   }
   const c = document.querySelector(".content");
   out.overflowX = Math.max(0, c.scrollWidth - c.clientWidth);
@@ -66,7 +73,8 @@ for (const [page, sub, extra] of pagesPlus) {
   const t0 = await ev(`performance.now()`);
   await ev(`(async()=>{ await go(${JSON.stringify(page)}, ${!sub || sub === "-" || extra ? "null" : JSON.stringify(sub)}); ${extra || ""} })()`);
   const t1 = await ev(`performance.now()`);
-  await sleep(700);
+  // the fake backend answers at once: two frames are enough for the page to finish drawing
+  await ev(`new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(r, 60))))`);
   const r = await ev(CHECK);
   const key = page + (sub && sub !== "-" ? "/" + sub : "");
   report[key] = { ms: Math.round(t1 - t0), ...r, errors: [...logs] };
@@ -75,4 +83,5 @@ for (const [page, sub, extra] of pagesPlus) {
 }
 if (outFile) fs.writeFileSync(outFile, JSON.stringify(report, null, 1));
 try { (await import("node:child_process")).spawnSync("taskkill", ["/pid", String(edge.pid), "/T", "/F"], { stdio: "ignore" }); } catch {}
+try { fs.unlinkSync(harness); } catch {}
 process.exit(0);

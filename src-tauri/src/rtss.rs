@@ -3,6 +3,7 @@
 //!   draws it in games and fills the framerate macros itself (no injection by Deck);
 //! - `MAHMSharedMemory`, Afterburner's monitoring memory (v2.0 layout from the RTSS SDK), so
 //!   RTSS OverlayEditor's "MSI Afterburner" data source and other readers keep working.
+//!
 //! Layouts: RTSS SDK `RTSSSharedMemory.h` (v2.x) and `MSIAB\MAHMSharedMemory.h`.
 
 use crate::app::App;
@@ -13,7 +14,7 @@ use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, ERROR_ALREADY_EXISTS, HANDLE, INVALID_HANDLE_VALUE};
-use windows_sys::Win32::System::Memory::{CreateFileMappingW, MapViewOfFile, OpenFileMappingW, UnmapViewOfFile, FILE_MAP_ALL_ACCESS, MEMORY_MAPPED_VIEW_ADDRESS, PAGE_READWRITE};
+use windows_sys::Win32::System::Memory::{CreateFileMappingW, MapViewOfFile, OpenFileMappingW, UnmapViewOfFile, VirtualQuery, FILE_MAP_ALL_ACCESS, MEMORY_BASIC_INFORMATION, MEMORY_MAPPED_VIEW_ADDRESS, PAGE_READWRITE};
 
 pub use crate::osd::OsdStyle;
 
@@ -77,6 +78,8 @@ const OWNER: &[u8] = b"Deck";
 struct View {
     h: HANDLE,
     p: *mut u8,
+    /// The mapping's size: offsets from its header are checked against it (`array`)
+    len: usize,
 }
 
 impl Drop for View {
@@ -103,14 +106,39 @@ fn open_rtss() -> Option<View> {
             CloseHandle(h);
             return None;
         }
-        let view = View { h, p: v.Value as *mut u8 };
-        (rd(view.p, 0) == RTSS_SIG && rd(view.p, 4) >= 0x0002_0000).then_some(view)
+        let mut mbi: MEMORY_BASIC_INFORMATION = std::mem::zeroed();
+        let len = if VirtualQuery(v.Value, &mut mbi, std::mem::size_of::<MEMORY_BASIC_INFORMATION>()) == 0 { 0 } else { mbi.RegionSize };
+        let view = View { h, p: v.Value as *mut u8, len };
+        (len >= HEADER && rd(view.p, 0) == RTSS_SIG && rd(view.p, 4) >= 0x0002_0000).then_some(view)
     }
 }
 
 unsafe fn rd(p: *const u8, off: usize) -> u32 {
     std::ptr::read_volatile(p.add(off) as *const u32)
 }
+
+/// The header fields Deck touches end here (dwLastForegroundAppProcessID at 68).
+const HEADER: usize = 72;
+
+/// One of RivaTuner's arrays (app entries described at 8, OSD slots at 20): (entry size, offset,
+/// count), the count cut so every entry lies inside the `len`-byte mapping. Any program can create
+/// the mapping before RivaTuner does, so the header is not trusted; it is read again each time,
+/// since it can change after the mapping was opened.
+unsafe fn array(p: *const u8, len: usize, at: usize, min_size: usize) -> (usize, usize, usize) {
+    if len < HEADER {
+        return (0, 0, 0);
+    }
+    let (size, off, n) = (rd(p, at) as usize, rd(p, at + 4) as usize, rd(p, at + 8) as usize);
+    if size < min_size.max(1) || off < HEADER || off > len {
+        return (size, off, 0);
+    }
+    (size, off, n.min((len - off) / size).min(256))
+}
+
+/// The smallest app entry Deck reads: up to dwFrameTime at 280.
+const APP_ENTRY: usize = 284;
+/// The smallest OSD slot Deck reads: szOSD and szOSDOwner.
+const OSD_SLOT: usize = 512;
 
 /// Finds Deck's slot (or claims a free one; slot 0 belongs to RTSS's own clients) and writes.
 /// Empty `text` releases the slot.
@@ -138,7 +166,7 @@ fn graph_now(st: &OsdStyle) -> Vec<u8> {
 fn write_graph(v: &View, graph: &[u8]) -> bool {
     unsafe {
         let p = v.p;
-        let (size, off, n) = (rd(p, 20) as usize, rd(p, 24) as usize, rd(p, 28) as usize);
+        let (size, off, n) = array(p, v.len, 20, OSD_SLOT);
         if rd(p, 4) < 0x0002_000C || size < OSD_OBJECTS + graph.len() || n < 2 {
             return false;
         }
@@ -165,7 +193,7 @@ const OSD_OBJECTS: usize = 256 + 256 + 4096;
 fn write_osd_with(v: &View, text: &str, graph: Option<Vec<u8>>) -> bool {
     unsafe {
         let p = v.p;
-        let (size, off, n) = (rd(p, 20) as usize, rd(p, 24) as usize, rd(p, 28) as usize);
+        let (size, off, n) = array(p, v.len, 20, OSD_SLOT);
         if size < 512 + 4096 || n < 2 {
             return false;
         }
@@ -215,14 +243,19 @@ fn write_osd_with(v: &View, text: &str, graph: Option<Vec<u8>>) -> bool {
 }
 
 /// Framerate and frametime of the foreground app as RTSS measured them.
-fn fps(v: &View) -> Option<(f32, f32, String)> {
-    unsafe {
-        let p = v.p;
-        let (size, off, n) = (rd(p, 8) as usize, rd(p, 12) as usize, rd(p, 16) as usize);
+fn fps(v: &View) -> Option<(f32, f32, String, u32)> {
+    unsafe { fps_at(v.p, v.len) }
+}
+
+/// `fps` on RivaTuner's shared memory at `p`: (framerate, frametime ms, exe name, process id) of
+/// RivaTuner's foreground app, else of the app drawing fastest.
+unsafe fn fps_at(p: *const u8, len: usize) -> Option<(f32, f32, String, u32)> {
+    {
+        let (size, off, n) = array(p, len, 8, APP_ENTRY);
         // dwLastForegroundAppProcessID sits after dwDesktopVideoCaptureFlags + Stat[5] + dwLastForegroundApp
         let fg_pid = rd(p, 40 + 4 + 20 + 4);
-        let mut best: Option<(f32, f32, String)> = None;
-        for i in 0..n.min(256) {
+        let mut best: Option<(f32, f32, String, u32)> = None;
+        for i in 0..n {
             let e = p.add(off + i * size);
             let pid = rd(e, 0);
             if pid == 0 {
@@ -233,9 +266,11 @@ fn fps(v: &View) -> Option<(f32, f32, String)> {
                 continue;
             }
             let rate = 1000.0 * frames as f32 / (t1 - t0) as f32;
-            let name = std::ffi::CStr::from_ptr(e.add(4) as *const i8).to_string_lossy().to_string();
+            // szName[260], not trusted to end in a zero
+            let raw = std::slice::from_raw_parts(e.add(4), 260);
+            let name = String::from_utf8_lossy(&raw[..raw.iter().position(|&c| c == 0).unwrap_or(260)]).to_string();
             let name = name.rsplit('\\').next().unwrap_or("").to_string();
-            let item = (rate, ft as f32 / 1000.0, name);
+            let item = (rate, ft as f32 / 1000.0, name, pid);
             if pid == fg_pid {
                 return Some(item);
             }
@@ -458,7 +493,7 @@ fn set_rtss_flag(flag: u32, on: bool) {
     static SET64: OnceLock<Option<SetFlags>> = OnceLock::new();
     let set = SET64.get_or_init(|| unsafe {
         let m = LoadLibraryW(&HSTRING::from(dir.join("RTSSHooks64.dll").as_os_str())).ok()?;
-        Some(std::mem::transmute::<_, SetFlags>(GetProcAddress(m, PCSTR(c"SetFlags".as_ptr() as *const u8))?))
+        Some(std::mem::transmute::<RawProc, SetFlags>(GetProcAddress(m, PCSTR(c"SetFlags".as_ptr() as *const u8))?))
     });
     if let Some(set) = *set {
         unsafe { set(!flag, if on { flag } else { 0 }) };
@@ -472,6 +507,9 @@ static LIMITER_SET: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::n
 /// RivaTuner's 64-bit hooks, loaded once: the switches (`GetFlags`/`SetFlags`) and the profile
 /// calls the SDK's RTSSSharedMemorySample uses to change a profile in the running RivaTuner and
 /// in hooked games (writing the profile file alone isn't seen until RivaTuner restarts).
+/// What GetProcAddress hands back, before it is given its real signature.
+type RawProc = unsafe extern "system" fn() -> isize;
+
 struct Hooks64 {
     get_flags: unsafe extern "C" fn() -> u32,
     load_profile: unsafe extern "C" fn(*const u8) -> i32,
@@ -493,11 +531,11 @@ fn hooks64() -> Option<&'static Hooks64> {
         let m = LoadLibraryW(&HSTRING::from(dir.join("RTSSHooks64.dll").as_os_str())).ok()?;
         let f = |name: &std::ffi::CStr| GetProcAddress(m, PCSTR(name.as_ptr() as *const u8));
         Some(Hooks64 {
-            get_flags: std::mem::transmute(f(c"GetFlags")?),
-            load_profile: std::mem::transmute(f(c"LoadProfile")?),
-            set_property: std::mem::transmute(f(c"SetProfileProperty")?),
-            save_profile: std::mem::transmute(f(c"SaveProfile")?),
-            update_profiles: std::mem::transmute(f(c"UpdateProfiles")?),
+            get_flags: std::mem::transmute::<RawProc, unsafe extern "C" fn() -> u32>(f(c"GetFlags")?),
+            load_profile: std::mem::transmute::<RawProc, unsafe extern "C" fn(*const u8) -> i32>(f(c"LoadProfile")?),
+            set_property: std::mem::transmute::<RawProc, unsafe extern "C" fn(*const u8, *const std::ffi::c_void, u32) -> i32>(f(c"SetProfileProperty")?),
+            save_profile: std::mem::transmute::<RawProc, unsafe extern "C" fn(*const u8) -> i32>(f(c"SaveProfile")?),
+            update_profiles: std::mem::transmute::<RawProc, unsafe extern "C" fn()>(f(c"UpdateProfiles")?),
         })
     })()?;
     let _ = H.set(h);
@@ -616,7 +654,7 @@ pub fn osd_switch() -> (Option<bool>, Option<bool>) {
         LoadLibraryW(&HSTRING::from(dir.join("RTSSHooks64.dll").as_os_str()))
             .ok()
             .and_then(|m| GetProcAddress(m, PCSTR(c"GetFlags".as_ptr() as *const u8)))
-            .map(|f| std::mem::transmute::<_, unsafe extern "C" fn() -> u32>(f)() & 1 != 0)
+            .map(|f| std::mem::transmute::<RawProc, unsafe extern "C" fn() -> u32>(f)() & 1 != 0)
     };
     (v32, v64)
 }
@@ -643,7 +681,7 @@ fn rtss32_helper() -> Option<std::path::PathBuf> {
 }
 
 pub fn rtss_exe() -> Option<std::path::PathBuf> {
-    let base = crate::util::env_path("ProgramFiles(x86)").unwrap_or_else(|| "C:\\Program Files (x86)".into());
+    let base = crate::util::program_files_x86();
     let p = base.join("RivaTuner Statistics Server").join("RTSS.exe");
     p.exists().then_some(p)
 }
@@ -779,7 +817,7 @@ pub fn install_rtss() -> Result<(), String> {
     .map_err(|_| "Windows' package manager (winget) isn't on this PC. Get RivaTuner from guru3d.com.".to_string())?;
     if rtss_exe().is_none() {
         let text = String::from_utf8_lossy(&out.stdout);
-        let last = text.lines().map(str::trim).filter(|l| l.chars().any(char::is_alphanumeric)).last().unwrap_or("no details");
+        let last = text.lines().map(str::trim).rfind(|l| l.chars().any(char::is_alphanumeric)).unwrap_or("no details");
         return Err(format!("RivaTuner didn't install ({last}). Get it from guru3d.com."));
     }
     start_rtss()
@@ -862,7 +900,7 @@ pub fn status() -> Value {
 }
 
 /// Gathers the readings from Deck's GPU engine, the hardware engine and Windows.
-fn snapshot(app: &App, sys: &mut sysinfo::System, rt: Option<&View>) -> (Snap, Option<String>) {
+fn snapshot(app: &App, sys: &mut sysinfo::System, clocks: &crate::hw::sensors::ThreadClocks, rt: Option<&View>) -> (Snap, Option<String>) {
     let mut s = Snap::default();
     if let Some(g) = app.gpu_engine() {
         let l = g.nvml.live();
@@ -941,12 +979,13 @@ fn snapshot(app: &App, sys: &mut sysinfo::System, rt: Option<&View>) -> (Snap, O
     if s.cpu_usage.is_none() {
         s.cpu_usage = Some(sys.global_cpu_usage());
     }
-    sys.refresh_cpu_frequency();
+    // not sysinfo's frequency(): on Windows that is each core's nominal clock, never the live one
+    let mhz = clocks.read();
     s.thread_reads = sys
             .cpus()
             .iter()
             .enumerate()
-            .map(|(i, c)| CoreRead { name: format!("CPU{}", i + 1), load: Some(c.cpu_usage()), clock: Some(c.frequency() as f32).filter(|f| *f > 0.0), temp: None })
+            .map(|(i, c)| CoreRead { name: format!("CPU{}", i + 1), load: Some(c.cpu_usage()), clock: mhz.get(i).copied().flatten().filter(|f| *f > 0.0), temp: None })
             .collect();
     if s.core_reads.is_empty() {
         // no per-core sensors on this CPU: the threads stand in
@@ -961,34 +1000,25 @@ fn snapshot(app: &App, sys: &mut sysinfo::System, rt: Option<&View>) -> (Snap, O
         }
     }
     let mut app_name = None;
-    if let Some((rate, ft, name)) = rt.and_then(fps) {
+    let mut game = None;
+    if let Some((rate, ft, name, pid)) = rt.and_then(fps) {
         s.fps = Some(rate);
         s.frametime = Some(ft);
         app_name = Some(name);
+        game = Some(pid);
     }
     {
         let st = FRAMES.lock().0.stats();
         (s.fps_avg, s.fps_min, s.fps_max, s.fps_1low, s.fps_01low) = (st.avg, st.min, st.max, st.low1, st.low01);
     }
-    if let Some(pid) = foreground_pid() {
+    // the game RivaTuner draws in, not whatever window is in front (a screenshot tool, Discord);
+    // a game whose anti-cheat hides its memory shows nothing rather than 0
+    if let Some(pid) = game {
         let p = sysinfo::Pid::from_u32(pid);
         sys.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[p]), false);
-        s.proc_ram_mb = sys.process(p).map(|p| (p.memory() / (1 << 20)) as f32);
+        s.proc_ram_mb = sys.process(p).map(|p| (p.memory() / (1 << 20)) as f32).filter(|mb| *mb > 0.0);
     }
     (s, app_name)
-}
-
-fn foreground_pid() -> Option<u32> {
-    use windows_sys::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
-    unsafe {
-        let h = GetForegroundWindow();
-        if h.is_null() {
-            return None;
-        }
-        let mut pid = 0u32;
-        GetWindowThreadProcessId(h, &mut pid);
-        (pid != 0).then_some(pid)
-    }
 }
 
 // --------------------------------------------------------------------- frametimes from RivaTuner's ring
@@ -1055,12 +1085,12 @@ fn frame_loop() {
         let fg;
         unsafe {
             let p = v.p;
-            let (size, off, n) = (rd(p, 8) as usize, rd(p, 12) as usize, rd(p, 16) as usize);
+            let (size, off, n) = array(p, v.len, 8, APP_ENTRY);
             if rd(p, 4) < 0x0002_0005 || size < FT_POS + 4 {
                 continue; // too old a RivaTuner for the ring
             }
             fg = rd(p, 64);
-            for i in 0..n.min(256) {
+            for i in 0..n {
                 let e = p.add(off + i * size);
                 let (key, pid) = (i as u32, rd(e, 0));
                 if pid == 0 {
@@ -1238,8 +1268,8 @@ pub fn restore_look() -> Result<usize, String> {
 fn request_reload() {
     let Some(v) = open_rtss() else { return };
     unsafe {
-        let (size, off, n) = (rd(v.p, 8) as usize, rd(v.p, 12) as usize, rd(v.p, 16) as usize);
-        for i in 0..n.min(256) {
+        let (size, off, n) = array(v.p, v.len, 8, APP_ENTRY);
+        for i in 0..n {
             let e = v.p.add(off + i * size);
             if rd(e, 0) != 0 {
                 (&*(e.add(264) as *const AtomicI32)).fetch_or(0x1000_0000, Ordering::SeqCst);
@@ -1265,6 +1295,7 @@ pub fn start(app: Arc<App>) {
             let mut sys = sysinfo::System::new();
             let mut net = crate::util::NetCounter::new();
             let mut net_at = Instant::now();
+            let clocks = crate::hw::sensors::ThreadClocks::open();
             // a slot left by a Deck that crashed would keep showing frozen numbers
             if let Some(v) = open_rtss() {
                 write_osd(&v, "");
@@ -1279,7 +1310,7 @@ pub fn start(app: Arc<App>) {
                     (s.osd_on, s.osd_items.clone(), s.osd_ms.clamp(250, 2000), s.mahm_on, s.osd_render_style())
                 };
                 let rt = open_rtss();
-                let (mut snap, name) = snapshot(&app, &mut sys, rt.as_ref());
+                let (mut snap, name) = snapshot(&app, &mut sys, &clocks, rt.as_ref());
                 {
                     let dt = net_at.elapsed().as_secs_f32().max(0.2);
                     net_at = Instant::now();
@@ -1352,6 +1383,39 @@ pub fn stop() {
 mod tests {
     use super::*;
 
+    /// Any program can create RivaTuner's shared memory first, so its header is not trusted: every
+    /// entry Deck reads or writes lies inside the mapping, whatever the header claims.
+    #[test]
+    fn a_lying_rivatuner_header_stays_inside_the_mapping() {
+        let mut m = vec![0u8; 2000];
+        let put = |m: &mut Vec<u8>, at: usize, v: u32| m[at..at + 4].copy_from_slice(&v.to_le_bytes());
+        // 100 entries of 300 bytes from offset 100: only 6 fit in 2000 bytes
+        put(&mut m, 8, 300);
+        put(&mut m, 12, 100);
+        put(&mut m, 16, 100);
+        assert_eq!(unsafe { array(m.as_ptr(), m.len(), 8, 284) }, (300, 100, 6));
+        // an offset past the end, an entry too small to hold the fields read, or a mapping smaller than the header: nothing
+        put(&mut m, 12, 5000);
+        assert_eq!(unsafe { array(m.as_ptr(), m.len(), 8, 284) }.2, 0);
+        put(&mut m, 12, 100);
+        put(&mut m, 8, 8);
+        assert_eq!(unsafe { array(m.as_ptr(), m.len(), 8, 284) }.2, 0);
+        assert_eq!(unsafe { array(m.as_ptr(), 40, 8, 284) }.2, 0);
+        // the framerate reader uses it: a header pointing far outside reads nothing
+        put(&mut m, 8, 300);
+        put(&mut m, 12, u32::MAX - 10);
+        put(&mut m, 16, 255);
+        assert_eq!(unsafe { fps_at(m.as_ptr(), m.len()) }, None);
+    }
+
+    /// The helper runs on PCs without the Visual C++ runtime (Deck itself links it in), so it must
+    /// not import VCRUNTIME140.dll. Empty when the i686 target isn't installed (nothing to check).
+    #[test]
+    fn the_32_bit_helper_needs_no_visual_cpp_runtime() {
+        let lower: Vec<u8> = RTSS32.iter().map(u8::to_ascii_lowercase).collect();
+        assert!(!lower.windows(16).any(|w| w == b"vcruntime140.dll"), "rtss-osd32.exe imports VCRUNTIME140.dll");
+    }
+
     #[test]
     fn layout_sizes() {
         assert_eq!(MAHM_ENTRY, 1324);
@@ -1409,6 +1473,7 @@ mod tests {
             let p = v.p;
             let (size, off, n) = (rd(p, 8) as usize, rd(p, 12) as usize, rd(p, 16) as usize);
             println!("version {:#x} entry {size} n {n} fg {} fgpid {}", rd(p, 4), rd(p, 64), rd(p, 68));
+            println!("mapping {} bytes; within it: apps {:?}, OSD slots {:?}; fps {:?}", v.len, array(p, v.len, 8, APP_ENTRY), array(p, v.len, 20, OSD_SLOT), fps(&v));
             let fe = p.add(off + rd(p, 64) as usize * size);
             for _ in 0..6 {
                 println!("count {} pos {} frames {} t1 {}", rd(fe, 920), rd(fe, 5020), rd(fe, 276), rd(fe, 272));
@@ -1442,6 +1507,37 @@ mod tests {
         assert!(ring_since(&buf, 3, 3).is_empty(), "nothing new");
         assert!(ring_since(&buf, 3, 9).is_empty(), "a position past the end is nonsense");
         assert_eq!(FT_POS, 5020, "dwStatFrameTimeBufPos in RTSS_SHARED_MEMORY_APP_ENTRY");
+    }
+
+    /// A fake RivaTuner block: header (entry size, offset, count, foreground app) and app entries.
+    fn rtss_block(fg: u32, apps: &[(u32, &str, u32)]) -> Vec<u8> {
+        let (size, off) = (300usize, 256usize);
+        let mut b = vec![0u8; off + size * apps.len()];
+        let put = |b: &mut Vec<u8>, at: usize, v: u32| b[at..at + 4].copy_from_slice(&v.to_le_bytes());
+        put(&mut b, 8, size as u32);
+        put(&mut b, 12, off as u32);
+        put(&mut b, 16, apps.len() as u32);
+        put(&mut b, 68, fg);
+        for (i, (pid, name, frames)) in apps.iter().enumerate() {
+            let e = off + i * size;
+            put(&mut b, e, *pid);
+            b[e + 4..e + 4 + name.len()].copy_from_slice(name.as_bytes());
+            put(&mut b, e + 268, 1000);
+            put(&mut b, e + 272, 2000);
+            put(&mut b, e + 276, *frames);
+            put(&mut b, e + 280, 16600);
+        }
+        b
+    }
+
+    #[test]
+    fn the_game_ram_belongs_to_the_game_rivatuner_draws_in() {
+        let b = rtss_block(900, &[(500, "C:\\Games\\League of Legends.exe", 60), (600, "C:\\Other\\menu.exe", 30)]);
+        let (rate, ft, name, pid) = unsafe { fps_at(b.as_ptr(), b.len()) }.expect("a game is drawing");
+        assert_eq!((rate, ft, name.as_str(), pid), (60.0, 16.6, "League of Legends.exe", 500), "a screenshot tool in front (pid 900) is not the game");
+        let b = rtss_block(600, &[(500, "a.exe", 60), (600, "b.exe", 30)]);
+        assert_eq!(unsafe { fps_at(b.as_ptr(), b.len()) }.map(|x| x.3), Some(600), "RivaTuner's own foreground app wins");
+        assert_eq!(unsafe { let b = rtss_block(1, &[]); fps_at(b.as_ptr(), b.len()) }, None);
     }
 
     #[test]

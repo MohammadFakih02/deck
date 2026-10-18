@@ -119,6 +119,12 @@ pub fn report(app: &App) -> String {
             let _ = write!(r, "  - earlier (fine now): {past}\r\n");
         }
     }
+
+    // ---- what went wrong lately (Deck's own log)
+    sec(&mut r, "Log (last 40 lines)");
+    let tail = crate::log::tail(40);
+    r.push_str(if tail.is_empty() { "Nothing logged" } else { &tail });
+    r.push_str("\r\n");
     private(&r)
 }
 

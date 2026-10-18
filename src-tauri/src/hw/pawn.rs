@@ -32,7 +32,7 @@ fn service_name() -> String {
 
 /// ProgramData\Deck: the driver files Deck writes (the driver store keeps its own copy).
 fn data_dir() -> std::path::PathBuf {
-    std::path::PathBuf::from(std::env::var("ProgramData").unwrap_or_else(|_| r"C:\ProgramData".into())).join("Deck")
+    crate::util::program_data().join("Deck")
 }
 static READY: OnceLock<Result<(), String>> = OnceLock::new();
 
@@ -186,7 +186,7 @@ fn install_package() -> Result<(), String> {
 /// out again when it is uninstalled, leaving Deck without fans and sensors. Deck takes over that
 /// ownership: its own uninstaller removes the package instead.
 fn adopt_moboctl_driver() {
-    let pd = std::path::PathBuf::from(std::env::var("ProgramData").unwrap_or_else(|_| r"C:\ProgramData".into()));
+    let pd = crate::util::program_data();
     let theirs = pd.join("MoboCtl").join("pawnio").join("installed-by-moboctl");
     if theirs.exists() {
         let mine = data_dir().join("pawnio");

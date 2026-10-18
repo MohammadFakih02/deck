@@ -112,7 +112,7 @@ unsafe extern "system" fn wndproc(h: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LR
 
 fn clip_hwnd() -> Option<HWND> {
     let v = HWND_CLIP.load(Ordering::Relaxed);
-    (v != 0).then(|| HWND(v as *mut _))
+    (v != 0).then_some(HWND(v as *mut _))
 }
 
 /// Opens the clipboard, retrying briefly while another app holds it.
@@ -219,7 +219,7 @@ fn dib_to_rgba(b: &[u8]) -> Option<(Vec<u8>, u32, u32)> {
         return None;
     }
     off += hdr.biClrUsed as usize * 4;
-    let stride = ((w as usize * bpp + 31) / 32) * 4;
+    let stride = (w as usize * bpp).div_ceil(32) * 4;
     if b.len() < off + stride * h as usize {
         return None;
     }
@@ -286,10 +286,8 @@ impl Clip {
     fn save(&self) {
         let _ = std::fs::create_dir_all(&self.dir);
         let items = self.items.lock().clone();
-        let tmp = self.dir.join("history.json.tmp");
-        if std::fs::write(&tmp, serde_json::to_string(&items).unwrap_or_default()).is_ok() {
-            let _ = std::fs::rename(&tmp, self.dir.join("history.json"));
-        }
+        let data = serde_json::to_string(&items).unwrap_or_default();
+        let _ = crate::util::write_atomic(&self.dir.join("history.json"), data.as_bytes());
     }
 
     pub fn image_path(&self, name: &str) -> PathBuf {

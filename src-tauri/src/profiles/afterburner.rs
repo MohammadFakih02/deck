@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 pub fn profiles_dir() -> Option<PathBuf> {
-    let base = crate::util::env_path("ProgramFiles(x86)").unwrap_or_else(|| PathBuf::from("C:\\Program Files (x86)"));
+    let base = crate::util::program_files_x86();
     let d = base.join("MSI Afterburner").join("Profiles");
     d.is_dir().then_some(d)
 }
@@ -291,7 +291,7 @@ fn kill_afterburner() -> bool {
 }
 
 fn start_afterburner() {
-    let base = crate::util::env_path("ProgramFiles(x86)").unwrap_or_else(|| PathBuf::from("C:\\Program Files (x86)"));
+    let base = crate::util::program_files_x86();
     let exe = base.join("MSI Afterburner").join("MSIAfterburner.exe");
     if exe.exists() {
         let _ = crate::util::launch_as_user(&exe.to_string_lossy(), "", "");

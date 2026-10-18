@@ -1,5 +1,6 @@
 //! Transfer (AppBeam in Deck): settings (`config.json` in its data folder), inbox history, and the
 //! state shared between the network threads and Deck's page.
+use crate::util::LockAnyway;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::path::PathBuf;
@@ -24,7 +25,8 @@ pub struct Config {
     pub inbox_dir: String,
     /// ask before accepting anything (otherwise plain files are accepted automatically)
     pub ask_before_receive: bool,
-    /// let the other PC start installers here without asking first
+    /// no longer used: installers from another PC always wait for a click here (kept so older
+    /// settings files still read)
     pub trust_install: bool,
     /// folders other paired PCs may request files from (nothing outside them is ever served)
     pub shared_folders: Vec<String>,
@@ -36,10 +38,11 @@ pub struct Config {
     pub excludes: String,
     /// when a received project folder already exists: merge / replace / both
     pub dest_exists: String,
-    /// PCs whose transfers come in without asking (installers included), until when
+    /// PCs whose transfers come in without asking (never installers), until when; by their proven id
     pub trusted: Vec<Trust>,
-    /// settings version (1: "ask before accepting" on by default, as Deck asks for everything);
-    /// missing in older files = 0, not the default's 1
+    /// settings version (1: "ask before accepting" on by default, as Deck asks for everything;
+    /// 2: PC ids are proven by each PC's key, so older trust was asked again); missing in older
+    /// files = 0, not the default's 2
     #[serde(default)]
     pub v: u32,
 }
@@ -65,7 +68,7 @@ pub const TCP_PORT: u16 = 47834;
 pub const DEFAULT_EXCLUDES: &str = "target, node_modules, .git, __pycache__, *.pdb, *.obj, dist, build";
 
 pub fn parse_list(s: &str) -> Vec<String> {
-    s.split(|c| c == ',' || c == ';' || c == '\n').map(|x| x.trim().to_string()).filter(|x| !x.is_empty()).collect()
+    s.split([',', ';', '\n']).map(|x| x.trim().to_string()).filter(|x| !x.is_empty()).collect()
 }
 
 impl Config {
@@ -98,7 +101,7 @@ impl Default for Config {
             excludes: DEFAULT_EXCLUDES.into(),
             dest_exists: "merge".into(),
             trusted: vec![],
-            v: 1,
+            v: 2,
         }
     }
 }
@@ -196,6 +199,8 @@ pub struct InboxItem {
 
 pub struct Shared {
     pub paths: Paths,
+    /// this PC's own key (its id is the key's)
+    pub device: crate::beam::device::Device,
     cfg: Mutex<Config>,
     pub xfers: Mutex<Vec<Xfer>>,
     pub pending: Mutex<Vec<Pending>>,
@@ -228,9 +233,19 @@ impl Shared {
             cfg.v = 1;
         }
         cfg.trusted.retain(|t| t.until == 0 || t.until > now_ms());
+        // this PC's id is its key's (device.rs); trust and "always allow" set before PCs proved
+        // their ids named ids anyone could claim, so they are asked again once
+        let device = crate::beam::device::Device::load_or_create(&paths.data);
+        cfg.machine_id = device.id();
+        if cfg.v < 2 {
+            cfg.trusted.clear();
+            cfg.policies.retain(|p| p.mode == "off");
+            cfg.v = 2;
+        }
         let inbox: Vec<InboxItem> = std::fs::read(paths.data.join("inbox.json")).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
         let sh = Shared {
             paths,
+            device,
             cfg: Mutex::new(cfg.clone()),
             xfers: Mutex::new(vec![]),
             pending: Mutex::new(vec![]),
@@ -255,12 +270,12 @@ impl Shared {
     }
 
     pub fn cfg(&self) -> Config {
-        self.cfg.lock().unwrap().clone()
+        self.cfg.lock_anyway().clone()
     }
 
     pub fn set_cfg(&self, f: impl FnOnce(&mut Config)) {
         let c = {
-            let mut g = self.cfg.lock().unwrap();
+            let mut g = self.cfg.lock_anyway();
             f(&mut g);
             g.clone()
         };
@@ -268,7 +283,7 @@ impl Shared {
     }
 
     fn save_cfg(&self, c: &Config) {
-        let _ = std::fs::write(self.paths.data.join("config.json"), serde_json::to_vec_pretty(c).unwrap_or_default());
+        let _ = crate::util::write_atomic(&self.paths.data.join("config.json"), &serde_json::to_vec_pretty(c).unwrap_or_default());
     }
 
     fn inbox_file(&self) -> PathBuf {
@@ -280,7 +295,7 @@ impl Shared {
     }
 
     pub fn save_inbox(&self) {
-        let mut v = self.inbox.lock().unwrap().clone();
+        let mut v = self.inbox.lock_anyway().clone();
         if self.quiet.load(Ordering::Relaxed) {
             // the command line only adds what it received to what the running Deck has
             let disk = self.read_inbox_file();
@@ -288,14 +303,14 @@ impl Shared {
             v.extend(disk);
             v.truncate(200);
         }
-        let _ = std::fs::write(self.inbox_file(), serde_json::to_vec_pretty(&v).unwrap_or_default());
-        *self.inbox_seen.lock().unwrap() = std::fs::metadata(self.inbox_file()).and_then(|m| m.modified()).ok();
+        let _ = crate::util::write_atomic(&self.inbox_file(), &serde_json::to_vec_pretty(&v).unwrap_or_default());
+        *self.inbox_seen.lock_anyway() = std::fs::metadata(self.inbox_file()).and_then(|m| m.modified()).ok();
     }
 
     /// Something else (the command line) added to inbox.json: read it again.
     pub fn reload_inbox_if_changed(&self) {
         let now = std::fs::metadata(self.inbox_file()).and_then(|m| m.modified()).ok();
-        let mut seen = self.inbox_seen.lock().unwrap();
+        let mut seen = self.inbox_seen.lock_anyway();
         if seen.is_none() {
             *seen = now;
             return;
@@ -305,7 +320,7 @@ impl Shared {
         }
         *seen = now;
         let mut disk = self.read_inbox_file();
-        let mut ib = self.inbox.lock().unwrap();
+        let mut ib = self.inbox.lock_anyway();
         for d in disk.iter_mut() {
             if let Some(m) = ib.iter().find(|m| m.dir == d.dir) {
                 d.note = m.note.clone();
@@ -315,26 +330,26 @@ impl Shared {
     }
 
     pub fn set_notify(&self, f: impl Fn(bool) + Send + 'static) {
-        *self.notify.lock().unwrap() = Some(Box::new(f));
+        *self.notify.lock_anyway() = Some(Box::new(f));
     }
 
     /// something changed: Deck's page refreshes (at most 4 times a second for progress)
     pub fn repaint(&self) {
         {
-            let mut l = self.last_notify.lock().unwrap();
+            let mut l = self.last_notify.lock_anyway();
             if l.map(|t| t.elapsed().as_millis() < 250).unwrap_or(false) {
                 return;
             }
             *l = Some(Instant::now());
         }
-        if let Some(f) = self.notify.lock().unwrap().as_ref() {
+        if let Some(f) = self.notify.lock_anyway().as_ref() {
             f(false);
         }
     }
 
     /// something needs the user's answer: Deck shows itself
     pub fn attention(&self) {
-        if let Some(f) = self.notify.lock().unwrap().as_ref() {
+        if let Some(f) = self.notify.lock_anyway().as_ref() {
             f(true);
         }
     }
@@ -342,7 +357,7 @@ impl Shared {
     pub fn log(&self, msg: impl Into<String>) {
         let line = format!("{}  {}", clock(), msg.into());
         {
-            let mut l = self.logs.lock().unwrap();
+            let mut l = self.logs.lock_anyway();
             l.push_back(line.clone());
             while l.len() > 300 {
                 l.pop_front();
@@ -359,7 +374,7 @@ impl Shared {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let cancel = Arc::new(AtomicBool::new(false));
         let now = Instant::now();
-        let mut x = self.xfers.lock().unwrap();
+        let mut x = self.xfers.lock_anyway();
         // keep the list short: drop the oldest finished ones
         while x.len() > 30 {
             match x.iter().position(|t| t.state.finished()) {
@@ -392,7 +407,7 @@ impl Shared {
     }
 
     pub fn xfer(&self, id: u64, f: impl FnOnce(&mut Xfer)) {
-        if let Some(x) = self.xfers.lock().unwrap().iter_mut().find(|x| x.id == id) {
+        if let Some(x) = self.xfers.lock_anyway().iter_mut().find(|x| x.id == id) {
             f(x);
         }
     }

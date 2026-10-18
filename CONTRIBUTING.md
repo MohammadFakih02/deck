@@ -28,7 +28,7 @@ The repo is public. Don't commit local paths, PC names, hardware specs, IP addre
 See the README's "Building from source". Before a pull request:
 
 ```powershell
-cd src-tauri; cargo test --release
+cd src-tauri; cargo test
 cd ..\tools\testing\ui-preview; node regress.mjs   # every line should say PASS
 ```
 

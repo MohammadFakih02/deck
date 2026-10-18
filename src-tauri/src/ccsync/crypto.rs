@@ -37,7 +37,8 @@ impl Key {
     pub fn new(sync_key: &str) -> Key {
         // case/space/dash-insensitive so it's easy to type on the other machine
         let norm: String = sync_key.chars().filter(|c| c.is_ascii_alphanumeric()).map(|c| c.to_ascii_uppercase()).collect();
-        Key { master: blake3::derive_key("Deck Claude Sync 2026 v1 master", norm.as_bytes()) }
+        // slow on purpose: a typed key could otherwise be guessed from the beacons' fingerprint (kdf.rs)
+        Key { master: crate::kdf::stretch("Deck Claude Sync 2026 v2 master", &norm) }
     }
 
     pub fn sub(&self, ctx: &str) -> [u8; 32] {

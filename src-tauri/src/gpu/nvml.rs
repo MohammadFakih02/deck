@@ -6,7 +6,7 @@
 use std::ffi::c_void;
 use windows::core::PCSTR;
 use windows::Win32::Foundation::HMODULE;
-use windows::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
+use windows::Win32::System::LibraryLoader::GetProcAddress;
 
 pub type Dev = *mut c_void;
 pub const SUCCESS: i32 = 0;
@@ -97,7 +97,6 @@ fns! {
     nvmlDeviceGetMemClkMinMaxVfOffset: fn(Dev, *mut i32, *mut i32);
     nvmlDeviceGetNumFans: fn(Dev, *mut u32);
     nvmlDeviceGetFanSpeed_v2: fn(Dev, u32, *mut u32);
-    nvmlDeviceGetTargetFanSpeed: fn(Dev, u32, *mut u32);
     nvmlDeviceSetFanSpeed_v2: fn(Dev, u32, u32);
     nvmlDeviceSetDefaultFanSpeed_v2: fn(Dev, u32);
     nvmlDeviceGetMinMaxFanSpeed: fn(Dev, *mut u32, *mut u32);
@@ -147,9 +146,20 @@ pub struct Live {
 }
 
 impl Nvml {
-    pub fn load() -> Option<Nvml> {
+    /// The one NVML instance everything in Deck reads the card through (GPU engine, the Home
+    /// tiles, the Sensors page), loaded on first use.
+    pub fn shared() -> Option<&'static Nvml> {
+        static N: std::sync::OnceLock<Option<Nvml>> = std::sync::OnceLock::new();
+        N.get_or_init(Nvml::load).as_ref()
+    }
+
+    fn load() -> Option<Nvml> {
         unsafe {
-            let m = LoadLibraryW(windows::core::w!("nvml.dll")).ok()?;
+            // from System32 or NVIDIA's NVSMI folder only (see util::trusted_dll_paths)
+            let m = HMODULE(crate::util::load_trusted_dll("nvml.dll"));
+            if m.is_invalid() {
+                return None;
+            }
             let f = Fns::load(m);
             if (f.nvmlInit_v2?)() != SUCCESS {
                 return None;
@@ -289,6 +299,36 @@ impl Nvml {
         Some(format!("VEN_{:04X}&DEV_{:04X}&SUBSYS_{:08X}&BUS_{}&DEV_{}", dev_id & 0xFFFF, dev_id >> 16, subsys, bus, device))
     }
 
+    /// Core temperature, °C.
+    pub fn temp(&self) -> Option<u32> {
+        let mut v = 0u32;
+        unsafe { call(self.f.nvmlDeviceGetTemperature.map(|g| g(self.dev, 0, &mut v))) }.ok().map(|_| v)
+    }
+
+    /// (core, memory controller) load, %.
+    pub fn util_rates(&self) -> Option<(u32, u32)> {
+        let mut u = Util::default();
+        unsafe { call(self.f.nvmlDeviceGetUtilizationRates.map(|g| g(self.dev, &mut u))) }.ok().map(|_| (u.gpu, u.memory))
+    }
+
+    /// (used, total) video memory, bytes.
+    pub fn memory(&self) -> Option<(u64, u64)> {
+        let mut m = MemInfo::default();
+        unsafe { call(self.f.nvmlDeviceGetMemoryInfo.map(|g| g(self.dev, &mut m))) }.ok().map(|_| (m.used, m.total))
+    }
+
+    /// The current clock (`CLOCK_GRAPHICS`, `CLOCK_MEM`), MHz.
+    pub fn clock(&self, kind: u32) -> Option<u32> {
+        let mut v = 0u32;
+        unsafe { call(self.f.nvmlDeviceGetClockInfo.map(|g| g(self.dev, kind, &mut v))) }.ok().map(|_| v)
+    }
+
+    /// Power draw, mW.
+    pub fn power_mw(&self) -> Option<u32> {
+        let mut v = 0u32;
+        unsafe { call(self.f.nvmlDeviceGetPowerUsage.map(|g| g(self.dev, &mut v))) }.ok().map(|_| v)
+    }
+
     pub fn live(&self) -> Live {
         let mut l = Live::default();
         unsafe {
@@ -351,4 +391,21 @@ unsafe fn call(r: Option<i32>) -> Result<(), i32> {
 fn cstr(b: &[u8]) -> String {
     let n = b.iter().position(|&c| c == 0).unwrap_or(b.len());
     String::from_utf8_lossy(&b[..n]).to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    /// Reads only. Every part of Deck reads the card through one shared instance.
+    #[test]
+    #[ignore = "needs an NVIDIA card; run with --ignored"]
+    fn one_shared_instance_reads_the_card() {
+        let n = super::Nvml::shared().expect("NVML");
+        assert!(std::ptr::eq(n, super::Nvml::shared().unwrap()), "the same instance every time");
+        let (used, total) = n.memory().expect("memory");
+        assert!(total > 0 && used <= total);
+        assert!(n.temp().is_some_and(|t| t > 0 && t < 120));
+        assert!(n.util_rates().is_some_and(|u| u.0 <= 100));
+        assert!(n.clock(super::CLOCK_GRAPHICS).is_some());
+        println!("{}: {:?} °C, load {:?}, {} / {} MB, {:?} MHz, {:?} mW, fan {:?}", n.name, n.temp(), n.util_rates(), used >> 20, total >> 20, n.clock(super::CLOCK_GRAPHICS), n.power_mw(), n.fan_speed(0));
+    }
 }

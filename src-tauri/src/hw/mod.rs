@@ -1,6 +1,7 @@
 //! MoboCtl's hardware engine inside Deck: fan chips and curves, board/RAM RGB, the cooler
 //! display, sensors, CPU power mode, all on worker threads. Deck's UI talks to [Shared].
 
+use crate::util::LockAnyway;
 pub mod cfg;
 pub mod cpupower;
 pub mod devices;
@@ -226,7 +227,7 @@ impl Shared {
     }
     /// The lighting effect actually shown (Off while the lights-off button is on).
     pub fn effect(&self) -> EffectParams {
-        let mut p = self.ep.lock().unwrap().clone();
+        let mut p = self.ep.lock_anyway().clone();
         if self.lights_off.load(Relaxed) {
             p.mode = "Off".into();
         } else if p.auto_game && self.in_game.load(Relaxed) {
@@ -236,20 +237,20 @@ impl Shared {
     }
 
     pub fn fx_in(&self) -> FxIn {
-        let l = self.live.lock().unwrap();
+        let l = self.live.lock_anyway();
         FxIn { temp: l.cpu_t.unwrap_or(40.0), audio: l.audio, screen: l.screen.clone(), screen_avg: l.screen_avg }
     }
     /// All temperature sources a fan can follow, by name.
     pub fn sources(&self) -> Vec<String> {
         let mut v: Vec<String> = BASE_SOURCES.iter().map(|s| s.to_string()).collect();
-        v.extend(self.hw.lock().unwrap().temp_names.iter().map(|n| format!("Board: {}", n)));
+        v.extend(self.hw.lock_anyway().temp_names.iter().map(|n| format!("Board: {}", n)));
         v
     }
     /// Whether Deck may write to the fan chip right now.
     pub fn fan_control_allowed(&self) -> bool {
-        match self.hw.lock().unwrap().control {
+        match self.hw.lock_anyway().control {
             Control::Verified => true,
-            Control::Experimental => self.fancfg.lock().unwrap().allow_experimental,
+            Control::Experimental => self.fancfg.lock_anyway().allow_experimental,
             Control::ReadOnly(_) => false,
         }
     }
@@ -269,7 +270,7 @@ fn target(sh: &Shared, mode: &str, temp: Option<f32>) -> Option<f32> {
         return v.trim_end_matches('%').parse().ok();
     }
     if let Some(n) = mode.strip_prefix("Curve: ") {
-        let c = sh.curves.lock().unwrap().iter().find(|c| c.name == n)?.clone();
+        let c = sh.curves.lock_anyway().iter().find(|c| c.name == n)?.clone();
         return Some(temp.map(|t| c.eval(t)).unwrap_or(100.0)); // no temperature reading -> be safe
     }
     None
@@ -319,7 +320,7 @@ pub fn spawn_all(sh: &Arc<Shared>) -> Workers {
         let mut cpu = Cpu::open();
         let gpu = Gpu::open();
         {
-            let mut hw = s.hw.lock().unwrap();
+            let mut hw = s.hw.lock_anyway();
             hw.cpu_brand = cpu.brand.clone();
             hw.cpu_temp_note = cpu.error.clone().unwrap_or_default();
             hw.gpu_name = if gpu.name.is_empty() { "no supported GPU (NVIDIA / AMD Radeon) found".into() } else { gpu.name.clone() };
@@ -332,7 +333,7 @@ pub fn spawn_all(sh: &Arc<Shared>) -> Workers {
         while s.up() {
             let (ct, cl, gt, gl, mhz) = (cpu.temp(), cpu.load(), gpu.temp(), gpu.load(), cpu.clock());
             // safety: a locked minimum clock must never cook the CPU - give the lock up after a few seconds above 92 C
-            if s.s.int("CpuMinSet", 0) == 1 && l_temp_hot(ct, s.live.lock().unwrap().cpu_board) {
+            if s.s.int("CpuMinSet", 0) == 1 && l_temp_hot(ct, s.live.lock_anyway().cpu_board) {
                 hot_secs += 1;
                 if hot_secs >= 4 {
                     let lim = crate::hw::cpupower::limits();
@@ -346,7 +347,7 @@ pub fn spawn_all(sh: &Arc<Shared>) -> Workers {
                 hot_secs = 0;
             }
             let l = {
-                let mut l = s.live.lock().unwrap();
+                let mut l = s.live.lock_anyway();
                 l.cpu_msr = ct;
                 l.cpu_t = ct.or(l.cpu_board);
                 l.cpu_l = cl;
@@ -356,7 +357,7 @@ pub fn spawn_all(sh: &Arc<Shared>) -> Workers {
                 l.clone()
             };
             {
-                let mut h = s.hist.lock().unwrap();
+                let mut h = s.hist.lock_anyway();
                 push(&mut h.cpu_t, l.cpu_t);
                 push(&mut h.gpu_t, l.gpu_t);
                 push(&mut h.cpu_l, l.cpu_l);
@@ -371,7 +372,7 @@ pub fn spawn_all(sh: &Arc<Shared>) -> Workers {
             // the HWiNFO-style table: every sensor with current / min / max / average
             {
                 use crate::hw::sysmon::s as smp;
-                let hw = s.hw.lock().unwrap().clone();
+                let hw = s.hw.lock_anyway().clone();
                 let mut all = cpu.details(ct, cl);
                 all.extend(gpu.details(gt, gl));
                 let bg = format!("Motherboard: {} {}", hw.board.board_vendor.replace("Micro-Star International Co., Ltd.", "MSI"), hw.board.board_name);
@@ -397,11 +398,11 @@ pub fn spawn_all(sh: &Arc<Shared>) -> Workers {
                 all.extend(net.sample());
                 {
                     let watts = |grp: &str, name: &str| all.iter().find(|r| r.group.starts_with(grp) && r.name == name && r.unit == "W").and_then(|r| r.v).map(|v| v as f32);
-                    let mut h = s.hist.lock().unwrap();
+                    let mut h = s.hist.lock_anyway();
                     push(&mut h.cpu_w, watts("CPU:", "Package power"));
                     push(&mut h.gpu_w, watts("GPU:", "Power"));
                 }
-                let mut t = s.table.lock().unwrap();
+                let mut t = s.table.lock_anyway();
                 t.update(all);
                 if s.s.bool("LogCsv", false) {
                     csv_line(&dir().join("monitor.csv"), &t, &mut csv_header);
@@ -435,8 +436,8 @@ pub fn spawn_all(sh: &Arc<Shared>) -> Workers {
             let want_key = want * 1_000_000 + if want == crate::hw::powermode::CUSTOM { (pl1 as i32).clamp(0, 999) * 1000 + s.s.int("PowerPl2", 0).clamp(0, 999) } else { 0 };
             if done != Some(want_key) && !(done.is_none() && want == crate::hw::powermode::BALANCED && s.s.int("PowerTouched", 0) == 0) || drift {
                 let msg = crate::hw::powermode::apply(want, &s.s, rapl.as_ref());
-                *s.power_msg.lock().unwrap() = format!("{}: {}", if want == crate::hw::powermode::CUSTOM { "Custom" } else { crate::hw::powermode::NAMES[want.clamp(0, 2) as usize] }, msg);
-                *s.power_short.lock().unwrap() = rapl.as_ref().and_then(|r| r.read()).map(|l| format!("{:.0} / {:.0} W", l.pl1, l.pl2)).unwrap_or_default();
+                *s.power_msg.lock_anyway() = format!("{}: {}", if want == crate::hw::powermode::CUSTOM { "Custom" } else { crate::hw::powermode::NAMES[want.clamp(0, 2) as usize] }, msg);
+                *s.power_short.lock_anyway() = rapl.as_ref().and_then(|r| r.read()).map(|l| format!("{:.0} / {:.0} W", l.pl1, l.pl2)).unwrap_or_default();
             }
             done = Some(want_key);
             nap(&s, 2000);
@@ -446,7 +447,7 @@ pub fn spawn_all(sh: &Arc<Shared>) -> Workers {
     // fans
     let s = sh.clone();
     let fans = spawn(move || {
-        let mut chip = s.chip.lock().unwrap().take();
+        let mut chip = s.chip.lock_anyway().take();
         let n = chip.as_ref().map(|c| c.fan_names().len()).unwrap_or(0);
         let cpu_idx = chip.as_ref().and_then(|c| c.cpu_temp());
         let mut last: Vec<Option<f32>> = vec![None; n];
@@ -460,7 +461,7 @@ pub fn spawn_all(sh: &Arc<Shared>) -> Workers {
             if let Some(io) = chip.as_mut() {
                 let rd = io.read();
                 let live = {
-                    let mut l = s.live.lock().unwrap();
+                    let mut l = s.live.lock_anyway();
                     if let Some(r) = rd {
                         l.fan_pct = r.pct;
                         l.fan_rpm = r.rpm;
@@ -474,8 +475,8 @@ pub fn spawn_all(sh: &Arc<Shared>) -> Workers {
                     l.clone()
                 };
                 let allowed = s.fan_control_allowed();
-                let modes = s.modes.lock().unwrap().clone();
-                let cfg = s.fancfg.lock().unwrap().clone();
+                let modes = s.modes.lock_anyway().clone();
+                let cfg = s.fancfg.lock_anyway().clone();
                 for i in 0..n {
                     let mode = if allowed { modes.get(i).map(|m| m.as_str()).unwrap_or("Auto (BIOS)") } else { "Auto (BIOS)" };
                     // the channel's own source, falling back to the CPU if that sensor has no reading
@@ -563,7 +564,7 @@ pub fn spawn_all(sh: &Arc<Shared>) -> Workers {
             let ef = s.effect();
             let game = ef.mode == "Game" && ef.game_sound != "Off";
             let want = ef.mode == "Music" || game || {
-                let d = s.dp.lock().unwrap();
+                let d = s.dp.lock_anyway();
                 !d.off && (d.content == "Music meter" || (d.content == "Rotate" && d.rotate.iter().any(|c| c == "Music meter")))
             };
             if want {
@@ -588,13 +589,13 @@ pub fn spawn_all(sh: &Arc<Shared>) -> Workers {
                             a.since_impact = since;
                         }
                     }
-                    s.live.lock().unwrap().audio = a;
+                    s.live.lock_anyway().audio = a;
                 }
                 sleep(Duration::from_millis(15));
             } else {
                 lb = None;
                 gm = None;
-                s.live.lock().unwrap().audio = Default::default();
+                s.live.lock_anyway().audio = Default::default();
                 sleep(Duration::from_millis(250));
             }
         }
@@ -609,7 +610,7 @@ pub fn spawn_all(sh: &Arc<Shared>) -> Workers {
             let mode = s.effect().mode;
             if mode == "Screen" || mode == "Game" {
                 if let Some((cols, avg)) = grab.get_or_insert_with(crate::hw::screen::Grabber::new).sample() {
-                    let mut l = s.live.lock().unwrap();
+                    let mut l = s.live.lock_anyway();
                     if mode == "Game" && l.screen.len() == cols.len() {
                         // smooth the scene colours so the lights do not flicker; big scene cuts follow faster
                         let mix = |a: Rgb, b: Rgb| {
@@ -638,7 +639,7 @@ pub fn spawn_all(sh: &Arc<Shared>) -> Workers {
     let s = sh.clone();
     others.push(spawn(move || {
         while s.up() {
-            if s.ep.lock().unwrap().auto_game {
+            if s.ep.lock_anyway().auto_game {
                 s.in_game.store(crate::hw::game::foreground_game().is_some(), Relaxed);
             } else {
                 s.in_game.store(false, Relaxed);
@@ -689,7 +690,7 @@ pub fn spawn_all(sh: &Arc<Shared>) -> Workers {
             if s.reconnect.swap(false, Relaxed) || (!board.connected() && retry.elapsed().as_secs() >= 10) {
                 retry = Instant::now();
                 let err = board.connect(s.n1.load(Relaxed), s.n2.load(Relaxed));
-                s.status.lock().unwrap().rgb = match &err {
+                s.status.lock_anyway().rgb = match &err {
                     None => ("Motherboard RGB connected. Close SignalRGB / MSI Center / Dragon Center - they fight over the same controller.".into(), true),
                     Some(e) => (e.clone(), false),
                 };
@@ -719,7 +720,7 @@ pub fn spawn_all(sh: &Arc<Shared>) -> Workers {
                     last_key = Some(key);
                     last_send = Instant::now();
                     if !board.send(c12, &a1, &a2) {
-                        s.status.lock().unwrap().rgb = ("Lost the controller - reconnecting...".into(), false);
+                        s.status.lock_anyway().rgb = ("Lost the controller - reconnecting...".into(), false);
                         s.reconnect.store(true, Relaxed);
                         sleep(Duration::from_millis(1000));
                     }
@@ -734,7 +735,7 @@ pub fn spawn_all(sh: &Arc<Shared>) -> Workers {
     others.push(spawn(move || {
         let mut ram = FuryRam::new();
         ram.scan();
-        s.status.lock().unwrap().ram = ram.status.clone() + if !ram.sticks.is_empty() { "  (close Fury CTRL / MSI Center if colours flicker)" } else { "" };
+        s.status.lock_anyway().ram = ram.status.clone() + if !ram.sticks.is_empty() { "  (close Fury CTRL / MSI Center if colours flicker)" } else { "" };
         crate::gpu::watch_resume();
         let mut wakes = crate::gpu::WAKES.load(Relaxed);
         let mut wake_at: Option<Instant> = None;
@@ -748,7 +749,7 @@ pub fn spawn_all(sh: &Arc<Shared>) -> Workers {
         while s.up() {
             if ram.sticks.len() < fury && retry_from.elapsed().as_secs() < 600 && Instant::now() >= retry_at {
                 ram.scan_missing();
-                s.status.lock().unwrap().ram = ram.status.clone() + if !ram.sticks.is_empty() { "  (close Fury CTRL / MSI Center if colours flicker)" } else { "" };
+                s.status.lock_anyway().ram = ram.status.clone() + if !ram.sticks.is_empty() { "  (close Fury CTRL / MSI Center if colours flicker)" } else { "" };
                 retry_gap = (retry_gap * 2).min(60);
                 retry_at = Instant::now() + Duration::from_secs(retry_gap);
             }
@@ -764,7 +765,7 @@ pub fn spawn_all(sh: &Arc<Shared>) -> Workers {
                 ram.scan();
                 retry_from = Instant::now();
                 (retry_at, retry_gap) = (Instant::now() + Duration::from_secs(5), 5);
-                s.status.lock().unwrap().ram = ram.status.clone() + if !ram.sticks.is_empty() { "  (close Fury CTRL / MSI Center if colours flicker)" } else { "" };
+                s.status.lock_anyway().ram = ram.status.clone() + if !ram.sticks.is_empty() { "  (close Fury CTRL / MSI Center if colours flicker)" } else { "" };
             }
             let p = s.effect();
             let inp = s.fx_in();
@@ -782,20 +783,20 @@ pub fn spawn_all(sh: &Arc<Shared>) -> Workers {
         while s.up() {
             if !disp.connected() {
                 let ok = disp.connect();
-                s.status.lock().unwrap().disp = (disp.status.clone(), ok);
+                s.status.lock_anyway().disp = (disp.status.clone(), ok);
                 if !ok {
                     nap(&s, 5000);
                     continue;
                 }
             }
-            let p = s.dp.lock().unwrap().clone();
-            let l = s.live.lock().unwrap().clone();
+            let p = s.dp.lock_anyway().clone();
+            let l = s.live.lock_anyway().clone();
             let light = Some((s.effect(), s.fx_in()));
             let inp = crate::hw::lcd::DispIn { cpu_t: l.cpu_t, cpu_l: l.cpu_l, gpu_t: l.gpu_t, gpu_l: l.gpu_l, audio: l.audio, light, ..Default::default() }.now();
             let led = crate::hw::lcd::bytes(&crate::hw::lcd::frame(&p, s.t(), &inp));
             if last.as_ref() != Some(&led) || last_t.elapsed().as_secs() >= 1 {
                 if !disp.send(&led) {
-                    s.status.lock().unwrap().disp = ("Lost the cooler display - reconnecting...".into(), false);
+                    s.status.lock_anyway().disp = ("Lost the cooler display - reconnecting...".into(), false);
                 }
                 last = Some(led);
                 last_t = Instant::now();
@@ -818,7 +819,7 @@ pub fn shutdown(sh: &Shared, w: Workers) {
 
 /// Plain-text description of this PC and what Deck can do on it (for "Copy report").
 pub fn report(sh: &Shared) -> String {
-    let hw = sh.hw.lock().unwrap().clone();
+    let hw = sh.hw.lock_anyway().clone();
     let mut r = format!("Deck {} hardware report\r\n", env!("CARGO_PKG_VERSION"));
     r.push_str(&format!("Motherboard: {} {}  (BIOS {})\r\n", hw.board.board_vendor, hw.board.board_name, hw.board.bios));
     r.push_str(&report_body(sh));
@@ -831,9 +832,9 @@ pub fn report(sh: &Shared) -> String {
 /// What the engine reads and controls, without the board and memory list (the support report
 /// already has those): temperatures, every fan and sensor, the fan chip, lighting, the display.
 pub fn report_body(sh: &Shared) -> String {
-    let hw = sh.hw.lock().unwrap().clone();
-    let st = sh.status.lock().unwrap().clone();
-    let l = sh.live.lock().unwrap().clone();
+    let hw = sh.hw.lock_anyway().clone();
+    let st = sh.status.lock_anyway().clone();
+    let l = sh.live.lock_anyway().clone();
     let deg = |t: Option<f32>| t.map(|t| format!("{t:.0} °C")).unwrap_or_else(|| "no reading".into());
     let mut r = String::new();
     let mut line = |s: String| {
@@ -877,7 +878,7 @@ pub fn start(notify: Box<dyn Fn(&str, &str) + Send + Sync>) -> Option<Arc<Shared
     }
     winutil::set_notify(notify);
     if let Some(m) = kv::auto_import() {
-        eprintln!("hw: {m}");
+        crate::log::info(format!("hw: {m}"));
     }
     let sh = Shared::new();
     let c = cfg::load(&sh);
@@ -886,6 +887,8 @@ pub fn start(notify: Box<dyn Fn(&str, &str) + Send + Sync>) -> Option<Arc<Shared
     let w = spawn_all(&sh);
     *WORKERS.lock().unwrap_or_else(|e| e.into_inner()) = Some(w);
     let _ = HW.set(sh.clone());
+    // fans are Deck's now: if Deck is ended from outside, the watchdog gives them back
+    crate::watchdog::start();
     Some(sh)
 }
 
@@ -961,10 +964,10 @@ pub fn pages(sh: Option<&Shared>, gpu: bool) -> Vec<&'static str> {
     match sh {
         None => p.extend(["fans", "lighting", "sensors", "thispc"]), // not admin: the pages explain "Set up"
         Some(sh) => {
-            if !sh.hw.lock().unwrap().fan_names.is_empty() {
+            if !sh.hw.lock_anyway().fan_names.is_empty() {
                 p.push("fans");
             }
-            let st = sh.status.lock().unwrap().clone();
+            let st = sh.status.lock_anyway().clone();
             if st.rgb.1 || st.ram.contains("stick(s) at") {
                 p.push("lighting");
             }

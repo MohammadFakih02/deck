@@ -1,5 +1,5 @@
 // Line icons (24x24, stroke). Shared by every Deck page.
-const ICONS = {
+export const ICONS = {
   home: '<path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/>',
   grid: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
   search: '<circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/>',
@@ -98,7 +98,7 @@ const ICONS = {
   shortcut: '<path d="M15 3h6v6"/><path d="M10 14L21 3"/><rect x="3" y="7" width="14" height="14" rx="2"/>',
 };
 
-function icon(name, cls) {
+export function icon(name, cls) {
   const p = ICONS[name] || ICONS.sparkle;
   return `<svg class="i ${cls || ""}" viewBox="0 0 24 24" aria-hidden="true">${p}</svg>`;
 }

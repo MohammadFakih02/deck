@@ -3,11 +3,15 @@
 // settings.panels[page] = { order: [id…], hidden: [id…], size: { id: [columns of 12, height px] },
 // pos: { id: [column, row of 10 px] } } (a panel without a place goes in the first free spot).
 // The sidebar can be made wider or narrower by dragging its edge.
+import { I, S, confirmBox, h, note, setSetting } from "./core.js";
+import { HW } from "./hw.js";
+import { render } from "./app.js";
 
-const PG_MIN_W = 3; // narrowest panel, in twelfths of the page
+
+export const PG_MIN_W = 3; // narrowest panel, in twelfths of the page
 
 /** The saved arrangement of `defs` ({ id, name, w, build }) on `page`, with new panels added at the end. */
-function layoutLoad(page, defs) {
+export function layoutLoad(page, defs) {
   const saved = (S.state.settings.panels || {})[page] || {};
   const ids = defs.map((d) => d.id);
   const order = (saved.order || []).filter((id) => ids.includes(id));
@@ -19,18 +23,18 @@ function layoutLoad(page, defs) {
   };
 }
 
-function layoutSave(page, L) {
+export function layoutSave(page, L) {
   return setSetting("panels", { ...(S.state.settings.panels || {}), [page]: L });
 }
 
 /** Home's arrangement until you arrange it yourself: places [column, row] and sizes [columns, height px]. */
-const HOME_DEFAULT = {
+export const HOME_DEFAULT = {
   pos: { clock: [0, 0], audio: [3, 0], network: [6, 0], system: [9, 0], profiles: [6, 18], quick: [0, 32], media: [3, 32], power: [6, 40], pinned: [3, 60], clipboard: [0, 70] },
   size: { clock: [3, 300], audio: [3, 300], network: [3, 166], system: [3, 700], profiles: [3, 201], quick: [3, 360], media: [3, 261], power: [3, 250], pinned: [3, 250], clipboard: [3, 450] },
 };
 
 /** Home keeps its tile list in settings.tiles (the Settings page edits it too); sizes live with the others. */
-const HOME_STORE = {
+export const HOME_STORE = {
   load(defs) {
     const ids = defs.map((d) => d.id);
     const on = (S.state.settings.tiles || []).filter((t) => ids.includes(t));
@@ -46,17 +50,17 @@ const HOME_STORE = {
   },
 };
 
-const pgEditing = (page) => S.cache.layoutEdit === page;
+export const pgEditing = (page) => S.cache.layoutEdit === page;
 
 /** The Customize / Done button for a page's head. */
-function layoutButton(page) {
+export function layoutButton(page) {
   const on = pgEditing(page);
   return h("button", { class: "btn" + (on ? " primary" : " ghost"), "aria-pressed": on ? "true" : "false", title: on ? "Stop arranging" : "Move, resize, hide and show the panels on this page",
     onclick: () => { S.cache.layoutEdit = on ? null : page; render(); } }, I(on ? "check" : "layout"), on ? "Done" : "Customize");
 }
 
 /** A live redraw built `fresh` to replace `old`: it keeps the panel's place and size. */
-function pgKeep(old, fresh) {
+export function pgKeep(old, fresh) {
   fresh.dataset.panel = old.dataset.panel;
   fresh.classList.add("pg-panel");
   fresh.style.setProperty("--span", old.style.getPropertyValue("--span"));
@@ -72,7 +76,7 @@ function pgKeep(old, fresh) {
 
 
 /** A panel's content height (its own, not the row's or its set height), with `level` parts folded. */
-function pgContentHeight(el, level) {
+export function pgContentHeight(el, level) {
   pgFold(el, level);
   const keep = el.style.getPropertyValue("--ht");
   el.style.setProperty("--ht", "0px");
@@ -84,17 +88,17 @@ function pgContentHeight(el, level) {
 }
 
 /** Folds a panel's parts up to `level`: data-drop="n" parts hide from step n, data-alt="n" parts show from it. */
-function pgFold(el, level) {
+export function pgFold(el, level) {
   el.querySelectorAll("[data-drop]").forEach((e) => { e.hidden = +e.dataset.drop <= level; });
   el.querySelectorAll("[data-alt]").forEach((e) => { e.hidden = level < +e.dataset.alt; });
 }
 
 /** The panel's fold steps (0 = nothing folds). */
-const pgLevels = (el) => Math.max(0, ...[...el.querySelectorAll("[data-drop],[data-alt]")].map((e) => +(e.dataset.drop || e.dataset.alt)));
+export const pgLevels = (el) => Math.max(0, ...[...el.querySelectorAll("[data-drop],[data-alt]")].map((e) => +(e.dataset.drop || e.dataset.alt)));
 
 /** A panel set shorter than its content folds its least needed parts, one step at a time, until it
  *  fits (nothing is ever cut): the clock loses its calendar, profiles become dropdowns, and so on. */
-function pgFit(el) {
+export function pgFit(el) {
   const ht = parseFloat(el.style.getPropertyValue("--ht")) || 0;
   const max = pgLevels(el);
   let level = 0;
@@ -103,18 +107,18 @@ function pgFit(el) {
   el.dataset.fold = level;
 }
 
-const PG_ROW = 10, PG_GAP = 14, PG_COLS = 12; // grid row step (px), space under a panel, columns
-const PG_FREE_MIN = 860; // narrower than this, panels stack in order instead (app.css .flow)
-const PG_SNAP = 14; // px: a resized panel this close to another's bottom edge lines up with it
+export const PG_ROW = 10, PG_GAP = 14, PG_COLS = 12; // grid row step (px), space under a panel, columns
+export const PG_FREE_MIN = 860; // narrower than this, panels stack in order instead (app.css .flow)
+export const PG_SNAP = 14; // px: a resized panel this close to another's bottom edge lines up with it
 
 /** Rows of 10 px a panel needs for its height (its own: the set height, or its content). */
-const pgRows = (el) => Math.max(1, Math.ceil((el.getBoundingClientRect().height + PG_GAP) / PG_ROW));
+export const pgRows = (el) => Math.max(1, Math.ceil((el.getBoundingClientRect().height + PG_GAP) / PG_ROW));
 
-const pgHits = (a, x, y, w, rows) => a.x < x + w && x < a.x + a.w && a.y < y + rows && y < a.y + a.rows;
+export const pgHits = (a, x, y, w, rows) => a.x < x + w && x < a.x + a.w && a.y < y + rows && y < a.y + a.rows;
 
 /** Places panels so none overlap: each keeps its own spot unless it would land on one placed
  *  before it, then it moves down just enough. `first` (the one being dragged) is placed first. */
-function pgResolve(list, first) {
+export function pgResolve(list, first) {
   list.sort((a, b) => (a.id === first ? -1 : b.id === first ? 1 : a.y - b.y || a.x - b.x));
   const placed = [];
   for (const it of list) {
@@ -126,7 +130,7 @@ function pgResolve(list, first) {
 }
 
 /** The first free spot for a panel that has none yet: top to bottom, left to right. */
-function pgSpot(placed, w, rows) {
+export function pgSpot(placed, w, rows) {
   for (let y = 0; y < 10000; y++) for (let x = 0; x + w <= PG_COLS; x++) if (!placed.some((p) => pgHits(p, x, y, w, rows))) return [x, y];
   return [0, 0];
 }
@@ -138,7 +142,7 @@ function pgSpot(placed, w, rows) {
  * On a narrow page the panels stack in order instead (`flow`), and the arrangement comes back
  * when there is room again.
  */
-function pgEngine(grid, wrap, items) {
+export function pgEngine(grid, wrap, items) {
   let free = true, queued = false, active = null;
   const layout = (first) => {
     // while a panel is held, every pass (the pointer's, or a size change's) keeps it on top
@@ -194,7 +198,7 @@ function pgEngine(grid, wrap, items) {
 /** Sets a panel's width (twelfths) and height (px, 0 = as tall as its content). A set height is the
  *  panel's least height: it never cuts the content (more content grows it); a shorter one folds its
  *  least needed parts (pgFit). */
-function pgApplySize(el, w, ht) {
+export function pgApplySize(el, w, ht) {
   el.style.setProperty("--span", w);
   el.classList.toggle("pg-wide", w >= 8);
   el.style.minHeight = "";
@@ -207,7 +211,7 @@ function pgApplySize(el, w, ht) {
  * A grid of panels. `defs`: [{ id, name, w (default width in twelfths), build() → element }].
  * `store`: { load(defs), save(L) }, the saved arrangement (defaults to settings.panels[page]).
  */
-function panelGrid(page, defs, store, cls) {
+export function panelGrid(page, defs, store, cls) {
   store = store || { load: (d) => layoutLoad(page, d), save: (L) => layoutSave(page, L) };
   const L = store.load(defs);
   L.pos = L.pos || {};
@@ -264,7 +268,7 @@ function panelGrid(page, defs, store, cls) {
 }
 
 /** The bar, buttons and resize corner a panel gets while arranging. */
-function pgChrome(it, d, L, grid, eng, items, save) {
+export function pgChrome(it, d, L, grid, eng, items, save) {
   const id = d.id, el = it.el;
   const sizeOf = () => L.size[id] || [d.w || 4, 0];
   const setSize = async (w, ht) => {
@@ -407,14 +411,14 @@ function pgChrome(it, d, L, grid, eng, items, save) {
 
 // ------------------------------------------------------------------- the sidebar's width
 
-function applySideWidth() {
+export function applySideWidth() {
   const w = S.state?.settings?.nav_width || 0;
   document.documentElement.style.setProperty("--side-w", (w ? Math.max(180, Math.min(360, w)) : 180) + "px");
   sideGrip();
 }
 
 /** The thin handle on the sidebar's edge: drag it to change the width, double-click for the default. */
-function sideGrip() {
+export function sideGrip() {
   const panel = document.querySelector(".panel");
   if (!panel || panel.querySelector(".side-grip")) return;
   const grip = h("div", { class: "side-grip", role: "separator", "aria-orientation": "vertical", "aria-label": "Sidebar width", title: "Drag to change the sidebar's width · double-click for the default", tabindex: "0" });

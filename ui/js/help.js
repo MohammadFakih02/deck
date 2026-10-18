@@ -2,7 +2,7 @@
 // Each entry: t = title, what = what it does, why = when you'd want it,
 // change = what happens when you move it, warn = the catch, if there is one.
 
-const HELP = {
+export const HELP = {
   // ------------------------------------------------------------------ CPU page
   "cpu.vitals": {
     t: "Live readings",
@@ -27,6 +27,12 @@ const HELP = {
     what: "While a game is in front and a capped profile is on, Deck records the real CPU clock: the average and the peak.",
     why: "Some games (and Windows Game Mode) push the CPU past a power-plan cap. This shows whether your cap really held, without alt-tabbing out.",
     change: "Nothing to set. \"Above the cap\" means the average went more than 5% over it: turn on \"Hold the cap in games\" in the profile.",
+  },
+  "cpu.battery": {
+    t: "Plugged in and on battery",
+    what: "Windows keeps two sets of values in every power plan: one for plugged in, one for battery. Deck can switch to a profile of your choice when you plug in or unplug.",
+    why: "A cooler, quieter profile on battery lasts longer; a faster one plugged in plays better. Without the switch you'd change it by hand each time.",
+    change: "\"Profiles also apply on battery\" on (the default): a profile caps the CPU the same way plugged in or not. Off: on battery Windows keeps the plan's own values, as before Deck.",
   },
   "cpu.ram": {
     t: "Clear RAM",

@@ -204,6 +204,60 @@ let key = new URLSearchParams(location.hash.slice(1)).get("k");
 try { if (key) localStorage.setItem("deck_k", key); else key = localStorage.getItem("deck_k"); } catch (e) {}
 if (location.hash) history.replaceState(null, "", location.pathname);
 
+// -- signing --
+// The key never goes over the network (plain HTTP: anyone on the Wi-Fi could read it). The page
+// opens a session, then signs every request: HMAC-SHA256(key, "session|counter|path"), each
+// counter once (phoneauth.rs on the PC). Written out here: a page on plain HTTP has no crypto.subtle.
+const SHA_K = (() => { const k = []; for (let n = 2; k.length < 64; n++) { let p = true; for (let d = 2; d * d <= n; d++) if (n % d === 0) { p = false; break; } if (p) k.push(((Math.cbrt(n) % 1) * 4294967296) | 0); } return k; })();
+function sha256(data) {
+  const H = [0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19];
+  const l = data.length, n = ((l + 9 + 63) >> 6) << 6, b = new Uint8Array(n);
+  b.set(data); b[l] = 0x80;
+  const dv = new DataView(b.buffer);
+  dv.setUint32(n - 4, l * 8); dv.setUint32(n - 8, Math.floor(l / 536870912));
+  const w = new Array(64), r = (x, c) => (x >>> c) | (x << (32 - c));
+  for (let o = 0; o < n; o += 64) {
+    for (let i = 0; i < 16; i++) w[i] = dv.getUint32(o + i * 4) | 0;
+    for (let i = 16; i < 64; i++) w[i] = (w[i - 16] + (r(w[i - 15], 7) ^ r(w[i - 15], 18) ^ (w[i - 15] >>> 3)) + w[i - 7] + (r(w[i - 2], 17) ^ r(w[i - 2], 19) ^ (w[i - 2] >>> 10))) | 0;
+    let [A, B, C, D, E, F, G, X] = H;
+    for (let i = 0; i < 64; i++) {
+      const t1 = (X + (r(E, 6) ^ r(E, 11) ^ r(E, 25)) + ((E & F) ^ (~E & G)) + SHA_K[i] + w[i]) | 0;
+      const t2 = ((r(A, 2) ^ r(A, 13) ^ r(A, 22)) + ((A & B) ^ (A & C) ^ (B & C))) | 0;
+      X = G; G = F; F = E; E = (D + t1) | 0; D = C; C = B; B = A; A = (t1 + t2) | 0;
+    }
+    [A, B, C, D, E, F, G, X].forEach((v, i) => (H[i] = (H[i] + v) | 0));
+  }
+  const out = new Uint8Array(32), ov = new DataView(out.buffer);
+  H.forEach((h, i) => ov.setUint32(i * 4, h >>> 0));
+  return out;
+}
+function hmac(key, msg) {
+  if (key.length > 64) key = sha256(key);
+  const k = new Uint8Array(64); k.set(key);
+  const cat = (a, b) => { const c = new Uint8Array(a.length + b.length); c.set(a); c.set(b, a.length); return c; };
+  return sha256(cat(k.map((x) => x ^ 0x5c), sha256(cat(k.map((x) => x ^ 0x36), msg))));
+}
+const hexOf = (b) => Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+let sid = "", ctr = 0;
+// a fresh "s=…&c=…&m=…" for one request to `path`
+function signed(path) {
+  ctr++;
+  const te = new TextEncoder();
+  return `s=${sid}&c=${ctr}&m=${hexOf(hmac(te.encode(key || ""), te.encode(`${sid}|${ctr}|${path}`)))}`;
+}
+// -- end signing --
+const ARTS = new Map();
+async function openSession() {
+  const r = await fetch("/session", { method: "POST", cache: "no-store" });
+  if (!r.ok) throw new Error("no session");
+  sid = (await r.text()).trim(); ctr = 0; ARTS.clear();
+}
+// the artwork's link with a signature, kept per picture so the browser's copy is used again
+function artSrc(a) {
+  if (!ARTS.has(a)) ARTS.set(a, `${a}&${signed("/art")}`);
+  return ARTS.get(a);
+}
+
 let ws, st = null, dragging = 0, showAllVol = false, msgT, lastRender = 0;
 function msg(t) { const m = $("msg"); m.textContent = t; m.classList.add("on"); clearTimeout(msgT); msgT = setTimeout(() => m.classList.remove("on"), 2200); }
 function send(o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); else msg("Not connected"); }
@@ -225,7 +279,7 @@ async function copyText(t) {
 }
 
 let refused = ""; // why the PC said no (a limit on phones), shown when the connection closes
-function connect() {
+async function connect() {
   if (!key) {
     $("overT").textContent = "Scan the QR code";
     $("overP").textContent = "On your PC open Deck → Phone, and scan the code with this phone's camera.";
@@ -233,7 +287,14 @@ function connect() {
     return;
   }
   const proto = location.protocol === "https:" ? "wss" : "ws";
-  ws = new WebSocket(`${proto}://${location.host}/ws?k=${encodeURIComponent(key)}`);
+  try { await openSession(); } catch (e) {
+    $("overT").textContent = "Connecting to your PC…";
+    $("overP").textContent = "Make sure Deck is running and your phone is on the same Wi-Fi.";
+    $("over").classList.add("on");
+    setTimeout(connect, 2000);
+    return;
+  }
+  ws = new WebSocket(`${proto}://${location.host}/ws?${signed("/ws")}`);
   ws.onopen = () => { $("over").classList.remove("on"); $("dot").style.background = ""; };
   ws.onmessage = (e) => {
     const v = JSON.parse(e.data);
@@ -257,7 +318,7 @@ function connect() {
       return;
     }
     try {
-      const r = await fetch(`/check?k=${encodeURIComponent(key)}`);
+      const r = await fetch(`/check?${signed("/check")}`);
       if (r.status === 401) {
         $("overT").textContent = "This code is old";
         $("overP").textContent = "Deck made a new code. Scan the QR code on the PC again.";
@@ -310,7 +371,7 @@ function render() {
     <div class="muted" style="margin-top:8px">${st.screen === "control" ? "Tap to click, hold for right-click, slide to move the pointer. Tap then touch again and slide to drag. Two fingers scroll or zoom." : "View only. Pinch to zoom."}</div></div>`;
   if (m && m.title) {
     const pct = m.len > 0 ? Math.min(100, m.pos / m.len * 100) : 0;
-    h += `<div class="card"><div class="media"><div class="art" style="${m.art ? `background-image:url('${esc(m.art)}')` : ""}"></div>
+    h += `<div class="card"><div class="media"><div class="art" style="${m.art ? `background-image:url('${esc(artSrc(m.art))}')` : ""}"></div>
       <div style="min-width:0;flex:1"><div class="mt">${esc(m.title)}</div><div class="ma">${esc(m.artist || m.album)}</div><div class="mf">${esc(m.app)}</div></div></div>
       ${m.len > 0 ? `<div class="bar"><i style="width:${pct}%"></i></div>` : ""}
       <div class="ctl">${skipBtn(m, "prev")}<button class="pp" data-media="toggle" aria-label="${m.status === "playing" ? "Pause" : "Play"}">${ic(m.status === "playing" ? "pause" : "play")}</button>${skipBtn(m, "next")}</div></div>`;
@@ -356,7 +417,7 @@ function render() {
   if (shared.length) {
     h += `<div class="card"><div class="h">${ic("dl")}Between phone and PC</div>` + shared.map((x) => `<div class="item"><div class="ic">${ic(x.kind === "file" ? "file" : x.kind === "link" ? "link" : "note")}</div>
       <div class="g"><div class="t">${esc(x.kind === "file" ? x.name : x.text)}</div><div class="s">${x.from === "pc" ? "From PC" : "From phone"}${x.kind === "file" ? " · " + fmtB(x.size) : ""}</div></div>
-      ${x.kind === "file" && x.from === "pc" ? `<a class="ib2" href="/file/${x.id}?k=${encodeURIComponent(key)}" download aria-label="Download">${ic("dl")}</a>` : ""}
+      ${x.kind === "file" && x.from === "pc" ? `<a class="ib2" href="/file/${x.id}?${signed("/file/" + x.id)}" download aria-label="Download">${ic("dl")}</a>` : ""}
       ${x.kind === "link" ? `<a class="ib2" href="${esc(x.text)}" target="_blank" rel="noopener" aria-label="Open link">${ic("ext")}</a>` : ""}
       ${x.kind !== "file" ? `<button class="ib2" data-copy="${x.id}" aria-label="Copy">${ic("copy")}</button>` : ""}</div>`).join("") + `</div>`;
   }
@@ -471,7 +532,7 @@ function upReq(method, url, body, onprog) {
   return new Promise((res) => {
     const x = new XMLHttpRequest();
     upXhr = x;
-    x.open(method, url);
+    x.open(method, `${url}&${signed("/upload")}`);
     x.timeout = 120000;
     if (onprog) x.upload.onprogress = (ev) => onprog(ev.loaded);
     x.onload = () => { let j = null; try { j = JSON.parse(x.responseText); } catch {} res({ status: x.status, j, text: x.responseText }); };
@@ -481,7 +542,7 @@ function upReq(method, url, body, onprog) {
   });
 }
 async function upload(f, i, n) {
-  const id = upId(f), q = `/upload?k=${encodeURIComponent(key)}&name=${encodeURIComponent(f.name)}&id=${id}&size=${f.size}`;
+  const id = upId(f), q = `/upload?name=${encodeURIComponent(f.name)}&id=${id}&size=${f.size}`;
   $("upName").textContent = n > 1 ? `${f.name} (${i + 1} of ${n})` : f.name;
   let have = 0, fails = 0, speed = 0, last = { t: performance.now(), b: 0 };
   const show = (b, note) => {
@@ -607,7 +668,7 @@ function screenConnect(hosts) {
   hosts = hosts || screenHosts();
   const host = hosts[0];
   const proto = location.protocol === "https:" ? "wss" : "ws";
-  const w = new WebSocket(`${proto}://${host}/screen?k=${encodeURIComponent(key)}&v=${videoParam()}${/^100\./.test(host) ? "&away=1" : ""}&pad=1`);
+  const w = new WebSocket(`${proto}://${host}/screen?${signed("/screen")}&v=${videoParam()}${/^100\./.test(host) ? "&away=1" : ""}&pad=1`);
   videoStop(); SC.vmode = "jpeg";
   w.binaryType = "arraybuffer";
   SC.ws = w; SC.t0 = Date.now(); SC.frames = 0; SC.bytes = 0; SC.lastDrawn = 0;
@@ -1188,7 +1249,7 @@ function soundStart() {
   SA.frame = 0; SA.buf = SA.floor; SA.lastArr = 0; SA.srcs = []; SA.lastCt = null; SA.lastWall = 0; SA.played = false; SA.calm = SA.ctx.currentTime; SA.off = null; SA.pos = 0; SA.tail = [0, 0]; SA.speed = 1; SA.drops = 0;
   SA.q = soundChoice() === "auto" ? soundAuto() : soundChoice();
   const proto = location.protocol === "https:" ? "wss" : "ws";
-  const w = new WebSocket(`${proto}://${SC.host || location.host}/audio?k=${encodeURIComponent(key)}&q=${SA.q}`);
+  const w = new WebSocket(`${proto}://${SC.host || location.host}/audio?${signed("/audio")}&q=${SA.q}`);
   w.binaryType = "arraybuffer";
   SA.ws = w;
   // how long this page stalls (sound pieces are handled here, between the pictures)

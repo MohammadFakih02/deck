@@ -99,7 +99,7 @@ pub fn outputs() -> Vec<Device> {
             out.push(Device { name: device_name(&d), default: def.as_deref() == Some(id.as_str()), id });
         }
     }
-    out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    out.sort_by_key(|a| a.name.to_lowercase());
     out
 }
 
@@ -144,23 +144,6 @@ fn pick_output<'a>(all: &'a [Device], name: &str) -> Result<&'a Device, String> 
         [d] => Ok(d),
         [] => Err(format!("No output called {name}")),
         _ => Err(format!("More than one output matches {name}")),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{pick_output, Device};
-
-    #[test]
-    fn output_names_match_one_device_or_none() {
-        let d = |n: &str| Device { id: n.into(), name: n.into(), default: false };
-        let all = [d("Speakers (Realtek)"), d("Speakers (USB DAC)"), d("Headphones (Arctis)")];
-        assert_eq!(pick_output(&all, "headphones").unwrap().id, "Headphones (Arctis)");
-        assert_eq!(pick_output(&all, "speakers (usb dac)").unwrap().id, "Speakers (USB DAC)");
-        assert!(pick_output(&all, "Speakers").is_err(), "two speakers: don't guess");
-        assert!(pick_output(&all, "").is_err());
-        assert!(pick_output(&all, "  ").is_err());
-        assert!(pick_output(&all, "Monitor").is_err());
     }
 }
 
@@ -319,5 +302,22 @@ pub fn set_app(key: &str, vol: Option<f32>, muted: Option<bool>) -> Result<(), S
         Ok(())
     } else {
         Err("That app isn't playing sound any more".into())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{pick_output, Device};
+
+    #[test]
+    fn output_names_match_one_device_or_none() {
+        let d = |n: &str| Device { id: n.into(), name: n.into(), default: false };
+        let all = [d("Speakers (Realtek)"), d("Speakers (USB DAC)"), d("Headphones (Arctis)")];
+        assert_eq!(pick_output(&all, "headphones").unwrap().id, "Headphones (Arctis)");
+        assert_eq!(pick_output(&all, "speakers (usb dac)").unwrap().id, "Speakers (USB DAC)");
+        assert!(pick_output(&all, "Speakers").is_err(), "two speakers: don't guess");
+        assert!(pick_output(&all, "").is_err());
+        assert!(pick_output(&all, "  ").is_err());
+        assert!(pick_output(&all, "Monitor").is_err());
     }
 }

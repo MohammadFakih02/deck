@@ -6,10 +6,12 @@
 //! (`%LOCALAPPDATA%\Deck\claude-sync-hook.exe --claude-sync-hook`), and switching Claude Sync off
 //! removes them again.
 
+use crate::util::LockAnyway;
 pub mod canon;
 pub mod config;
 pub mod crypto;
 pub mod engine;
+pub mod guard;
 pub mod hub;
 pub mod lan;
 pub mod locks;
@@ -32,6 +34,44 @@ pub struct ClaudeSync {
 }
 
 static C: OnceLock<ClaudeSync> = OnceLock::new();
+static APP: OnceLock<Arc<App>> = OnceLock::new();
+
+/// A change that would alter what Claude Code runs or may do on this PC is waiting (guard.rs):
+/// a notification that stays until it is answered; gone once nothing waits.
+pub fn held_changed(sh: &Shared) {
+    let Some(app) = APP.get() else { return };
+    let waiting = sh.undecided();
+    if waiting.is_empty() {
+        app.dismiss_toast("ccsync-held");
+    } else {
+        let who = waiting[0].1.clone();
+        let what: Vec<String> = waiting.iter().map(|(p, _)| p.clone()).take(3).collect();
+        app.toast(crate::app::Toast {
+            id: "ccsync-held".into(),
+            kind: "warn".into(),
+            title: format!("Claude Code settings from {who} are waiting"),
+            body: format!(
+                "{} would change what Claude Code runs or may do on this PC (hooks, permissions, plugins…). Apply only if you made this change.",
+                what.join(", ")
+            ),
+            actions: vec![("apply".into(), "Apply".into()), ("keep".into(), "Keep this PC's".into())],
+            sticky: true,
+            sound: false,
+        });
+    }
+    app.ui_changed("claude_sync");
+}
+
+/// The answer to `held_changed`'s notification (or the Claude Code sync page): apply the waiting
+/// changes, or keep this PC's versions (not asked again until they change once more).
+pub fn decide_held(apply: bool) {
+    let Some(c) = C.get() else { return };
+    c.sh.decide_held(apply);
+    c.sh.log(if apply { "Applied the waiting Claude Code settings" } else { "Kept this PC's Claude Code settings" });
+    c.sh.cmds.lock_anyway().push(Cmd::SyncNow);
+    c.sh.wake();
+    held_changed(&c.sh);
+}
 
 /// `deck.exe --claude-sync-hook [--claude-dir D] [--data-dir D]`: Claude Code's hook. Decides fast
 /// and quietly; never starts Deck.
@@ -83,9 +123,9 @@ pub fn set_on(app: &Arc<App>, on: bool) -> Result<(), String> {
     if let Some(c) = C.get() {
         c.sh.off.store(!on, Ordering::Relaxed);
         if !on {
-            c.lan.peers.lock().unwrap().clear();
+            c.lan.peers.lock_anyway().clear();
         } else {
-            c.sh.cmds.lock().unwrap().push(Cmd::SyncNow);
+            c.sh.cmds.lock_anyway().push(Cmd::SyncNow);
         }
         c.sh.wake();
         app.ui_changed("claude_sync");
@@ -94,6 +134,7 @@ pub fn set_on(app: &Arc<App>, on: bool) -> Result<(), String> {
     if !on {
         return Ok(());
     }
+    let _ = APP.set(app.clone());
     let paths = config::Paths::new(None, None, None);
     import_standalone(&paths.data);
     let sh = Arc::new(Shared::new(paths));
@@ -119,7 +160,7 @@ pub fn set_on(app: &Arc<App>, on: bool) -> Result<(), String> {
             }
             loop {
                 unsafe { WaitForSingleObject(evt as _, INFINITE) };
-                sh.cmds.lock().unwrap().push(Cmd::SyncNow);
+                sh.cmds.lock_anyway().push(Cmd::SyncNow);
                 sh.wake();
             }
         });
@@ -167,10 +208,10 @@ pub fn state(app: &App) -> Value {
     };
     let sh = &c.sh;
     let cfg = sh.cfg();
-    let st = sh.status.lock().unwrap().clone();
+    let st = sh.status.lock_anyway().clone();
     let live: Vec<String> = c.lan.live_peers().into_iter().map(|p| p.id).collect();
     let now = model::now_ms();
-    let overrides = sh.overrides.lock().unwrap().clone();
+    let overrides = sh.overrides.lock_anyway().clone();
     let machines: Vec<Value> = st
         .machines
         .iter()
@@ -207,13 +248,15 @@ pub fn state(app: &App) -> Value {
                     "open_here": open_here, "open_there": open_there, "waiting": waiting })
         })
         .collect();
-    let logs: Vec<String> = sh.log.lock().unwrap().iter().rev().take(200).cloned().collect();
+    let logs: Vec<String> = sh.log.lock_anyway().iter().rev().take(200).cloned().collect();
     json!({
         "on": on && !sh.off.load(Ordering::Relaxed),
         "standalone": false,
         "phase": st.phase, "last_cycle": ago_ms(st.last_cycle), "last_result": st.last_result, "last_error": st.last_error,
         "lan_port": st.lan_port, "local_files": st.local_files, "local_bytes": st.local_bytes,
         "received": st.received_total, "conflicts": st.conflicts_total, "hook_note": st.hook_note, "pending": st.pending.len(),
+        // changes from another PC that would alter what Claude Code runs here, waiting for an OK
+        "held": sh.undecided().into_iter().map(|(p, who)| json!({ "path": p, "from": who })).collect::<Vec<_>>(),
         "machines": machines, "projects": projects, "open_here": open_here, "open_elsewhere": open_elsewhere, "sessions": sessions,
         "version": config::app_version(&config::app_id()),
         "cfg": {
@@ -243,11 +286,12 @@ pub fn act(app: &Arc<App>, what: &str, a: &Value) -> Result<Value, String> {
     let c = C.get().ok_or("Claude Code sync is off")?;
     let sh = &c.sh;
     let push = |cmd: Cmd| {
-        sh.cmds.lock().unwrap().push(cmd);
+        sh.cmds.lock_anyway().push(cmd);
         sh.wake();
     };
     match what {
         "sync_now" => push(Cmd::SyncNow),
+        "held" => decide_held(a["apply"].as_bool().unwrap_or(false)),
         "pause" => {
             let p = a["paused"].as_bool().unwrap_or(false);
             sh.set_cfg(|c| c.paused = p);
@@ -255,11 +299,11 @@ pub fn act(app: &Arc<App>, what: &str, a: &Value) -> Result<Value, String> {
             sh.wake();
         }
         "take_over" => {
-            sh.overrides.lock().unwrap().insert(s(a, "sid").to_string(), model::now_ms() + 6 * 3600 * 1000);
+            sh.overrides.lock_anyway().insert(s(a, "sid").to_string(), model::now_ms() + 6 * 3600 * 1000);
             push(Cmd::SyncNow);
         }
         "take_back" => {
-            sh.overrides.lock().unwrap().remove(s(a, "sid"));
+            sh.overrides.lock_anyway().remove(s(a, "sid"));
             sh.wake();
         }
         "remap" => {
@@ -320,7 +364,7 @@ pub fn act(app: &Arc<App>, what: &str, a: &Value) -> Result<Value, String> {
                 return Err(e.into());
             }
             if sh.cfg().sync_key != old_key {
-                c.lan.peers.lock().unwrap().clear();
+                c.lan.peers.lock_anyway().clear();
                 sh.status(|s| s.machines.clear());
             }
             sh.log("Settings saved");
@@ -380,7 +424,7 @@ mod tests {
         let want = claude_b.join("projects").join(canon::encode_dir(&home_b.display().to_string())).join(format!("{sid}.jsonl"));
         let t0 = Instant::now();
         while !want.exists() {
-            assert!(t0.elapsed() < Duration::from_secs(60), "session didn't arrive; B's log: {:?}", b.log.lock().unwrap());
+            assert!(t0.elapsed() < Duration::from_secs(60), "session didn't arrive; B's log: {:?}", b.log.lock_anyway());
             std::thread::sleep(Duration::from_millis(250));
             a.wake();
             b.wake();
@@ -392,11 +436,30 @@ mod tests {
         assert!(got.contains(&json_path(&home_b)), "paths rewritten to B's home: {got}");
         assert!(!got.contains(&json_path(&home_a)), "no trace of A's home: {got}");
         assert!(!claude_a.join("settings.json").exists() && !claude_b.join("settings.json").exists(), "no hooks added");
+        // a settings.json from A that makes Claude Code run a program waits on B for B's OK
+        let risky = r#"{"model":"opus","statusLine":{"type":"command","command":"notepad.exe"}}"#;
+        std::fs::write(claude_a.join("settings.json"), risky).unwrap();
+        let t0 = Instant::now();
+        while b.undecided().is_empty() {
+            assert!(t0.elapsed() < Duration::from_secs(60), "B never held it; B's log: {:?}", b.log.lock_anyway());
+            std::thread::sleep(Duration::from_millis(250));
+            a.wake();
+            b.wake();
+        }
+        assert!(!claude_b.join("settings.json").exists(), "not written before B allows it");
+        b.decide_held(true);
+        let t0 = Instant::now();
+        while !claude_b.join("settings.json").exists() {
+            assert!(t0.elapsed() < Duration::from_secs(60), "not applied after the OK");
+            std::thread::sleep(Duration::from_millis(250));
+            b.wake();
+        }
+        assert!(std::fs::read_to_string(claude_b.join("settings.json")).unwrap().contains("notepad.exe"));
         // switched off: B stops syncing
         b.off.store(true, Ordering::Relaxed);
         b.wake();
         std::thread::sleep(Duration::from_secs(2));
-        assert_eq!(b.status.lock().unwrap().phase, "Off");
+        assert_eq!(b.status.lock_anyway().phase, "Off");
         let _ = std::fs::remove_dir_all(&root);
     }
 }

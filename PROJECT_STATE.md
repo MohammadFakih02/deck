@@ -1,10 +1,253 @@
 # Deck — project state
 
-Handoff notes so work can resume later. Last updated: 2026-10-15 (v2.5.5).
+Handoff notes so work can resume later. Last updated: 2026-10-18 (v2.5.5 + unreleased security remediation).
 
 **Start with `DECK.md`** (full overview: features, hardware, files, build/test, status). This file is the dated history.
 
 > **RULE: before every commit, update the docs.** Add today's dated entry here, add user-visible changes to `CHANGELOG.md`, update `DECK.md` / `README.md` when facts change, and stage them in the same commit. The pre-commit hook enforces it; never bypass it. No personal data in these files (that goes in the git-ignored `PRIVATE_NOTES.md`).
+
+## 2026-10-18: Clock and battery fixes, faster tests, UI theme pass (not committed)
+
+- **Overlay clocks (a friend's report):** the "Threads" table showed each core's base clock (3500 P / 2600 E) because sysinfo and
+  `CallNtPowerInformation` only return the nominal value. Now PDH `Processor Frequency` x `% Processor Performance` per thread
+  (`hw::sensors::ThreadClocks`, as Task Manager does). "Game RAM" now measures RivaTuner's game pid, not the foreground window.
+  The non-admin overall clock uses the same per-thread math.
+- **Battery:** profiles write both AC and DC values unless "Profiles also apply on battery" is off (`cpu_battery_same`);
+  optional profiles for plugged in / on battery switch on a power-source change (`profiles::cpu::power_tick`; skipped while
+  hardware is held or Full power is on). Sealed only when chosen.
+- **Tools** is one page (owner's request). Other pages keep their tabs (owner: merge only pages they name).
+- **Theme pass:** hard-coded Midnight greys replaced by tokens (`--line3`, `--knob` derived from each theme). Sidebar badges
+  moved onto the icon (count bubble or status dot).
+- **Tests are faster:** `cargo test` (dev profile, dependencies at opt-level 2, `debug = "line-tables-only"`) replaces
+  `cargo test --release` in docs and CI: 201 passed / 31 ignored; first build 254 s, a rerun after one edit **8 s** (release
+  rebuilt in minutes). Clippy runs in the same profile (99 s cold), clean. Two redundant tests removed (`boost::guid_round_trip`,
+  `util::free_space_is_read`). UI suites wait for the page instead of fixed sleeps: `regress` 31 s -> 13 s (39/39, stable over
+  3 runs), `a11y` 27 s -> 5 s (0 issues); harness files are deleted after a run.
+- **Independent review of the newest Rust (a separate reviewer agent, read-only) found, now fixed with tests:**
+  - A plug/unplug during Game boost or a hardware hold was used up and never applied; it now waits and switches once the
+    hold ends (`power_step`, tests `a_power_change_while_held_waits_until_the_hold_ends`, `a_deleted_profile_is_not_switched_to`).
+  - `rewrite_active` (turning "Profiles also apply on battery" on) ignored the seal hold and re-activated a plan the user may
+    have left; it now returns while held and only re-activates the plan in use.
+  - Deleting a CPU profile left it chosen for plugged in / on battery; delete clears both.
+  - PDH capped `% Processor Performance` at 100, so per-thread clocks never showed boost; `PDH_FMT_NOCAP100` added (live,
+    under load: E-cores read 2748 MHz against a 2600 nominal). `Cpu` now closes its two PDH queries on drop.
+  - RivaTuner's shared-memory header was trusted (offsets/counts); a program creating the mapping first could make the
+    elevated Deck read or write outside it. All readers/writers now use `rtss::array()` (bounds from `VirtualQuery`, read
+    each time). Test `a_lying_rivatuner_header_stays_inside_the_mapping`; live dump unchanged (256 apps, 8 OSD slots).
+  - Not changed: Game RAM now needs RivaTuner's game entry (by design: the overlay only exists inside RivaTuner).
+- **Release check:** the 32-bit RivaTuner helper imported `VCRUNTIME140.dll` (Deck itself links the runtime in), so on a PC
+  without the x86 Visual C++ runtime it couldn't start. `build.rs` now builds it with `+crt-static`; test
+  `the_32_bit_helper_needs_no_visual_cpp_runtime` checks the embedded bytes. `dumpbin /dependents`: Deck and the helper import
+  only Windows DLLs. The `STATIC_VCRUNTIME is deprecated` build warning is cosmetic (the static runtime still applies).
+- **Final artifact:** `cargo tauri build --bundles nsis` with `DECK_REQUIRE_RTSS32=1` (2 m 40 s at 12 jobs): `Deck_2.5.5_x64-setup.exe`,
+  7.6 MB; `deck.exe` holds 3 PE images (Deck, the RivaTuner helper and one more, as before) and no `vcruntime140.dll` import
+  anywhere. Not installed (Phase 4: no install without the owner).
+- **Performance check (running build, hidden, no game):** Deck 1.88 % of one core over 60 s (P1 was 1.88 %, Phase 1 ~3 %),
+  watchdog 0 %, WebView2 0.03 %. Memory: three read-only tours of every page over CDP left private bytes at 323-327 MB
+  and handles at 1225-1227 (no growth; the one-time rise from 221 MB is caches filled on first visit). Live page switches
+  9-100 ms, except Clipboard at 150-206 ms: one 236,000-character item went onto the page in full. Fixed (cards show 600
+  characters, the preview 20,000; regress check added, 40/40). Not measured: startup/shutdown (needs an elevated restart).
+
+## 2026-10-17/18: Finishing the engineering audit — every finding addressed (not committed)
+
+After Phases 1–3 the owner said to finish everything. Every finding in
+`docs/audits/2026-10-17-findings-register.md` is now fixed, documented or decided; the register has a
+row for each, with its tests. **Nothing is committed or pushed.** The CHANGELOG `Unreleased` section
+has the user-visible list.
+
+**Owner decisions:**
+- **S10:** hold synced hooks and permissions and ask on each PC.
+- **S6:** installers from another PC always ask on this PC.
+- **Compatibility:** breaking it is fine; update both PCs and re-pair once.
+- **S12:** keep custom codes and add a slow KDF.
+
+**Security (all with tests):**
+- **S1, install location.**
+  - The setup is per-machine (Program Files); `hooks.nsh` removes the per-user copy.
+  - Set up refuses an exe the user could change; an admin start removes such tasks, with a notice.
+  - Task XML can't be swapped while `schtasks` reads it.
+- **S2, DLLs.** Vendor DLLs load by full path from System32 or NVSMI. System folders come from Windows,
+  not the environment. `SetDllDirectoryW("")`.
+- **S4, launching.** `launch_as_user` never falls back to an elevated launch.
+- **S6, PC to PC.** Each PC has its own Ed25519 key, and its id is derived from that key. Trust is
+  per key. Received installers always ask and run as the user (`--run-installer`).
+- **S7 and S8, file work.** New `fsguard.rs`: every file action the elevated process takes in user
+  folders is checked against the user's limited token and done relative to an open folder handle.
+  Sharing, sending and serving refuse what the user can't read.
+- **S8, hardware settings.** New `seal.rs`: changes made outside Deck hold the hardware until the user
+  clicks **Apply them**.
+- **S9 and U5, phone.** The phone signs each request (HMAC, single-use counters), with a Host check and a
+  hash CSP. The key never travels.
+- **S10, Claude Code sync.** `ccsync/guard.rs` holds risky Claude Code settings.
+- **S11, share links.** Downloads reserve their slot. Home links aren't served over Funnel. Funnel is
+  reconciled at start.
+- **S12, codes.** `kdf.rs` makes pairing codes and sync keys slow to guess.
+- **S13.** Documented as an accepted risk.
+- **S14, quoting and secrets.** Every quote form is escaped. The RustDesk password stays off
+  PowerShell's command line.
+
+**Reliability:**
+- **R3:** `parking_lot` or poison-tolerant locks.
+- **R4:** the watchdog process (`watchdog.rs`, `--watchdog <pid>`).
+- **R5:** `log.rs`, whose tail goes into the support report.
+- **R6:** `plan.json` keeps the "Shut down when…" plan.
+
+**Engineering:**
+- **T1:** CI with clippy `-D warnings`, the UI suites, `cargo audit` and the NSIS setup with its
+  SHA-256. `release.yml` builds releases from `v*` tags. `DECK_REQUIRE_RTSS32`.
+- **T2:** boundary tests, including the new `beam::net::boundary_tests`.
+- **T4:** the ignored-test risk table.
+- **U1–U3:** accessibility fixes.
+- **A6:** clippy warnings 112 → 0.
+- **A7:** ES modules.
+- **P2:** one NVML instance; the `nvml-wrapper` dependency is removed.
+- **P1:** measured; no change needed.
+
+**Docs:**
+- `SECURITY.md` and `docs/trust-boundaries.md` (D3) are new.
+- README: install location, PC to PC row, CI, ES modules.
+- DECK.md:
+  - §0: tests, clippy, the `window` names, new gotchas.
+  - §1: install, watchdog, log.
+  - §5: new modules and the UI module list.
+  - §6: CI, releases, command-line modes.
+  - §7: `plan.json`, `device.key`, logs, seals.
+  - §8: known issues.
+- The migration report (Steps 4–7 and decisions), the test plan (the T2 map and the T4 table), the
+  findings register and open questions.
+
+**Migration notes for the owner and friends:**
+- Update **every** PC that uses PC to PC or Claude Code sync; old and new versions don't talk. Then
+  re-pair once: trusted PCs and "always allow" are asked again, and "off" is kept.
+- A per-user install: run the new setup (one UAC prompt), then click **Set up** again.
+- The phone page reloads once.
+- A second `deck.exe` in Task Manager while hardware control is on is the watchdog.
+- The first admin start with this version records the seals; nothing is held.
+
+**Verification:**
+- **Latest full run (before the three `boundary_tests`):**
+  - `cargo test --release` 194 passed, 0 failed, 29 ignored;
+  - clippy `-D warnings` clean;
+  - `regress.mjs` 39/39, `a11y.mjs` clean;
+  - `toast-test`, `phone-shot` and `phone-sign` pass;
+  - all 19 UI modules resolve.
+- **Ignored tests run here:** `share::one_time_link` and the shared NVML test passed. The NSIS setup
+  builds, and is per-machine in the generated script.
+- **Measured:** P1 at 1.88 % of one core.
+- **The three `beam::net::boundary_tests` are written but not yet compiled.** The final build and test
+  run comes next.
+
+**Not exercised live:**
+- running the setup;
+- the watchdog on real fans;
+- phone uploads with signing;
+- the "changed outside Deck" hold on a real admin start;
+- the ES-module UI in the real app;
+- the CI and release workflows on GitHub;
+- the two-engine network tests (they bind 0.0.0.0).
+
+**Still open (optional or policy):**
+- the rest of the `main.rs` extraction (A1);
+- a generic store with migrations (A4);
+- statics and crate convergence as modules are touched (A3, A5);
+- a hardware critical-temperature override check (the rest of R4);
+- a per-session confirmation for phone screen control (S13).
+
+## 2026-10-17: Incremental architecture refactor — thin `main.rs`, step 1 (Phase 3)
+
+First migration step of the approved architecture plan (`docs/audits/2026-10-17-architecture-plan.md`,
+item 4 "Thin `main.rs`"; tracked in `docs/audits/2026-10-17-architecture-migration.md`). **Pure code
+moves, no behaviour change, no user-visible change (so no `CHANGELOG` entry). Not committed.**
+
+- **Problem (finding A1).** `main.rs` was 2,122 lines holding 98 inline `#[tauri::command]` adapters
+  across a dozen unrelated domains, mixed with tray/window/setup wiring. Finding one domain meant
+  reading the whole file.
+- **Change.** Extracted the command adapters that only translate JSON and delegate to a service module
+  into per-domain `*cmd.rs` files, following the existing `hwcmd.rs`/`profcmd.rs` convention (a
+  deliberate deviation from the plan's sketched `cmd/` subdir — the flat convention already exists, so
+  less churn). New modules: `audiocmd.rs` (5), `displaycmd.rs` (6), `netcmd.rs` (7), `diskcmd.rs` (13),
+  `syscmd.rs` (7, incl. the This-PC report), `boostcmd.rs` (4), `phonecmd.rs` (14). 56 commands moved.
+  `main.rs`: 2,122 → 1,734 lines. Each command's signature, name and `generate_handler!` registration
+  are unchanged (registered as `module::command`).
+- **Deliberately left in `main.rs`:** the ~40 commands coupled to main's statics, tray, window helpers
+  or file dialogs (window control, clipboard + `paste_back`, power/timer, toast, workspaces, screen
+  tools, `pick`/`pick_many`, `share_to_phone`, `elevate_setup`). Moving those needs the helpers/statics
+  restructured first — a separate, more careful step, not done here.
+- **Verification.** `cargo check` clean after each domain (no new warnings — only the 7 pre-existing
+  dead-code ones). Full `cargo test --release -j 6`: **140 passed, 0 failed, 29 ignored** — identical to
+  the Phase 2 baseline. No new tests (behaviour-preserving move; the compiler + existing suite are the
+  guard). `DECK.md` code-layout table updated.
+
+Then, same day, three more architecture steps (all **not committed**):
+
+- **Atomic-write consolidation (plan item 3, partial).** Pointed the costly-to-lose JSON stores at the
+  single `util::write_atomic`: `clipboard::save` (was tmp+rename), `beam/config` `save_cfg`+`save_inbox`
+  and `boost::save` (were plain `fs::write`, so a crash mid-write truncated them). No success-path change;
+  gains crash atomicity + `sync_all`. Left the `ccsync` content-addressed chunk store (own `write_atomic`
+  with parent-dir creation and `.ccsync-tmp` filtering — not worth the coupling) and the regenerated
+  currency-rate / app-list caches as-is. 140/140 still green.
+- **`never_loop` clippy error fixed (finding A6).** `beam/net.rs::request_job` wrapped a single
+  request/answer in a `loop` whose every arm returned (a no-op loop); removed the wrapper, behaviour
+  identical. `cargo clippy` now completes with no errors (100 pre-existing warnings remain), unblocking a
+  future clippy CI gate.
+- **Decisions (evidence-based deviations from the plan, see migration report):** (1) *No unified
+  `actions::` layer* — the phone's capabilities are already a single explicit allow-list in
+  `remote::handle` and the one cross-tier hole (S5) is fixed, so a layer would be abstraction without
+  benefit; added a trust-boundary doc comment to `remote::handle` instead. (2) *Frontend ES-module
+  conversion deferred* — 18 globals-sharing scripts, ranked last by the plan, and the headless suites
+  can't validate focus/interaction, so it's unsafe to do autonomously. Recommended approach is in the
+  report.
+- **Verification across all steps:** full `cargo test --release -j 6` **140 passed, 0 failed**; `cargo
+  clippy` no errors; `regress.mjs` **37/37** incl. "no script errors"; command names unchanged so the UI
+  `invoke` contract is intact. Report: `docs/audits/2026-10-17-architecture-migration.md`.
+- **Still open:** finish extracting the window/dialog-coupled commands (optional — they belong with main's
+  lifecycle); a generic `store::` + settings migrations (only when a real migration is needed); the
+  frontend ES modules; clearing the 100 clippy warnings to enable a `-D warnings` gate.
+
+## 2026-10-17: Security & reliability remediation (Phase 2 of the engineering audit)
+
+Fixed the confirmed high-priority findings from `docs/audits/2026-10-17-*`. TDD throughout: every fix
+has a test that failed first (watched 13 fail), then passed. **Not committed** (user asked to hold).
+
+- **S5 — phone could run any program (High).** `app::toast_action` acted on a toast id/action with no
+  check that the toast existed. The phone's `"toast"` handler passed its id/action straight through,
+  and a `recv:<path>` id made Deck `shell_open` that path. New `app::toast_allowed(caller, id, action,
+  received)` + `toast_action_as(caller, …)`: PC UI = `Caller::Local`, phone = `Caller::Phone`. The
+  phone may answer only its own notifications (media/power/timers/text, and `dismiss` on any). A
+  received-file "open"/"show" needs a path that is actually in `app.shared` from that phone, and
+  "open" is PC-only. Transfers (`xfer:`) and `gpu-held` are PC-only. 4 tests in `app::toast_rules_tests`.
+- **S3 — elevated WebView took flags from the environment (High).** `browser_args` appended
+  `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`, user-settable, so a local program could add a DevTools
+  port into the admin process. Now `browser_args_for(env, elevated, cli_port)` drops the env var when
+  elevated; `scrub_env(elevated)` removes every `WEBVIEW2_*` var at the very top of `main()`; the
+  debug port comes from `--cdp-port` (new `cdp_port(args)`), which only the launcher passes. Test
+  scripts `elev-install.ps1` / `restart-debug.ps1` now pass `--cdp-port=9222`. 4 tests in `webview_guard::tests`.
+- **R1 — settings silently reset on a damaged file (High).** `Settings::load_from(dir)` now returns a
+  note; a damaged file is kept as `settings.json.corrupt-<time>`, the `.bak` is tried, else fields that
+  still parse are merged into defaults (`merge_into_default`). `save_to` keeps the previous good file as
+  `settings.json.bak` and writes atomically. The note is toasted once in `App::start` ("Settings
+  recovered"). 5 tests in `settings::durability_tests`.
+- **R2 — crash guard failed open (Medium).** `gpu::guard` read/parse errors meant "don't hold". New
+  `read_file` → Missing / Mark / Damaged; a Damaged (cut-off) mark now **holds** a risky overclock.
+  Marks are written atomically. 3 tests in `gpu::guard::damaged_file_tests`.
+- **S15 + atomic writes (Low/High).** `util::random_token` uses rejection sampling (no modulo bias) and
+  panics on RNG failure instead of making `aaaa…`. New `util::write_atomic` (unique temp + `sync_all`
+  + rename-with-retry) backs R1/R2. Tests in `util::token_tests`, `util::atomic_tests`.
+- **T3 — stale/incomplete UI checks.** `regress.mjs` check 18 opens the Look tab (the font list moved
+  there in 2.5.5) and check 19 pins the Items tab, so tab order no longer matters. `all.sh` gained
+  Overlay, Drives, PC to PC and Claude Code sync, so `a11y.mjs` now covers them (0 issues).
+
+**Deferred, documented in the audit (not done this pass):** S1 (release setup is per-user → elevated
+tasks point at a user-writable exe) — needs a per-machine installer **and** a folder-ACL guard
+together, plus live installer testing on a UAC-on VM, which can't be done here; the maintainer's own
+install is Program Files, so it's unaffected. S2 (DLL search path), S4, S6–S14, R3–R6, A6's
+`never_loop` clippy error, and the T1 CI work remain open — see the register.
+
+**Tested:** `cargo test --release` 140 passed / 0 failed / 29 ignored (was 122; +18 new). `cargo
+clippy` — no new warnings in the 5 changed files (whole-crate: still the 1 pre-existing `never_loop`
+error). `node --check` all 20 scripts. `regress.mjs` 37/37. `toast-test.mjs` 6/6. `a11y.mjs` 1260×900
+clean incl. the 4 added pages. **Not tested (no safe environment):** live phone remote, live GPU/CPU
+crash-guard behaviour on a real reset, installers. No hardware was changed.
 
 ## 2026-10-16: v2.5.5 — Phone page redraws, code review fixes
 
@@ -21,6 +264,10 @@ Handoff notes so work can resume later. Last updated: 2026-10-15 (v2.5.5).
   - Cause: `hw::start` runs only as admin, so `cpu_now` is null. The GPU card comes from NVML and was complete.
   - Now: the CPU card's last line is a *Needs admin* link, and the customize dialog shows a banner. Both call `elevate_setup`, the same as the CPU and GPU pages' Set up.
   - The cards were already customizable, from the sliders icon in the tile header.
+- Docs pass after the release (owner asked to update the docs and the README).
+  - README: the Overlay row (live preview, limiter keys and limit), the Home row (network card, the settings icon), the admin paragraph (CPU readings, *Needs admin*), and the `rtss.rs` row.
+  - DECK.md: the limiter mechanics, `limiter_hotkey`, the `rtss.rs` and `rtss32/` rows (a missing-helper warning blocks a release), and `pc_cards` with the admin fallback.
+  - `docs/screenshots/overlay.png` regenerated from the mock harness at 1260×860.
 - **32-bit RivaTuner helper was never in the setups.** The i686 Rust target wasn't installed on the build PC, so `build.rs` skipped `rtss-osd32.exe` with a warning. Released builds could neither read nor flip RivaTuner's 32-bit switch, the one its own window shows; that is the root of the limiter-key report. The target is now installed (`rustup target add i686-pc-windows-msvc`). The 64-bit read added above works without the helper anyway.
 - Report (owner): Open RivaTuner showed a busy cursor for a moment and nothing opened. RivaTuner had restarted (new RTSS.exe), and its main window existed but was hidden: its config had `StartMinimized=1` (Profiles\Config, [Settings]), so the fresh start that `open_rtss_window` relies on stayed in the tray, with the tray icon hidden by Deck. Now: set it to 0 before the start, wait for `IsWindowVisible` on the "RivaTunerStatisticsServer" window (up to 5 s), read the file again and set it back to 1. Not tested live (owner can't test now).
 - Report (owner, screenshot): on the Phone page some Screen view options "can't be changed". They were saved; the page didn't redraw. The `changed` listener in `app.js` only calls `renderSide()` for the "settings" topic, and `Pages.phone.tick` only redraws when `remote_info` changes. The Phone page's controls now do `setSetting(k, v).then(render)` (the codebase's idiom).

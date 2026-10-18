@@ -2,7 +2,7 @@
 use crate::hw::pawn::*;
 use std::ffi::c_void;
 use windows_sys::Win32::Foundation::FILETIME;
-use windows_sys::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
+use windows_sys::Win32::System::LibraryLoader::GetProcAddress;
 use windows_sys::Win32::System::Threading::{GetCurrentThread, GetSystemTimes, SetThreadAffinityMask};
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -57,7 +57,6 @@ enum CpuTemp {
 pub struct Cpu {
     t: CpuTemp,
     prev: Option<(u64, u64, u64)>,
-    pub vendor: Vendor,
     pub brand: String,
     pub error: Option<String>,
     cores: Vec<(String, u64)>,
@@ -66,6 +65,60 @@ pub struct Cpu {
     threads: crate::hw::sysmon::ThreadLoad,
     /// Windows "% Processor Performance" counter (PDH query, counter): the clock when the MSR driver is not available
     clk: (usize, usize),
+    /// Windows "Processor Frequency" (each logical processor's nominal clock), for `clk`
+    nominal: (usize, usize),
+}
+
+/// The real clock of each logical processor in MHz, in logical-processor order (None: no reading
+/// yet). Each one is its own nominal clock ("Processor Frequency": P- and E-cores differ) times
+/// its "% Processor Performance" (above 100 while boosting), as Task Manager shows it. The
+/// CurrentMhz Windows hands out elsewhere (and `sysinfo` passes on) never leaves the nominal clock.
+pub fn thread_mhz(nominal: &[(String, f64)], perf: &[(String, f64)]) -> Vec<Option<f32>> {
+    // instances are "group,number"; "_Total" and "group,_Total" are sums
+    let key = |n: &str| {
+        let (g, i) = n.split_once(',')?;
+        Some((g.parse::<u32>().ok()?, i.parse::<u32>().ok()?))
+    };
+    let mut cpus: Vec<((u32, u32), f64)> = nominal.iter().filter_map(|(n, v)| Some((key(n)?, *v))).collect();
+    cpus.sort_by_key(|c| c.0);
+    cpus.iter().map(|(k, nom)| perf.iter().find(|(n, _)| key(n) == Some(*k)).map(|(_, p)| (nom * p / 100.0).round() as f32)).collect()
+}
+
+/// Live clock of every logical processor (no admin rights needed), see `thread_mhz`.
+pub struct ThreadClocks {
+    nominal: (usize, usize),
+    perf: (usize, usize),
+}
+
+impl ThreadClocks {
+    pub fn open() -> ThreadClocks {
+        ThreadClocks { nominal: pdh_open(r"\Processor Information(*)\Processor Frequency"), perf: pdh_open(r"\Processor Information(*)\% Processor Performance") }
+    }
+
+    /// Since the previous read (the first one gives nothing: performance is measured between two reads).
+    pub fn read(&self) -> Vec<Option<f32>> {
+        thread_mhz(&pdh_values(self.nominal), &pdh_values(self.perf))
+    }
+}
+
+impl Drop for Cpu {
+    fn drop(&mut self) {
+        for (q, _) in [self.clk, self.nominal] {
+            if q != 0 {
+                unsafe { windows_sys::Win32::System::Performance::PdhCloseQuery(q as _) };
+            }
+        }
+    }
+}
+
+impl Drop for ThreadClocks {
+    fn drop(&mut self) {
+        for (q, _) in [self.nominal, self.perf] {
+            if q != 0 {
+                unsafe { windows_sys::Win32::System::Performance::PdhCloseQuery(q as _) };
+            }
+        }
+    }
 }
 
 /// Opens a wildcard PDH counter; (0, 0) when it does not exist.
@@ -86,8 +139,11 @@ fn pdh_open(path: &str) -> (usize, usize) {
     }
 }
 
-/// Every instance of a wildcard PDH counter as (instance name, value).
+/// Every instance of a wildcard PDH counter as (instance name, value). Not capped at 100: `% Processor
+/// Performance` goes over 100 while the CPU boosts above its base clock.
 fn pdh_values(h: (usize, usize)) -> Vec<(String, f64)> {
+    /// pdh.h's PDH_FMT_NOCAP100 (windows-sys doesn't list it)
+    const PDH_FMT_NOCAP100: u32 = 0x8000;
     use windows_sys::Win32::System::Performance::*;
     let mut out = vec![];
     if h.0 == 0 {
@@ -98,12 +154,12 @@ fn pdh_values(h: (usize, usize)) -> Vec<(String, f64)> {
             return out;
         }
         let (mut size, mut count) = (0u32, 0u32);
-        if PdhGetFormattedCounterArrayW(h.1 as PDH_HCOUNTER, PDH_FMT_DOUBLE, &mut size, &mut count, std::ptr::null_mut()) != PDH_MORE_DATA || size == 0 {
+        if PdhGetFormattedCounterArrayW(h.1 as PDH_HCOUNTER, PDH_FMT_DOUBLE | PDH_FMT_NOCAP100, &mut size, &mut count, std::ptr::null_mut()) != PDH_MORE_DATA || size == 0 {
             return out;
         }
-        let mut buf = vec![0u64; (size as usize + 7) / 8];
+        let mut buf = vec![0u64; (size as usize).div_ceil(8)];
         let items = buf.as_mut_ptr() as *mut PDH_FMT_COUNTERVALUE_ITEM_W;
-        if PdhGetFormattedCounterArrayW(h.1 as PDH_HCOUNTER, PDH_FMT_DOUBLE, &mut size, &mut count, items) != 0 {
+        if PdhGetFormattedCounterArrayW(h.1 as PDH_HCOUNTER, PDH_FMT_DOUBLE | PDH_FMT_NOCAP100, &mut size, &mut count, items) != 0 {
             return out;
         }
         for i in 0..count as usize {
@@ -155,7 +211,7 @@ impl Cpu {
             },
             _ => (CpuTemp::None, Some(format!("CPU temperature not supported for this CPU ({})", brand))),
         };
-        let mut c = Cpu { t, prev: None, vendor, brand, error, cores: crate::hw::sysmon::cores(), energy_unit: 0.0, last_energy: None, threads: crate::hw::sysmon::ThreadLoad::new(), clk: pdh_open(r"\Processor Information(*)\% Processor Performance") };
+        let mut c = Cpu { t, prev: None, brand, error, cores: crate::hw::sysmon::cores(), energy_unit: 0.0, last_energy: None, threads: crate::hw::sysmon::ThreadLoad::new(), clk: pdh_open(r"\Processor Information(*)\% Processor Performance"), nominal: pdh_open(r"\Processor Information(*)\Processor Frequency") };
         // RAPL energy unit (Intel 0x606, AMD 0xC0010299): joules = count / 2^bits[12:8]
         let unit_msr = match &c.t {
             CpuTemp::Intel { m, .. } => m.exec("ioctl_read_msr", &[0x606], 1).ok(),
@@ -182,7 +238,7 @@ impl Cpu {
     pub fn details(&mut self, temp: Option<f32>, load: Option<f32>) -> Vec<crate::hw::sysmon::Sample> {
         use crate::hw::sysmon::s;
         let g = format!("CPU: {}", if self.brand.is_empty() { "processor" } else { &self.brand });
-        let mut out = vec![s(&g, "Package temperature", "°C", 1, temp.map(|v| v as f64))];
+        let mut out = vec![s(&g, "Package temperature", "Â°C", 1, temp.map(|v| v as f64))];
         let thread_loads = self.threads.sample();
         let mut temps = vec![];
         let mut clocks = vec![];
@@ -205,10 +261,10 @@ impl Cpu {
             }
         }
         for (l, t) in &temps {
-            out.push(s(&g, &format!("{} temperature", l), "°C", 0, *t));
+            out.push(s(&g, &format!("{} temperature", l), "Â°C", 0, *t));
         }
         if let Some(m) = temps.iter().filter_map(|t| t.1).reduce(f64::max) {
-            out.push(s(&g, "Core max temperature", "°C", 0, Some(m)));
+            out.push(s(&g, "Core max temperature", "Â°C", 0, Some(m)));
         }
         if vid_max.is_some() {
             out.push(s(&g, "Core voltage (VID)", "V", 3, vid_max));
@@ -266,10 +322,10 @@ impl Cpu {
     /// Fastest current core clock in MHz (Intel: IA32_PERF_STATUS ratio read on every logical CPU).
     pub fn clock(&self) -> Option<u32> {
         let CpuTemp::Intel { m, .. } = &self.t else {
-            // no MSR driver: the fastest logical processor according to Windows
-            // % Processor Performance is relative to the base clock and goes above 100 while turbo boosting
-            let best = pdh_values(self.clk).into_iter().filter(|(n, _)| !n.contains("_Total")).map(|(_, v)| v).fold(0.0f64, f64::max);
-            return (best > 1.0).then(|| (best / 100.0 * crate::hw::cpupower::limits().base as f64).round() as u32);
+            // no MSR driver: the fastest logical processor according to Windows, each against its
+            // own nominal clock (an E-core's is lower than the P-cores' base)
+            let best = thread_mhz(&pdh_values(self.nominal), &pdh_values(self.clk)).into_iter().flatten().fold(0.0f32, f32::max);
+            return (best > 1.0).then(|| best.round() as u32);
         };
         let n = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1).min(64);
         let mut best = 0u32;
@@ -312,12 +368,6 @@ impl Cpu {
 
 // ---------------------------------------------------------------- GPU
 #[repr(C)]
-struct NvmlUtil {
-    gpu: u32,
-    mem: u32,
-}
-
-#[repr(C)]
 #[derive(Clone, Copy)]
 struct AdlSensor {
     supported: i32,
@@ -336,22 +386,9 @@ unsafe extern "C" fn adl_alloc(size: i32) -> *mut c_void {
     Box::leak(vec![0u8; size.max(1) as usize].into_boxed_slice()).as_mut_ptr() as *mut c_void
 }
 
-#[repr(C)]
-struct NvmlMem {
-    total: u64,
-    free: u64,
-    used: u64,
-}
-
-struct NvmlExtra {
-    clock: Option<unsafe extern "C" fn(*mut c_void, u32, *mut u32) -> i32>,
-    power: Option<unsafe extern "C" fn(*mut c_void, *mut u32) -> i32>,
-    fan: Option<unsafe extern "C" fn(*mut c_void, *mut u32) -> i32>,
-    mem: Option<unsafe extern "C" fn(*mut c_void, *mut NvmlMem) -> i32>,
-}
-
 enum GpuApi {
-    Nvml { dev: *mut c_void, temp: unsafe extern "C" fn(*mut c_void, u32, *mut u32) -> i32, util: unsafe extern "C" fn(*mut c_void, *mut NvmlUtil) -> i32, extra: NvmlExtra },
+    /// NVIDIA: the one NVML instance Deck shares (crate::gpu::nvml)
+    Nvml(&'static crate::gpu::nvml::Nvml),
     Adl { ctx: *mut c_void, index: i32, query: unsafe extern "C" fn(*mut c_void, i32, *mut AdlPmLog) -> i32 },
     /// integrated / other graphics: load from the Windows "GPU Engine" counters (no temperature of its own)
     Pdh { query: *mut c_void, counter: *mut c_void },
@@ -364,9 +401,9 @@ pub struct Gpu {
 }
 unsafe impl Send for Gpu {}
 
+/// A GPU vendor library from System32 (or NVIDIA's NVSMI folder) only, see util::trusted_dll_paths.
 fn load_lib(name: &str) -> *mut c_void {
-    let w: Vec<u16> = name.encode_utf16().chain(Some(0)).collect();
-    unsafe { LoadLibraryW(w.as_ptr()) as *mut c_void }
+    crate::util::load_trusted_dll(name)
 }
 
 impl Gpu {
@@ -409,7 +446,7 @@ impl Gpu {
             if PdhGetFormattedCounterArrayW(*counter, PDH_FMT_DOUBLE, &mut size, &mut count, std::ptr::null_mut()) != PDH_MORE_DATA || size == 0 {
                 return None;
             }
-            let mut buf = vec![0u64; (size as usize + 7) / 8];
+            let mut buf = vec![0u64; (size as usize).div_ceil(8)];
             let items = buf.as_mut_ptr() as *mut PDH_FMT_COUNTERVALUE_ITEM_W;
             if PdhGetFormattedCounterArrayW(*counter, PDH_FMT_DOUBLE, &mut size, &mut count, items) != 0 {
                 return None;
@@ -431,37 +468,8 @@ impl Gpu {
     }
 
     unsafe fn nvml() -> Option<Gpu> {
-        let lib = load_lib("nvml.dll");
-        if lib.is_null() {
-            return None;
-        }
-        let sym = |n: &[u8]| GetProcAddress(lib as _, n.as_ptr());
-        let init: unsafe extern "C" fn() -> i32 = std::mem::transmute(sym(b"nvmlInit_v2\0")?);
-        let by_idx: unsafe extern "C" fn(u32, *mut *mut c_void) -> i32 = std::mem::transmute(sym(b"nvmlDeviceGetHandleByIndex_v2\0")?);
-        let temp = std::mem::transmute(sym(b"nvmlDeviceGetTemperature\0")?);
-        let util = std::mem::transmute(sym(b"nvmlDeviceGetUtilizationRates\0")?);
-        if init() != 0 {
-            return None;
-        }
-        let mut dev = std::ptr::null_mut();
-        if by_idx(0, &mut dev) != 0 {
-            return None;
-        }
-        let mut name = String::new();
-        if let Some(f) = sym(b"nvmlDeviceGetName\0") {
-            let get_name: unsafe extern "C" fn(*mut c_void, *mut u8, u32) -> i32 = std::mem::transmute(f);
-            let mut buf = [0u8; 96];
-            if get_name(dev, buf.as_mut_ptr(), 96) == 0 {
-                name = String::from_utf8_lossy(&buf).trim_matches(char::from(0)).to_string();
-            }
-        }
-        let extra = NvmlExtra {
-            clock: sym(b"nvmlDeviceGetClockInfo\0").map(|f| std::mem::transmute(f)),
-            power: sym(b"nvmlDeviceGetPowerUsage\0").map(|f| std::mem::transmute(f)),
-            fan: sym(b"nvmlDeviceGetFanSpeed\0").map(|f| std::mem::transmute(f)),
-            mem: sym(b"nvmlDeviceGetMemoryInfo\0").map(|f| std::mem::transmute(f)),
-        };
-        Some(Gpu { api: GpuApi::Nvml { dev, temp, util, extra }, name })
+        let n = crate::gpu::nvml::Nvml::shared()?;
+        Some(Gpu { api: GpuApi::Nvml(n), name: n.name.clone() })
     }
 
     unsafe fn adl() -> Option<Gpu> {
@@ -501,10 +509,7 @@ impl Gpu {
 
     pub fn temp(&self) -> Option<f32> {
         match &self.api {
-            GpuApi::Nvml { dev, temp, .. } => {
-                let mut t = 0u32;
-                (unsafe { temp(*dev, 0, &mut t) } == 0).then_some(t as f32)
-            }
+            GpuApi::Nvml(n) => n.temp().map(|t| t as f32),
             GpuApi::Adl { .. } => self.adl_log().map(|l| l.sensors[ADL_TEMP_EDGE]).filter(|s| s.supported != 0).map(|s| s.value as f32),
             GpuApi::Pdh { .. } | GpuApi::None => None,
         }
@@ -514,40 +519,27 @@ impl Gpu {
     pub fn details(&self, temp: Option<f32>, load: Option<f32>) -> Vec<crate::hw::sysmon::Sample> {
         use crate::hw::sysmon::s;
         let g = format!("GPU: {}", if self.name.is_empty() { "graphics" } else { &self.name });
-        let mut out = vec![s(&g, "Temperature", "°C", 0, temp.map(|v| v as f64)), s(&g, "Core load", "%", 0, load.map(|v| v as f64))];
+        let mut out = vec![s(&g, "Temperature", "Â°C", 0, temp.map(|v| v as f64)), s(&g, "Core load", "%", 0, load.map(|v| v as f64))];
         match &self.api {
-            GpuApi::Nvml { dev, util, extra, .. } => unsafe {
-                let mut u = NvmlUtil { gpu: 0, mem: 0 };
-                if util(*dev, &mut u) == 0 {
-                    out.push(s(&g, "Memory controller load", "%", 0, Some(u.mem as f64)));
+            GpuApi::Nvml(n) => {
+                if let Some((_, mem)) = n.util_rates() {
+                    out.push(s(&g, "Memory controller load", "%", 0, Some(mem as f64)));
                 }
-                if let Some(f) = extra.mem {
-                    let mut m = NvmlMem { total: 0, free: 0, used: 0 };
-                    if f(*dev, &mut m) == 0 {
-                        out.push(s(&g, "Memory used", "MB", 0, Some(m.used as f64 / 1048576.0)));
-                        out.push(s(&g, "Memory total", "MB", 0, Some(m.total as f64 / 1048576.0)));
-                    }
+                if let Some((used, total)) = n.memory() {
+                    out.push(s(&g, "Memory used", "MB", 0, Some(used as f64 / 1048576.0)));
+                    out.push(s(&g, "Memory total", "MB", 0, Some(total as f64 / 1048576.0)));
                 }
-                if let Some(f) = extra.clock {
-                    for (name, kind) in [("Core clock", 0u32), ("Memory clock", 2u32)] {
-                        let mut v = 0u32;
-                        out.push(s(&g, name, "MHz", 0, (f(*dev, kind, &mut v) == 0).then_some(v as f64)));
-                    }
+                for (name, kind) in [("Core clock", crate::gpu::nvml::CLOCK_GRAPHICS), ("Memory clock", crate::gpu::nvml::CLOCK_MEM)] {
+                    out.push(s(&g, name, "MHz", 0, n.clock(kind).map(|v| v as f64)));
                 }
-                if let Some(f) = extra.power {
-                    let mut v = 0u32;
-                    out.push(s(&g, "Power", "W", 1, (f(*dev, &mut v) == 0).then_some(v as f64 / 1000.0)));
-                }
-                if let Some(f) = extra.fan {
-                    let mut v = 0u32;
-                    out.push(s(&g, "Fan", "%", 0, (f(*dev, &mut v) == 0).then_some(v as f64)));
-                }
-            },
+                out.push(s(&g, "Power", "W", 1, n.power_mw().map(|v| v as f64 / 1000.0)));
+                out.push(s(&g, "Fan", "%", 0, n.fan_speed(0).ok().map(|v| v as f64)));
+            }
             GpuApi::Adl { .. } => {
                 if let Some(l) = self.adl_log() {
                     let hot = l.sensors[27];
                     if hot.supported != 0 {
-                        out.push(s(&g, "Hot spot temperature", "°C", 0, Some(hot.value as f64)));
+                        out.push(s(&g, "Hot spot temperature", "Â°C", 0, Some(hot.value as f64)));
                     }
                 }
             }
@@ -558,13 +550,49 @@ impl Gpu {
 
     pub fn load(&self) -> Option<f32> {
         match &self.api {
-            GpuApi::Nvml { dev, util, .. } => {
-                let mut u = NvmlUtil { gpu: 0, mem: 0 };
-                (unsafe { util(*dev, &mut u) } == 0).then_some(u.gpu as f32)
-            }
+            GpuApi::Nvml(n) => n.util_rates().map(|u| u.0 as f32),
             GpuApi::Adl { .. } => self.adl_log().map(|l| l.sensors[ADL_ACTIVITY_GFX]).filter(|s| s.supported != 0).map(|s| s.value as f32),
             GpuApi::Pdh { .. } => self.pdh_load(),
             GpuApi::None => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod clock_tests {
+    use super::*;
+
+    fn named(v: &[(&str, f64)]) -> Vec<(String, f64)> {
+        v.iter().map(|(n, x)| (n.to_string(), *x)).collect()
+    }
+
+    #[test]
+    fn each_thread_runs_at_its_own_nominal_clock_times_its_performance() {
+        // Windows reports P-cores at 3500 and E-cores at 2600 nominal; "% Processor Performance"
+        // is relative to each thread's own nominal clock and goes above 100 while boosting
+        let nominal = named(&[("0,1", 3500.0), ("0,0", 3500.0), ("0,2", 2600.0), ("0,_Total", 3500.0), ("_Total", 3500.0)]);
+        let perf = named(&[("0,2", 106.0), ("0,0", 91.0), ("0,1", 150.0), ("_Total", 100.0), ("0,_Total", 100.0)]);
+        assert_eq!(thread_mhz(&nominal, &perf), vec![Some(3185.0), Some(5250.0), Some(2756.0)], "in logical-processor order, totals left out");
+    }
+
+    #[test]
+    fn processor_groups_come_in_order_and_gaps_stay_empty() {
+        let nominal = named(&[("1,0", 3000.0), ("0,1", 3000.0), ("0,0", 3000.0)]);
+        let perf = named(&[("1,0", 50.0), ("0,0", 100.0)]);
+        assert_eq!(thread_mhz(&nominal, &perf), vec![Some(3000.0), None, Some(1500.0)], "no performance reading yet: no clock rather than a made-up one");
+        assert!(thread_mhz(&[], &perf).is_empty());
+    }
+
+    /// Reads this PC's live thread clocks (read-only).
+    #[test]
+    #[ignore]
+    fn live_thread_clocks() {
+        let c = ThreadClocks::open();
+        c.read();
+        std::thread::sleep(std::time::Duration::from_millis(1000));
+        let v = c.read();
+        println!("{v:?}");
+        assert_eq!(v.len(), std::thread::available_parallelism().unwrap().get());
+        assert!(v.iter().all(|m| m.is_some_and(|m| m > 100.0)));
     }
 }

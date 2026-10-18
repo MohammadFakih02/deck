@@ -1,4 +1,9 @@
 // Game boost: Full power while you play (everything comes back after) and a one-off Clean up.
+import { I, Pages, S, ago, appIcon, fmtBytes, h, helpTip, invoke, note, setSetting, toggle } from "./core.js";
+import { head } from "./pages1.js";
+import { row } from "./pcs.js";
+import { render } from "./app.js";
+
 
 Pages.boost = {
   render() {
@@ -25,7 +30,7 @@ Pages.boost = {
   },
 };
 
-async function boostRun(what) {
+export async function boostRun(what) {
   S.cache.boost = { ...(S.cache.boost || {}), busy: true };
   render();
   try {
@@ -40,7 +45,7 @@ async function boostRun(what) {
   if (S.page === "boost") render();
 }
 
-function cleanSummary(r) {
+export function cleanSummary(r) {
   const parts = [];
   parts.push(r.closed?.length ? `Closed ${r.closed.join(", ")}` : "Nothing to close");
   if (r.freed > 50 * 1048576) parts.push(`freed ${fmtBytes(r.freed)}`);
@@ -48,7 +53,7 @@ function cleanSummary(r) {
 }
 
 /** One card: Full power on the left (with the one-off Clean up under it), what it does on the right. */
-function boostHero(st) {
+export function boostHero(st) {
   const a = st.active;
   const busy = st.busy;
   const ram = st.ram || {};
@@ -79,7 +84,7 @@ function boostHero(st) {
 }
 
 /** What Full power did, one line each. */
-function boostDone(a) {
+export function boostDone(a) {
   const line = (ic, text, tip) => h("div", { class: "boost-line", title: tip || "" }, I(ic, "sm"), h("span", null, text));
   const rows = [];
   if (a.closed.length) rows.push(line("check", `Closed ${a.closed.length} app${a.closed.length === 1 ? "" : "s"}`, a.closed.join(", ")));
@@ -91,7 +96,7 @@ function boostDone(a) {
     a.kept.length ? h("div", { class: "dim small" }, `${a.kept.join(", ")} stayed open (it may be asking to save something).`) : null);
 }
 
-function boostOptions(st) {
+export function boostOptions(st) {
   const s = S.state.settings;
   const p = st.plan || {};
   const planText = p.kind === "scheme" ? `${p.from || "Your plan"} → ${p.name} while you play, then back.`
@@ -110,7 +115,7 @@ function boostOptions(st) {
     row("boost_auto_end", "Turn off by itself", "About a minute after your game closes, or after 3 hours if no game shows up. Deck spots games from Steam, Epic, Riot, GOG, Ubisoft and Xbox, anything fullscreen, and the program in front when it works the graphics card hard."));
 }
 
-function boostApps(st) {
+export function boostApps(st) {
   const list = S.cache.boostApps;
   const el = h("div", null);
   if (!list) return el.append(h("div", { class: "section" }, h("h2", null, "Apps to close")), h("div", { class: "empty" }, "Looking at what's running…")), el;
@@ -144,7 +149,7 @@ function boostApps(st) {
 }
 
 /** "While Full power is on, use CPU profile [..] and GPU profile [..]" (put back afterwards). */
-function boostProfiles(s) {
+export function boostProfiles(s) {
   if (!s.cpu_profiles.length && !s.gpu_profiles.length) return null;
   const pick = (key, list, kind) => h("label", { class: "field" }, h("span", null, kind + " profile"),
     h("select", { onchange: (e) => { setSetting(key, e.target.value); render(); } },

@@ -1,7 +1,17 @@
 // Hardware pages: Fans, Lighting, Cooler display, Sensors (with the RTSS overlay) and This PC.
 // The engine came from MoboCtl. Edits collect in a draft and reach the hardware on Apply.
+import { icon } from "./icons.js";
+import { I, Pages, S, T, confirmBox, fmtBytes, fmtTemp, h, helpTip, invoke, liveSpan, modal, netBytes, note, promptBox, run, seg, setSetting, slider, tempNum, tempUnit, toggle, useF, useGhz } from "./core.js";
+import { layoutButton, panelGrid } from "./layout.js";
+import { head } from "./pages1.js";
+import { curveEditor, lineGraph } from "./curve.js";
+import { ovSwitch } from "./overlay.js";
+import { popMenu } from "./profiles.js";
+import { row } from "./pcs.js";
+import { render } from "./app.js";
 
-const HW = {
+
+export const HW = {
   state: null,     // hw_state: what was found, lists, the applied configuration
   cfg: null,       // the draft the pages edit
   dirty: false,
@@ -15,7 +25,7 @@ const HW = {
   lcdColor: "#ff2d55",
 };
 
-async function hwLoad(keepDraft) {
+export async function hwLoad(keepDraft) {
   HW.state = await invoke("hw_state");
   if (HW.state.ready && (!keepDraft || !HW.dirty || !HW.cfg)) {
     HW.cfg = structuredClone(HW.state.cfg);
@@ -24,7 +34,7 @@ async function hwLoad(keepDraft) {
 }
 
 /** Live values without redrawing the page (inputs keep focus, curves keep their drag). */
-async function hwTick() {
+export async function hwTick() {
   if (!HW.state?.ready) {
     const before = HW.state?.ready;
     await hwLoad(true);
@@ -36,16 +46,16 @@ async function hwTick() {
 }
 
 /** A value that follows the live readings. */
-const liveText = (fn, cls) => liveSpan(fn, HW.updaters, cls);
+export const liveText = (fn, cls) => liveSpan(fn, HW.updaters, cls);
 
-function edit(fn) {
+export function edit(fn) {
   fn(HW.cfg);
   HW.dirty = true;
   render();
 }
 
 /** Shown instead of a page when the engine can't run (not admin) or is still starting. */
-function hwGate() {
+export function hwGate() {
   const st = HW.state;
   if (!st) return h("div", { class: "empty" }, "Loading…");
   if (!st.admin) {
@@ -61,7 +71,7 @@ function hwGate() {
   return null;
 }
 
-function applyBar() {
+export function applyBar() {
   if (!HW.dirty) return null;
   return h("div", { class: "hw-bar" },
     I("info"), h("span", { class: "grow" }, "Changes aren't on the hardware yet."),
@@ -69,7 +79,7 @@ function applyBar() {
     h("button", { class: "btn primary sm", onclick: hwApply }, I("check"), "Apply"));
 }
 
-async function hwApply() {
+export async function hwApply() {
   try {
     await invoke("hw_apply", { cfg: HW.cfg });
     HW.dirty = false;
@@ -79,7 +89,7 @@ async function hwApply() {
   render();
 }
 
-function selectBox(value, options, onpick, attrs) {
+export function selectBox(value, options, onpick, attrs) {
   return h("select", { ...attrs, onchange: (e) => onpick(e.target.value) },
     options.map((o) => {
       const [v, label] = Array.isArray(o) ? o : [o, o];
@@ -88,7 +98,7 @@ function selectBox(value, options, onpick, attrs) {
 }
 
 /** `help`: a HELP key for a "?" after the title. */
-function sliderRow(title, value, min, max, step, unit, onset, help) {
+export function sliderRow(title, value, min, max, step, unit, onset, help) {
   const val = h("b", { class: "num" }, value + unit);
   const s = slider(value, min, max, step, (v) => (val.textContent = v + unit), (v) => onset(v));
   if (typeof title === "string") s.setAttribute("aria-label", title);
@@ -218,7 +228,7 @@ Pages.fans = {
 };
 
 /** Updates just the Apply bar (a curve drag must not rebuild its own canvas). */
-function renderBarOnly() {
+export function renderBarOnly() {
   const content = document.getElementById("content");
   const old = content.querySelector(".hw-bar");
   const bar = applyBar();
@@ -228,7 +238,7 @@ function renderBarOnly() {
 
 // ------------------------------------------------------------------- Lighting
 
-const SWATCHES = ["#ff2d55", "#ff6a00", "#ffd60a", "#34c759", "#00c7be", "#009bde", "#0a84ff", "#5e5ce6", "#bf5af2", "#ff375f", "#ffffff"];
+export const SWATCHES = ["#ff2d55", "#ff6a00", "#ffd60a", "#34c759", "#00c7be", "#009bde", "#0a84ff", "#5e5ce6", "#bf5af2", "#ff375f", "#ffffff"];
 
 Pages.lighting = {
   async load() { await hwLoad(true); },
@@ -241,7 +251,7 @@ Pages.lighting = {
     const st = HW.state, l = HW.cfg.lighting, lists = st.lists;
     const off = HW.live?.lights_off ?? st.lights_off;
     el.append(h("div", { class: "card row light-top" },
-      h("div", { class: "light-dot", style: { background: off ? "#2a3142" : l.mode === "Rainbow" ? "conic-gradient(red, yellow, lime, cyan, blue, magenta, red)" : l.color } }),
+      h("div", { class: "light-dot", style: { background: off ? "var(--line2)" : l.mode === "Rainbow" ? "conic-gradient(red, yellow, lime, cyan, blue, magenta, red)" : l.color } }),
       h("div", { class: "grow" },
         h("b", null, off ? "Lights are off" : `${l.mode}`),
         h("div", { class: "dim small" }, liveText(() => (HW.live?.status || st.status).rgb, "")),
@@ -297,7 +307,7 @@ Pages.lighting = {
   },
 };
 
-const MODE_HELP = {
+export const MODE_HELP = {
   Static: "One colour.", Breathing: "Fades your colour in and out.", Rainbow: "Every colour, flowing.", "Color Cycle": "All LEDs change colour together.",
   Wave: "Your colour runs along the strips.", Comet: "A light with a tail chases around.", Temperature: "Blue when cool, red when the CPU is hot.",
   Music: "Follows whatever is playing.", Screen: "Matches the colours on your screen.", Game: "Reacts to the game's sound.", Off: "Dark, but the board keeps its settings.",
@@ -360,7 +370,7 @@ Pages.lcd = {
   },
 };
 
-function lcdContentOptions(d, lists) {
+export function lcdContentOptions(d, lists) {
   const t = (key, label) => h("label", { class: "boost-opt" }, toggle(!!d[key], (v) => edit(() => (d[key] = v))), h("div", { class: "t" }, label));
   switch (d.content) {
     case "Sensors":
@@ -391,7 +401,7 @@ function lcdContentOptions(d, lists) {
 }
 
 /** The 84 LEDs, drawn from lcd::geometry() and refreshed from hw_lcd_preview. Paints in Design mode. */
-function lcdPreview(d, lighting) {
+export function lcdPreview(d, lighting) {
   const geo = HW.state.geometry; // [[led, [x, y, w, h]]]
   const W = Math.max(...geo.map(([, r]) => r[0] + r[2])) + 4, H = Math.max(...geo.map(([, r]) => r[1] + r[3])) + 4;
   const cv = h("canvas", { class: "lcd-cv" });
@@ -483,13 +493,13 @@ Pages.sensors = {
 };
 
 /** A round number above `v` for a graph's top. */
-function niceTop(v, floor) {
+export function niceTop(v, floor) {
   const x = Math.max(floor, v || 0) * 1.15;
   const step = x > 200 ? 100 : x > 50 ? 25 : x > 20 ? 10 : 5;
   return Math.ceil(x / step) * step;
 }
 
-function sensGraphs() {
+export function sensGraphs() {
   const PAL = ["#ff9f43", "#bf5af2", "#ffd60a", "#ff6b9a", "#9aa3b5", "#00c7be", "#7c9cff", "#ff453a"];
   const CPU = "#4f8cff", GPU = "#3ddc97";
   const info = HW.state.info;
@@ -570,9 +580,9 @@ function sensGraphs() {
   return panelGrid("sensors", defs);
 }
 
-const fmtSecs = (s) => (!s ? "minute" : s % 60 ? s + " s" : s === 60 ? "minute" : s / 60 + " minutes");
+export const fmtSecs = (s) => (!s ? "minute" : s % 60 ? s + " s" : s === 60 ? "minute" : s / 60 + " minutes");
 
-function alertsCard() {
+export function alertsCard() {
   const a = HW.cfg.alerts;
   return h("div", { class: "card col" },
     h("div", { class: "tile-head" }, I("bell"), h("span", null, "Alerts and logging")),
@@ -589,17 +599,17 @@ function alertsCard() {
 // One device at a time (picked on the left). Rows that repeat per core or per fan
 // ("P-core 3 temperature", "Pump duty") fold into one grid; the rest group by what they measure.
 
-const SR_KINDS = [
+export const SR_KINDS = [
   ["°C", "Temperatures"], ["°F", "Temperatures"], ["W", "Power"], ["MHz", "Clocks"], ["GHz", "Clocks"], ["%", "Load"], ["V", "Voltages"],
   ["RPM", "Fan speed"], ["GB", "Memory"], ["MB", "Memory"], ["MB/s", "Transfer"], ["KB/s", "Transfer"], ["Mb/s", "Transfer"],
 ];
-const SR_METRICS = [["temperature", "Temp", "°C"], ["clock", "Clock", "MHz"], ["load", "Load", "%"], ["speed", "Speed", "RPM"], ["duty", "Duty", "%"]];
+export const SR_METRICS = [["temperature", "Temp", "°C"], ["clock", "Clock", "MHz"], ["load", "Load", "%"], ["speed", "Speed", "RPM"], ["duty", "Duty", "%"]];
 /** The grid column units, in the chosen units. */
-const srMetricUnit = (u) => (u === "°C" ? tempUnit() : u === "MHz" && useGhz() ? "GHz" : u);
+export const srMetricUnit = (u) => (u === "°C" ? tempUnit() : u === "MHz" && useGhz() ? "GHz" : u);
 
 /** Rows as the engine sends them ("64.0 °C", "4800 MHz", "512.0 KB/s"), turned into the chosen units.
  * Warning colours convert back to °C (srTone). */
-function srUnits(rows) {
+export function srUnits(rows) {
   const conv = (r) => {
     const net = r.group.startsWith("Network") && r.unit === "KB/s";
     if (r.unit === "°C" && useF()) return ["°F", (v) => v * 9 / 5 + 32, 0];
@@ -616,12 +626,12 @@ function srUnits(rows) {
     return { ...r, unit, cur: one(r.cur), min: one(r.min), max: one(r.max), avg: one(r.avg) };
   });
 }
-const SR_ICON = { CPU: "chip", GPU: "gpu", Motherboard: "fan", Memory: "gauge", Drive: "disk", Network: "wifi" };
+export const SR_ICON = { CPU: "chip", GPU: "gpu", Motherboard: "fan", Memory: "gauge", Drive: "disk", Network: "wifi" };
 
-const srNum = (s) => { const v = parseFloat(s); return Number.isFinite(v) ? v : null; };
-const srBare = (s, unit) => (unit && s.endsWith(" " + unit) ? s.slice(0, -unit.length - 1) : s);
+export const srNum = (s) => { const v = parseFloat(s); return Number.isFinite(v) ? v : null; };
+export const srBare = (s, unit) => (unit && s.endsWith(" " + unit) ? s.slice(0, -unit.length - 1) : s);
 
-function srGroups(rows) {
+export function srGroups(rows) {
   const out = [];
   for (const r of rows) {
     let g = out.find((x) => x.name === r.group);
@@ -635,7 +645,7 @@ function srGroups(rows) {
 }
 
 /** The two numbers a device shows in the list: how hot, and how busy. */
-function srHeadline(g) {
+export function srHeadline(g) {
   const temps = g.rows.filter((r) => (r.unit === "°C" || r.unit === "°F") && srNum(r.cur) != null);
   const hot = g.kind === "Motherboard" ? temps.sort((a, b) => srNum(b.cur) - srNum(a.cur))[0] : temps[0];
   const busy = g.rows.find((r) => /^(Total load|Core load|Physical memory load|Total activity|Download rate)$/.test(r.name));
@@ -644,7 +654,7 @@ function srHeadline(g) {
 }
 
 /** Splits a device's rows into per-item grids and plain sections. */
-function srLayout(rows) {
+export function srLayout(rows) {
   const ents = new Map();
   for (const r of rows) {
     const m = r.name.match(/^(.+) (temperature|clock|load|speed|duty)$/);
@@ -676,13 +686,13 @@ function srLayout(rows) {
   return { grids, secs };
 }
 
-function srTone(r, v) {
+export function srTone(r, v) {
   if ((r?.unit !== "°C" && r?.unit !== "°F") || v == null) return "";
   if (r.unit === "°F") v = (v - 32) * 5 / 9; // limits are in °C
   return v >= 95 ? " tone-bad" : v >= 85 ? " tone-warn" : "";
 }
 
-function srGrid(g) {
+export function srGrid(g) {
   const title = g.items.some(([n]) => /core/i.test(n)) ? "Cores" : g.cols.includes("speed") ? "Fans" : "Per item";
   const meta = g.cols.map((c) => SR_METRICS.find(([k]) => k === c));
   return h("div", { class: "sr-block sr-wide" },
@@ -700,7 +710,7 @@ function srGrid(g) {
         }))))));
 }
 
-function srSection(s) {
+export function srSection(s) {
   const unit = s.rows.every((r) => r.unit === s.rows[0].unit) ? s.rows[0].unit : "";
   const cell = (r, v, cls) => h("td", { class: "r num " + cls }, unit ? srBare(v, r.unit) : v);
   return h("div", { class: "sr-block" },
@@ -713,7 +723,7 @@ function srSection(s) {
         cell(r, r.min, "dim"), h("td", { class: "r num dim" + srTone(r, srNum(r.max)) }, unit ? srBare(r.max, r.unit) : r.max), cell(r, r.avg, "dim"))))));
 }
 
-function sensReadings() {
+export function sensReadings() {
   const search = h("input", { type: "search", placeholder: "Find a reading…", value: HW.sensQ || "", spellcheck: false });
   const rail = h("div", { class: "sr-rail" });
   const detail = h("div", { class: "sr-detail" });
@@ -762,17 +772,17 @@ function sensReadings() {
   return h("div", { class: "sr" }, h("div", { class: "sr-side" }, search, rail), detail);
 }
 
-const fmtT = (v) => fmtTemp(v, true);
-const fmtP = (v) => (v == null ? "–" : Math.round(v) + "%");
+export const fmtT = (v) => fmtTemp(v, true);
+export const fmtP = (v) => (v == null ? "–" : Math.round(v) + "%");
 
 // ------------------------------------------------------------------- This PC
 
 // ------------------------------------------------------------------- drive health (S.M.A.R.T.)
 
-const DRIVE_STATUS = { good: ["good", "Good"], caution: ["warn", "Caution"], bad: ["bad", "Bad"], unknown: ["", "No health data"] };
+export const DRIVE_STATUS = { good: ["good", "Good"], caution: ["warn", "Caution"], bad: ["bad", "Bad"], unknown: ["", "No health data"] };
 
 /** Every drive's health, like CrystalDiskInfo: verdict, life left, temperature, hours, the reasons and the raw attributes. */
-function drivesCard() {
+export function drivesCard() {
   const list = S.cache.drives;
   const refresh = h("button", { class: "btn sm ghost", title: "Read the drives again", onclick: async () => {
     refresh.disabled = true;
@@ -828,7 +838,7 @@ Pages.drives = {
 };
 
 /** Save report: asks first whether to add the lights test (it takes the lights over for ~15 s). */
-async function saveReport() {
+export async function saveReport() {
   const st = HW.state?.status;
   const lit = HW.state?.ready && (st?.rgb_ok || st?.ram_ok);
   let lights = false;
@@ -848,7 +858,7 @@ async function saveReport() {
 }
 
 /** Copy / save the support report: everything needed to fix a problem, with or without admin. */
-function reportButtons() {
+export function reportButtons() {
   return [
     h("button", { class: "btn", onclick: async () => { const t = await run("support_report", { save: false }); await navigator.clipboard.writeText(t); note("Report copied: paste it in the chat"); } }, I("copy"), "Copy report"),
     h("button", { class: "btn", onclick: saveReport }, I("save"), "Save report"),
@@ -894,7 +904,7 @@ Pages.thispc = {
 // ------------------------------------------------------------------- hotkey capture (shared)
 
 /** Click, press the keys; Esc cancels, Backspace clears. `id` is the profile (for duplicate checks). */
-function hotkeyField(value, id, onset) {
+export function hotkeyField(value, id, onset) {
   // Esc cancels, Backspace clears
   const b = h("button", { class: "hk" + (value ? "" : " empty") }, value ? value.replaceAll("+", " + ") : "None");
   b.addEventListener("click", () => {
@@ -922,7 +932,7 @@ function hotkeyField(value, id, onset) {
   return b;
 }
 
-function keyName(e) {
+export function keyName(e) {
   const c = e.code;
   // A numpad key that sends a navigation key (Num Lock off, or Fn on a laptop's built-in numpad:
   // Fn + 9 = Page Up) is that key to Windows, so the shortcut must be the key it sends, not "Num9".

@@ -18,6 +18,8 @@ gpu -
 fans -
 lighting -
 lcd -
+overlay -
+drives -
 thispc -
 windows open
 windows layouts
@@ -27,9 +29,9 @@ system processes
 system startup
 files space
 files cleanup
-tools screen
-tools locks
-tools panels
+tools -
+transfer -
+claudesync -
 phone -
 settings -
 LIST

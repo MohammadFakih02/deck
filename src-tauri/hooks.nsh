@@ -1,6 +1,5 @@
-; Deck usually runs elevated (its logon task), while this setup / uninstaller runs as the normal
-; user, so the template's own "kill Deck" step is refused ("Failed to kill Deck"). Before it
-; runs, ask Deck to quit (Deck.exe --quit); a clean quit hands the fans back to the BIOS.
+; Deck usually runs elevated (its logon task). Before the template's own "kill Deck" step, ask
+; Deck to quit (Deck.exe --quit): a clean quit hands the fans back to the BIOS, a kill doesn't.
 ;   1. through the elevated \Deck\Quit task (a normal user may start a task), no prompt;
 ;   2. if that task doesn't exist yet (Deck older than 2.5.1 that never started with admin
 ;      rights since), by running deck.exe --quit as admin: one UAC prompt.
@@ -43,8 +42,25 @@
   ${EndIf}
 !macroend
 
+; Setups up to 2.5.5 installed Deck for the current user only (%LOCALAPPDATA%\Deck), a folder
+; any program of the user can change, while Deck's tasks start it with admin rights. This setup
+; installs to Program Files; the old copy is uninstalled first, quietly. Settings and the Claude
+; Code hook program (which shares that folder) stay; Claude Sync puts its hooks back by itself.
+!macro DeckRemovePerUserCopy
+  ReadEnvStr $R9 LOCALAPPDATA
+  ${If} $R9 != ""
+  ${AndIf} ${FileExists} "$R9\Deck\uninstall.exe"
+  ${AndIf} ${FileExists} "$R9\Deck\deck.exe"
+  ${AndIf} "$R9\Deck" != "$INSTDIR"
+    ; _?= runs it in place and waits for it
+    ExecWait '"$R9\Deck\uninstall.exe" /S _?=$R9\Deck'
+    Delete "$R9\Deck\uninstall.exe"
+  ${EndIf}
+!macroend
+
 !macro NSIS_HOOK_PREINSTALL
   !insertmacro DeckQuitIfRunning
+  !insertmacro DeckRemovePerUserCopy
 !macroend
 
 ; Also takes out what Deck put elsewhere (Claude Code hooks from Claude Sync and their hook

@@ -1,8 +1,12 @@
 // The search box: apps, Deck's own actions, calculator, conversions, games,
 // files, clipboard and the web, with arrow keys + Enter inside Deck.
+import { I, S, appIcon, confirmBox, fmtBytes, fmtWords, h, invoke, note, parseDuration, run } from "./core.js";
+import { ACTION_LABEL, appMenu, pasteClip, planLabel, setOutput, shortDevice, toggleDark, tool } from "./home.js";
+import { NAV, NAV_END, go, render } from "./app.js";
+
 
 /** Everything Deck can do, as searchable actions. */
-function actions() {
+export function actions() {
   const out = [];
   const a = (title, sub, ic, keys, fn) => out.push({ title, sub, ic, keys: (keys || "").toLowerCase(), fn });
   // every sidebar page
@@ -50,7 +54,7 @@ function actions() {
 }
 
 /** Commands typed in the box: "timer 10m", "kill discord", "sleep in 30m", URLs. */
-function commands(q) {
+export function commands(q) {
   const out = [];
   const lower = q.toLowerCase().trim();
   let m;
@@ -87,7 +91,7 @@ function commands(q) {
   return out;
 }
 
-function score(name, q) {
+export function score(name, q) {
   const n = name.toLowerCase(), t = q.toLowerCase().trim();
   if (!t) return 0;
   if (n === t) return 1000;
@@ -98,10 +102,10 @@ function score(name, q) {
   return -1;
 }
 
-let searchSeq = 0;
+export let searchSeq = 0;
 /** The backend search for the newest query, while it runs. */
-let searchPending = null;
-async function doSearch(q) {
+export let searchPending = null;
+export async function doSearch(q) {
   S.query = q;
   const seq = ++searchSeq;
   if (!q.trim()) {
@@ -137,7 +141,7 @@ async function doSearch(q) {
 }
 
 /** Flat list of result rows in display order: [{group, el-builder, run}] */
-function resultRows() {
+export function resultRows() {
   const r = S.results;
   if (!r) return [];
   const rows = [];
@@ -166,16 +170,16 @@ function resultRows() {
   return rows;
 }
 
-function appRow(a) {
+export function appRow(a) {
   return { title: a.name, sub: a.store ? "Store app" : a.path ? a.path.split("\\").slice(-2, -1)[0] || "App" : "App", app: a, fn: () => run("launch_app", { id: a.id }), alt: a.path ? () => invoke("reveal", { path: a.path }) : null };
 }
 
-async function copyAnswer(text) {
+export async function copyAnswer(text) {
   await run("set_clipboard", { text, paste: false });
   note(`Copied ${text}`);
 }
 
-function renderResults() {
+export function renderResults() {
   const rows = resultRows();
   const wrap = h("div", { class: "results" });
   let group = null;
@@ -202,7 +206,7 @@ function renderResults() {
   return wrap;
 }
 
-function hover(i) {
+export function hover(i) {
   if (S.sel === i) return;
   S.sel = i;
   document.querySelectorAll(".results .sel").forEach((x) => x.classList.remove("sel"));
@@ -210,7 +214,7 @@ function hover(i) {
   rows[i] && rows[i].classList.add("sel");
 }
 
-function searchKey(e) {
+export function searchKey(e) {
   const rows = resultRows();
   if (e.key === "ArrowDown" || e.key === "ArrowUp") {
     if (!rows.length) return;

@@ -1,13 +1,16 @@
 // Canvas curve editor shared by the fan curves (°C → %) and the GPU fan curve.
 // Drag a point, click empty space to add one, right-click a point to remove it.
 // A live marker shows where the reading is now and what the curve gives for it.
+import { S, accent, h } from "./core.js";
+import { hover } from "./search.js";
+
 
 /**
  * opts: { points: [[x, y]], x: [min, max], y: [min, max], xUnit, yUnit, marker: () => x | null,
  *         onchange(points), minPoints, height }
  * Returns { el, set(points), redraw() }.
  */
-function curveEditor(opts) {
+export function curveEditor(opts) {
   const o = { minPoints: 2, height: 230, xUnit: "°C", yUnit: "%", ...opts };
   let pts = (o.points || []).map((p) => [p[0], p[1]]).sort((a, b) => a[0] - b[0]);
   const wrap = h("div", { class: "curve" });
@@ -162,7 +165,7 @@ function curveEditor(opts) {
 }
 
 /** Round grid steps between lo and hi, about n of them. */
-function niceSteps(lo, hi, n) {
+export function niceSteps(lo, hi, n) {
   const raw = (hi - lo) / n;
   const mag = Math.pow(10, Math.floor(Math.log10(raw)));
   const step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((s) => s >= raw) || raw;
@@ -173,14 +176,14 @@ function niceSteps(lo, hi, n) {
 
 /** Line graph of several series (Sensors page): series = [{ values, color, label, max }] */
 /** Puts a curve tooltip above (x, y), kept inside `box` so it never makes the page scroll. */
-function placeTip(tip, box, x, y) {
+export function placeTip(tip, box, x, y) {
   tip.classList.remove("hidden");
   const bw = box.clientWidth, tw = tip.offsetWidth, th = tip.offsetHeight;
   tip.style.left = Math.round(Math.min(Math.max(x - tw / 2, 4), Math.max(4, bw - tw - 4))) + "px";
   tip.style.top = Math.round(y - th - 10 < 4 ? y + 12 : y - th - 10) + "px";
 }
 
-function lineGraph(canvas, series, opts) {
+export function lineGraph(canvas, series, opts) {
   const o = { min: 0, max: 100, unit: "", ...opts };
   const dpr = window.devicePixelRatio || 1;
   const w = canvas.clientWidth || 400, ht = canvas.clientHeight || 140;

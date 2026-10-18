@@ -339,7 +339,7 @@ fn groups(sys: &System, wins: &HashMap<u32, Vec<isize>>, dirs: &[String]) -> Vec
         g.name = friendly_name(&g.exe);
         g.suggested = SUGGEST.contains(&g.key.as_str()) || (!g.window && SUGGEST_IF_HIDDEN.contains(&g.key.as_str()));
     }
-    out.sort_by(|a, b| b.mem.cmp(&a.mem));
+    out.sort_by_key(|b| std::cmp::Reverse(b.mem));
     out
 }
 
@@ -620,7 +620,7 @@ fn save(a: &Option<Active>) {
     match a {
         Some(a) => {
             let _ = std::fs::create_dir_all(crate::settings::Settings::dir());
-            let _ = std::fs::write(state_path(), serde_json::to_string_pretty(a).unwrap_or_default());
+            let _ = crate::util::write_atomic(&state_path(), serde_json::to_string_pretty(a).unwrap_or_default().as_bytes());
         }
         None => {
             let _ = std::fs::remove_file(state_path());
@@ -1127,11 +1127,6 @@ mod tests {
         assert!(!in_game_dir("d:\\steamlibrary\\steamapps\\common\\wallpaper_engine\\wallpaper32.exe", &dirs));
     }
 
-    #[test]
-    fn guid_round_trip() {
-        let s = plan::guid_str(&plan::HIGH);
-        assert_eq!(plan::parse(&s), Some(plan::HIGH));
-    }
 
     /// Runs the real close / reopen / priority / trim code on a hidden
     /// throwaway process. Touches nothing else.
@@ -1141,7 +1136,7 @@ mod tests {
         use std::os::windows::process::CommandExt;
         let windir = std::env::var("WINDIR").unwrap();
         let exe = format!("{windir}\\System32\\PING.EXE");
-        let child = std::process::Command::new(&exe)
+        let mut child = std::process::Command::new(&exe)
             .args(["-n", "300", "127.0.0.1"])
             .creation_flags(crate::util::CREATE_NO_WINDOW)
             .stdout(std::process::Stdio::null())
@@ -1173,6 +1168,7 @@ mod tests {
         assert_eq!(res.closed[0].args, vec!["-n", "300", "127.0.0.1"]);
         scan(&mut sys, false);
         assert!(sys.process(Pid::from_u32(pid)).is_none(), "dummy closed");
+        let _ = child.wait();
 
         assert!(reopen(&res.closed[0]));
         std::thread::sleep(Duration::from_millis(500));

@@ -26,14 +26,24 @@ const STATE = {
 };
 const FAKE = `<script>
 window.__sent = [];
-class FakeWS { constructor() { this.readyState = 1; FakeWS.last = this; setTimeout(() => { this.onopen && this.onopen(); this.push(); }, 50); }
+window.__urls = [];
+const realFetch = window.fetch;
+window.fetch = (u, o) => (window.__urls.push(String(u)), String(u) === "/session" ? Promise.resolve(new Response("FAKESESSION")) : realFetch(u, o));
+class FakeWS { constructor(u) { window.__urls.push(String(u)); this.readyState = 1; FakeWS.last = this; setTimeout(() => { this.onopen && this.onopen(); this.push(); }, 50); }
   send(m) { window.__sent.push(JSON.parse(m)); } close() {}
   push() { this.onmessage && this.onmessage({ data: JSON.stringify(window.__state) }); } }
 window.__state = ${JSON.stringify(STATE)};
 window.WebSocket = FakeWS;
 window.confirm = () => true;
 </script>`;
-const html = fs.readFileSync(src, "utf8").replace("<head>", "<head>" + FAKE);
+// The page runs under the policy Deck sends with it (phoneauth::csp_for: inline scripts by hash,
+// nothing from elsewhere); a meta tag carries it here, and any violation counts as a script error.
+const { createHash } = await import("node:crypto");
+const WATCH = `<script>document.addEventListener("securitypolicyviolation", (e) => console.error("CSP blocked " + e.violatedDirective + " " + e.blockedURI));</script>`;
+const page0 = fs.readFileSync(src, "utf8").replace("<head>", "<head>" + WATCH + FAKE);
+const hashes = [...page0.matchAll(/<script(?![^>]*src=)[^>]*>([\s\S]*?)<\/script>/g)].map((m) => `'sha256-${createHash("sha256").update(m[1].replace(/\r\n?/g, "\n")).digest("base64")}'`).join(" ");
+const CSP = `default-src 'none'; script-src 'self' ${hashes}; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' ws: wss:; worker-src 'self' blob:; manifest-src 'self'; base-uri 'none'; form-action 'none'`;
+const html = page0.replace("<head>", `<head><meta http-equiv="Content-Security-Policy" content="${CSP}">`);
 const file = path.join(here, `phone-harness-${port}.html`);
 fs.writeFileSync(file, html);
 
@@ -42,7 +52,7 @@ let list;
 for (let i = 0; i < 50; i++) { try { list = await (await fetch(`http://127.0.0.1:${port}/json`)).json(); if (list.find((t) => t.type === "page" && t.url === "about:blank")) break; } catch {} await new Promise((r) => setTimeout(r, 200)); }
 const ws = new WebSocket(list.find((x) => x.type === "page" && x.url === "about:blank").webSocketDebuggerUrl);
 let id = 0; const pend = new Map(); const logs = [];
-ws.onmessage = (m) => { const d = JSON.parse(m.data); if (d.id && pend.has(d.id)) { pend.get(d.id)(d); pend.delete(d.id); } if (d.method === "Runtime.exceptionThrown") logs.push("EXC " + (d.params.exceptionDetails.exception?.description || d.params.exceptionDetails.text)); };
+ws.onmessage = (m) => { const d = JSON.parse(m.data); if (d.id && pend.has(d.id)) { pend.get(d.id)(d); pend.delete(d.id); } if (d.method === "Runtime.exceptionThrown") logs.push("EXC " + (d.params.exceptionDetails.exception?.description || d.params.exceptionDetails.text)); if (d.method === "Runtime.consoleAPICalled" && d.params.type === "error") logs.push("ERR " + d.params.args.map((a) => a.value || a.description).join(" ")); };
 await new Promise((r) => (ws.onopen = r));
 const send = (method, params = {}) => new Promise((res) => { const i = ++id; pend.set(i, res); ws.send(JSON.stringify({ id: i, method, params })); });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -52,7 +62,7 @@ const sizes = [["phone-320x568", 320, 568, 2], ["phone-375x812", 375, 812, 3], [
 for (const [name, w, h, dpr] of sizes) {
   await send("Emulation.setDeviceMetricsOverride", { width: w, height: h, deviceScaleFactor: dpr, mobile: true });
   await send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 5 });
-  await send("Page.navigate", { url: pathToFileURL(file).href + "#k=test" });
+  await send("Page.navigate", { url: pathToFileURL(file).href + "#k=phonekey-SECRET" });
   await sleep(900);
   const m = await ev(`({ overflowX: document.documentElement.scrollWidth - innerWidth, height: document.documentElement.scrollHeight, unnamed: [...document.querySelectorAll("button, a[href]")].filter((b) => b.offsetParent && !(b.getAttribute("aria-label") || b.textContent.trim() || b.title)).length, small: [...document.querySelectorAll("button, a[href]")].filter((b) => { const r = b.getBoundingClientRect(); return b.offsetParent && (r.width < 24 || r.height < 24); }).length, zoomable: !/user-scalable=no/.test(document.querySelector("meta[name=viewport]").content) })`);
   console.log(name.padEnd(28), JSON.stringify(m));
@@ -64,8 +74,9 @@ for (const [name, w, h, dpr] of sizes) {
 }
 // a tap that spans a state push (the PC sends one every 1.5 s) must still count
 await send("Emulation.setDeviceMetricsOverride", { width: 375, height: 812, deviceScaleFactor: 1, mobile: true });
-await send("Page.navigate", { url: pathToFileURL(file).href + "#k=test" });
+await send("Page.navigate", { url: pathToFileURL(file).href + "#k=phonekey-SECRET" });
 await sleep(900);
+if (logs.length) { console.log("FAIL  " + logs.slice(0, 5).join(" | ")); process.exit(1); }
 const at = await ev(`(() => { const b = document.querySelector("[data-a=awake]"); b.scrollIntoView({ block: "center" }); const r = b.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; })()`);
 await ev(`window.__sent.length = 0`);
 await send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: at[0], y: at[1] }] });
@@ -75,6 +86,11 @@ await send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
 await sleep(300);
 const sent = await ev(`window.__sent.filter((m) => m.a === "awake").length`);
 console.log(`${sent === 1 ? "PASS" : "FAIL"}  tap survives a state push (awake messages: ${sent})`);
+// the key stays on the phone: what goes to the PC is a session and a signature (phoneauth.rs)
+const urls = await ev(`[...window.__urls, ...[...document.querySelectorAll("a[href]")].map((a) => a.getAttribute("href"))]`);
+const leaks = urls.filter((u) => u.includes("phonekey-SECRET"));
+const signedWs = urls.some((u) => /\/ws\?s=FAKESESSION&c=\d+&m=[0-9a-f]{64}$/.test(u));
+console.log(`${!leaks.length && signedWs ? "PASS" : "FAIL"}  the phone key is in no request (${urls.length} checked${leaks.length ? ", leaked in " + leaks[0] : ""}${signedWs ? "" : ", no signed /ws"})`);
 console.log(logs.length ? logs.join("\n") : "no script errors");
 try { ws.close(); spawnSync("taskkill", ["/pid", String(edge.pid), "/T", "/F"], { stdio: "ignore" }); } catch {}
 process.exit(0);

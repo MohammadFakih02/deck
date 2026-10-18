@@ -2,6 +2,55 @@
 
 All notable changes to Deck. Setups for each version are on the [Releases](https://github.com/MohammadFakih02/deck/releases) page.
 
+## Unreleased
+
+> **When you update:** update every PC that uses PC to PC or Claude Code sync, since old and new versions can't talk to each other. Then re-pair your PCs once (trusted PCs and "always allow" are asked again; "never" choices are kept). If Deck was installed per user before, click **Set up** once more after the update. The phone page reloads itself once.
+
+### Security
+- **The phone can no longer run programs on the PC.** A phone could ask Deck to "open" any file path by pretending to answer a "File from your phone" notification. The phone now answers only its own kind of notification (media, power, timers, text), and the "Open" button on a received file works only for a file that really arrived from that phone and only from the PC itself. Accepting transfers and applying a held GPU overclock are PC-only decisions now.
+- **An elevated Deck ignores WebView2 flags from the environment.** When Deck runs as admin it no longer reads `WEBVIEW2_*` variables (any program running as you can set them, and a debugging port there would expose every command Deck has). The live-testing debug port now comes from Deck's own command line (`--cdp-port`).
+- **Programs can't borrow Deck's admin rights through your files.** When Deck works in your folders (phone uploads, files from another PC, Claude Code sync, share links, Clean up, the Recycle Bin, its own settings), it does only what your everyday account could do. A folder swapped for a link can't redirect it into Windows' own files.
+- **Deck won't share, send or serve a file your everyday account can't open**, and won't zip a folder that contains links.
+- **Hardware settings changed outside Deck wait for you.** If another program edits Deck's fan, CPU or GPU settings, Deck keeps the fans on the BIOS and applies no overclock until you click **Apply them** on the PC.
+- **The phone key no longer travels over the network.** The phone signs every request instead, and a recorded request can't be sent again. The phone page also refuses requests a web page sends by pointing one of its own internet names at your PC (DNS rebinding).
+- **Each PC has its own key for PC to PC.** Trust and "always allow" now belong to that one PC, not to anything that knows the pairing code. Pairing codes and the Claude Code sync key are also much slower to guess.
+- **Installers from another PC always ask on this PC**, even from a trusted PC, and run through Windows' normal admin prompt, never with Deck's own rights.
+- **Claude Code sync holds risky changes.** If another PC's sync would change what Claude Code runs or may do without asking (hooks, plugins, status line, permissions), you see "Claude Code settings from <PC> are waiting" with **Apply** or **Keep this PC's**.
+- **Share links:**
+  - A one-time link can't be downloaded twice at the same time.
+  - Home-only links can't be reached from the internet.
+  - Funnel turns itself off at start unless an internet link is open.
+- **Deck checks RivaTuner's shared memory before using it**, so a program pretending to be RivaTuner can't make Deck read or write outside it.
+- **GPU and power libraries load only from Windows' own folder** (or NVIDIA's), never from a folder you or a program could write to.
+- **"Open as your normal account" never falls back to admin.** If Explorer can't take a launch, Deck says so instead of starting the program with admin rights.
+- **The RustDesk password no longer appears on PowerShell's command line.**
+
+### Changed
+- **Tools is one page.** Screen tools, Locked files and Windows panels are no longer separate tabs, and the page has a fresh look.
+- **The setup installs for all users, in `C:\Program Files\Deck`.** It asks for admin once, and quietly removes an older per-user copy while keeping your settings.
+- **Set up refuses an unsafe install.** If Deck sits in a folder your everyday account can change, Set up explains why it won't give it admin rights. Admin tasks that already point at such a copy are removed at start, with the notice "Deck's admin start was turned off".
+- **PC to PC → Settings:** the switch for installing without asking from trusted PCs is gone, since installers always ask now.
+
+### New
+- **CPU profiles for plugged in and on battery** (CPU page, on PCs with a battery). Pick a profile for each; Deck switches when you plug in or unplug, and a profile you choose yourself stays until the next change. **Profiles also apply on battery** (on by default) makes a profile cap the CPU the same way on battery; turn it off to keep Windows' own battery values in each plan.
+- **Fan watchdog.** If Deck is ended from Task Manager, the fans go back to the BIOS and the GPU fan back to the driver within seconds. While hardware control is on, a second small `deck.exe` in Task Manager is the watchdog.
+- **Deck keeps a log** in `%LOCALAPPDATA%\Deck\logs`, and the This PC support report includes its last lines.
+- **A "Shut down when…" plan survives a Deck restart.** It starts waiting again from the beginning.
+
+### Fixed
+- **Overlay "Threads" table showed fake clocks.** Every thread read its base clock (for example 3500 MHz on P-cores and 2600 MHz on E-cores) whatever it was really doing, so a CPU cap looked like it did nothing. It now shows each thread's live clock, the way Task Manager measures it, with or without admin rights.
+- **Overlay "Game RAM" measured the wrong program** when another window was in front (a screenshot tool, Discord). It now measures the game RivaTuner is drawing in, and shows nothing if the game's anti-cheat hides it.
+- **The CPU clock without admin rights** read too high when an E-core was the busiest core.
+- **Bigger click targets** on the Disk space tree arrows, the Home tile settings button and the overlay tick boxes; screen readers now name both "send text" boxes.
+- **Settings survive a bad shutdown.** If `settings.json` is damaged (for example by a hard reset mid-save), Deck keeps the damaged file, restores the last good copy, and otherwise keeps every setting it can still read instead of silently resetting everything. Each save now keeps a backup of the previous version and is written so a crash leaves a whole file, never a half-written one.
+- **The GPU/CPU crash guard fails safe.** If its record file is damaged, Deck now holds a risky overclock back at boot instead of re-applying it — the exact situation the guard is meant for.
+- **Pairing codes and the phone key** are generated without the slight bias the old method had, and Deck now stops with a clear error if the system's random number generator fails rather than making a guessable token.
+- **Themes:** button and chip borders on hover, switches, sliders, progress bars, scrollbars, the calendar, toasts and app placeholders kept the default theme's blue-grey in every theme. They now take each theme's own colours.
+- **The overlay key could fail to switch RivaTuner** on a PC without Microsoft's Visual C++ runtime: Deck's small 32-bit RivaTuner helper needed it. The helper now carries its own copy, like Deck.
+- **Clipboard page slow with a huge item.** A copied log of 200,000+ characters went onto the page in full and made the page take about 0.2 s to open. Cards now show the start of an item, and the preview the first 20,000 characters (with a note); Copy and Paste still use all of it.
+- **Sidebar badges** (a running timer, Keep awake on, a plan set, a phone connected, a PC waiting) were squeezed out next to long page names. They now sit on the page's icon: a number for a count, a dot for on or set (hover it for the word).
+- **More files survive a bad shutdown.** Your clipboard history, the list of items received from a phone or another PC, and the Game boost restore-state are now written the same crash-safe way as settings, so a hard reset mid-save can't truncate them.
+
 ## 2.5.5 — 2026-10-16
 
 ### Changed
@@ -12,6 +61,7 @@ All notable changes to Deck. Setups for each version are on the [Releases](https
   - **Denser lists:** the item list is compact, with move and remove buttons showing on hover. "Add readings" opens when you want it.
 
 ### Fixed
+- **Docs:** the README describes the new Overlay page and the framerate limiter, and has a new Overlay screenshot. It also says the CPU readings need admin.
 - **Home → PC tile on a PC where Deck isn't running as admin:** the CPU card showed only "20 threads", with no clock, power or temperature, and gave no reason. Those readings need admin, so the card now says *Needs admin* and sets it up when clicked. The tile's customize dialog says the same.
 - **Open RivaTuner did nothing** (the mouse showed a busy cursor for a moment) when RivaTuner's own *Start minimized* option is on: it restarted straight into the tray, whose icon Deck may hide. Deck now turns that option off for this one start and puts it back once the window is open.
 - **Framerate limit key only turned the limiter on:** when Deck couldn't read RivaTuner's switch it took it as "off", so every press meant "turn on". Deck now reads the switch from RivaTuner's 64-bit hooks (and remembers what it set last), so the key turns it off again.

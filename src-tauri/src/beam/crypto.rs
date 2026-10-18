@@ -35,7 +35,8 @@ pub fn normalize(code: &str) -> String {
 
 impl Key {
     pub fn new(code: &str) -> Key {
-        Key { master: blake3::derive_key("AppBeam 2026 v1 master", normalize(code).as_bytes()) }
+        // slow on purpose: a typed code could otherwise be guessed from the beacons' fingerprint (kdf.rs)
+        Key { master: crate::kdf::stretch("AppBeam 2026 v2 master", &normalize(code)) }
     }
 
     pub fn sub(&self, ctx: &str) -> [u8; 32] {

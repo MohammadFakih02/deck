@@ -13,7 +13,6 @@ axum = { version = "0.8.9", features = ["ws", "multipart"] }
 futures-util = "0.3.34"
 getrandom = "0.4.3"
 jwalk = "0.9.0"
-nvml-wrapper = "0.13.0"
 parking_lot = "0.12.5"
 png = "0.18.1"
 qrcode = "0.14.1"
@@ -21,6 +20,10 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.151", features = ["preserve_order"] }
 # Transfer (AppBeam) and Claude Sync: encrypted LAN channel, hashing, compression
 blake3 = "1"
+# the phone remote's request signatures (HMAC-SHA256; already built for Tauri)
+sha2 = "0.10"
+# PC to PC: each PC's own Ed25519 key (already built for HTTPS)
+ring = "0.17"
 chacha20poly1305 = "0.10"
 memchr = "2"
 socket2 = "0.6"
@@ -56,11 +59,20 @@ windows-sys = { version = "0.61.2", features = [
   "Win32_Graphics_Dwm", "Win32_Graphics_Gdi", "Win32_System_Ioctl", "Win32_NetworkManagement_IpHelper",
   "Win32_NetworkManagement_Ndis", "Win32_Networking_WinSock", "Win32_UI_Shell", "Win32_System_Performance",
   "Win32_UI_HiDpi", "Win32_UI_Input_KeyboardAndMouse", "Win32_System_Memory", "Win32_System_Diagnostics_Debug", "Win32_System_Kernel", "Win32_System_Pipes",
+  "Wdk_Foundation", "Wdk_Storage_FileSystem",
 ] }
 image = { version = "0.25", default-features = false, features = ["ico", "png"] }
 # the phone's Screen view: fast JPEG (AVX2 when the CPU has it), straight from Windows' BGRA pixels
 jpeg-encoder = { version = "0.7", features = ["simd"] }
 windows-future = "0.3"
+
+# `cargo test` / `cargo clippy` use the dev profile: incremental, with the dependencies
+# optimised once (a test run then rebuilds only Deck itself, in seconds)
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+opt-level = 2
 
 [profile.release]
 strip = true

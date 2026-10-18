@@ -5,8 +5,10 @@
 //! Transfer: one TCP connection per send. Both sides prove they know the code (challenge/response), then
 //! every frame is ChaCha20-Poly1305 encrypted. The sender streams `offer -> (file, data*, end)* -> done`
 //! without waiting for per-file answers, so thousands of small files go as fast as one big one.
+use crate::util::LockAnyway;
 use crate::beam::config::{now_ms, InboxItem, Shared, XState};
 use crate::beam::crypto::{random, Key};
+use crate::beam::device::Device;
 use chacha20poly1305::aead::AeadInPlace;
 use chacha20poly1305::{ChaCha20Poly1305, KeyInit, Nonce, Tag};
 use serde::{Deserialize, Serialize};
@@ -59,7 +61,7 @@ impl Lan {
     }
 
     pub fn live_peers(&self) -> Vec<Peer> {
-        let mut p = self.peers.lock().unwrap();
+        let mut p = self.peers.lock_anyway();
         p.retain(|_, v| v.seen.elapsed() < Duration::from_secs(15));
         let mut v: Vec<Peer> = p.values().cloned().collect();
         v.sort_by(|a, b| a.name.cmp(&b.name));
@@ -226,8 +228,9 @@ fn tune(s: &TcpStream) {
     let _ = r.set_tcp_keepalive(&socket2::TcpKeepalive::new().with_time(Duration::from_secs(15)).with_interval(Duration::from_secs(5)));
 }
 
-/// connects, proves the pairing code and swaps names; returns the channel plus the other PC's id and name
-fn connect(addr: SocketAddr, key: &Key, my_id: &str, my_name: &str) -> io::Result<(Chan, String, String)> {
+/// connects, proves the pairing code, then both PCs prove which PC they are (device.rs) and swap
+/// names; returns the channel plus the other PC's (verified) id and name
+fn connect(addr: SocketAddr, key: &Key, dev: &Device, my_name: &str) -> io::Result<(Chan, String, String)> {
     let mut s = TcpStream::connect_timeout(&addr, Duration::from_secs(4))?;
     s.set_read_timeout(Some(Duration::from_secs(60)))?;
     s.set_write_timeout(Some(Duration::from_secs(60)))?;
@@ -243,13 +246,14 @@ fn connect(addr: SocketAddr, key: &Key, my_id: &str, my_name: &str) -> io::Resul
         return Err(bad("the other PC has a different pairing code"));
     }
     s.write_all(&key.mac("auth-c", &[&nc, ns]))?;
-    let mut ch = Chan::new(s, key, &nc, ns, true);
-    ch.send(T_HELLO, serde_json::json!({"id": my_id, "name": my_name, "v": 2}).to_string().as_bytes())?;
+    let ns = ns.to_vec();
+    let mut ch = Chan::new(s, key, &nc, &ns, true);
+    ch.send(T_HELLO, dev.hello(my_name, &nc, &ns, true).to_string().as_bytes())?;
     if ch.recv()? != T_HELLO {
         return Err(bad("handshake"));
     }
     let v: serde_json::Value = serde_json::from_slice(ch.body()).map_err(|_| bad("hello"))?;
-    let (id, name) = (v["id"].as_str().unwrap_or("").to_string(), v["name"].as_str().unwrap_or("").to_string());
+    let (id, name) = crate::beam::device::check_hello(&v, &nc, &ns, false).map_err(bad)?;
     ch.pv = v["v"].as_u64().unwrap_or(1) as u32;
     Ok((ch, id, name))
 }
@@ -452,7 +456,7 @@ pub fn send_with(sh: Arc<Shared>, peer: Peer, paths: Vec<PathBuf>, o: SendOpts) 
 /// turns a job's result into the transfer's final state (and a log line for failures)
 fn finish(sh: &Shared, id: u64, r: io::Result<()>, peer: &str, sending: bool) {
     // the receiving side may already have recorded its own outcome (e.g. the user declined)
-    if r.is_ok() && sh.xfers.lock().unwrap().iter().any(|x| x.id == id && x.state.finished()) {
+    if r.is_ok() && sh.xfers.lock_anyway().iter().any(|x| x.id == id && x.state.finished()) {
         return;
     }
     let st = match r {
@@ -495,7 +499,7 @@ fn with_retries(sh: &Shared, id: u64, cancel: &AtomicBool, peer: &str, mut attem
         if cancel.load(Ordering::Relaxed) || !retryable(&e) {
             return Err(e);
         }
-        let done = sh.xfers.lock().unwrap().iter().find(|x| x.id == id).map(|x| x.done).unwrap_or(0);
+        let done = sh.xfers.lock_anyway().iter().find(|x| x.id == id).map(|x| x.done).unwrap_or(0);
         if done > best {
             best = done;
             fails = 0;
@@ -526,7 +530,7 @@ fn with_retries(sh: &Shared, id: u64, cancel: &AtomicBool, peer: &str, mut attem
 
 fn send_job(sh: &Shared, id: u64, cancel: &AtomicBool, peer: &Peer, label: &str, paths: &[PathBuf], o: &SendOpts) -> io::Result<()> {
     let cfg = sh.cfg();
-    let (mut ch, _, _) = connect(peer.addr, &Key::new(&cfg.code), &cfg.machine_id, &cfg.machine_name)?;
+    let (mut ch, _, _) = connect(peer.addr, &Key::new(&cfg.code), &sh.device, &cfg.machine_name)?;
     stream_paths(sh, id, cancel, &mut ch, &peer.name, label, paths, o)
 }
 
@@ -600,7 +604,8 @@ fn stream_paths(sh: &Shared, id: u64, cancel: &AtomicBool, ch: &mut Chan, peer: 
         if skip.contains(&i) {
             continue;
         }
-        let mut fh = File::open(&f.abs)?;
+        // Deck has admin rights: only a file the signed-in user could open themselves is sent
+        let mut fh = crate::fsguard::open_read_for_user(&f.abs)?;
         // continue a partial copy: the other PC verified every block it holds; we re-check just the last one
         let mut start = 0u64;
         if blockmode {
@@ -676,7 +681,7 @@ fn stream_paths(sh: &Shared, id: u64, cancel: &AtomicBool, ch: &mut Chan, peer: 
         match ch.recv()? {
             T_WAIT => continue,
             T_RESULT if ch.body() == b"ok" => break,
-            T_RESULT => return Err(io::Error::new(io::ErrorKind::Other, format!("the other PC reported: {}", String::from_utf8_lossy(ch.body())))),
+            T_RESULT => return Err(io::Error::other(format!("the other PC reported: {}", String::from_utf8_lossy(ch.body())))),
             _ => return Err(bad("unexpected answer")),
         }
     }
@@ -821,28 +826,28 @@ fn handle_request(ch: &mut Chan, sh: &Arc<Shared>, pid: &str, pname: &str, body:
     // reconnect continues without asking again
     let gkey = if req.list { pid.to_string() } else { format!("{pid}|{}", req.path.to_lowercase()) };
     let gmax = if req.list { 300 } else { 1800 };
-    let granted = mode == "always" || sh.grants.lock().unwrap().get(&gkey).map(|t| t.elapsed() < Duration::from_secs(gmax)).unwrap_or(false);
+    let granted = mode == "always" || sh.grants.lock_anyway().get(&gkey).map(|t| t.elapsed() < Duration::from_secs(gmax)).unwrap_or(false);
     if !granted {
         let answer = Arc::new(Mutex::new(None));
         let pid_ = sh.next_id();
         let desc = if req.list { "browse the shared folders on this PC".to_string() } else { format!("copy \"{}\" from this PC", req.path) };
-        sh.reqs.lock().unwrap().push(crate::beam::config::ReqPrompt { id: pid_, peer: pname.into(), what: desc, since: Instant::now(), answer: answer.clone() });
+        sh.reqs.lock_anyway().push(crate::beam::config::ReqPrompt { id: pid_, peer: pname.into(), what: desc, since: Instant::now(), answer: answer.clone() });
         sh.attention();
         sh.repaint();
         let t0 = Instant::now();
         let mut res = None;
         while t0.elapsed() < Duration::from_secs(60) {
-            if let Some(a) = *sh.test_answer.lock().unwrap() {
+            if let Some(a) = *sh.test_answer.lock_anyway() {
                 res = Some(if a { 1 } else { 2 });
                 break;
             }
-            if let Some(a) = *answer.lock().unwrap() {
+            if let Some(a) = *answer.lock_anyway() {
                 res = Some(a);
                 break;
             }
             std::thread::sleep(Duration::from_millis(100));
         }
-        sh.reqs.lock().unwrap().retain(|r| r.id != pid_);
+        sh.reqs.lock_anyway().retain(|r| r.id != pid_);
         sh.repaint();
         match res {
             None => return deny(ch, "no answer within 60 seconds"),
@@ -855,7 +860,7 @@ fn handle_request(ch: &mut Chan, sh: &Arc<Shared>, pid: &str, pname: &str, body:
             _ => {}
         }
     }
-    sh.grants.lock().unwrap().insert(gkey, Instant::now());
+    sh.grants.lock_anyway().insert(gkey, Instant::now());
     sh.log(format!("Request from {pname}: {what} - allowed"));
 
     if req.list {
@@ -866,7 +871,7 @@ fn handle_request(ch: &mut Chan, sh: &Arc<Shared>, pid: &str, pname: &str, body:
         };
     }
     let path = resolved.unwrap_or_default();
-    let label = label_of(&[path.clone()]);
+    let label = label_of(std::slice::from_ref(&path));
     let (id, cancel) = sh.new_xfer(true, pname, &label, 0, 0);
     let o = SendOpts { install: false, project: path.is_dir(), exclude: req.exclude, include: req.include, sync: req.sync, delete_extra: req.delete_extra };
     let r = stream_paths(sh, id, &cancel, ch, pname, &label, &[path], &o);
@@ -894,31 +899,30 @@ pub fn request(sh: Arc<Shared>, peer: Peer, path: String, o: ReqOpts) {
 
 fn request_job(sh: &Arc<Shared>, id: u64, cancel: &Arc<AtomicBool>, peer: &Peer, path: &str, o: &ReqOpts) -> io::Result<()> {
     let cfg = sh.cfg();
-    let (mut ch, _, _) = connect(peer.addr, &Key::new(&cfg.code), &cfg.machine_id, &cfg.machine_name)?;
+    let (mut ch, _, _) = connect(peer.addr, &Key::new(&cfg.code), &sh.device, &cfg.machine_name)?;
     let req = Request { path: path.into(), list: false, include: o.include.clone(), exclude: o.exclude.clone(), sync: o.sync, delete_extra: o.delete_extra };
     ch.send(T_REQUEST, &serde_json::to_vec(&req).map_err(|_| bad("request"))?)?;
     // the other PC's user may need up to a minute to answer
     ch.s.set_read_timeout(Some(Duration::from_secs(90)))?;
     sh.log(format!("Requested \"{path}\" from {}", peer.name));
-    loop {
-        if cancel.load(Ordering::Relaxed) {
-            return Err(io::Error::new(io::ErrorKind::Interrupted, "cancelled"));
+    // one request, one answer: cancel before the (blocking) receive, then dispatch the reply.
+    if cancel.load(Ordering::Relaxed) {
+        return Err(io::Error::new(io::ErrorKind::Interrupted, "cancelled"));
+    }
+    match ch.recv()? {
+        T_OFFER => {
+            let body = ch.body().to_vec();
+            receive_offer(&mut ch, sh, &peer.id, &peer.name, &body, Some((id, cancel.clone())))
         }
-        match ch.recv()? {
-            T_OFFER => {
-                let body = ch.body().to_vec();
-                return receive_offer(&mut ch, sh, &peer.id, &peer.name, &body, Some((id, cancel.clone())));
-            }
-            T_REJECT => return Err(io::Error::new(io::ErrorKind::Other, format!("{} refused: {}", peer.name, String::from_utf8_lossy(ch.body())))),
-            _ => return Err(bad("unexpected answer")),
-        }
+        T_REJECT => Err(io::Error::other(format!("{} refused: {}", peer.name, String::from_utf8_lossy(ch.body())))),
+        _ => Err(bad("unexpected answer")),
     }
 }
 
 /// lists a shared folder of `peer` ("" = the list of shared folders); blocks until answered
 pub fn list_remote(sh: &Shared, peer: &Peer, path: &str) -> Result<Vec<Item>, String> {
     let cfg = sh.cfg();
-    let (mut ch, _, _) = connect(peer.addr, &Key::new(&cfg.code), &cfg.machine_id, &cfg.machine_name).map_err(|e| e.to_string())?;
+    let (mut ch, _, _) = connect(peer.addr, &Key::new(&cfg.code), &sh.device, &cfg.machine_name).map_err(|e| e.to_string())?;
     let req = Request { path: path.into(), list: true, ..Default::default() };
     ch.send(T_REQUEST, &serde_json::to_vec(&req).map_err(|_| "request".to_string())?).map_err(|e| e.to_string())?;
     ch.s.set_read_timeout(Some(Duration::from_secs(90))).map_err(|e| e.to_string())?;
@@ -934,8 +938,11 @@ struct Cur {
     f: File,
     /// verified block hashes of the part file (32 bytes each), kept next to it for resuming
     side: Option<File>,
-    part: PathBuf,
-    side_path: PathBuf,
+    /// the folder the file lands in, held (see crate::fsguard), and the names in it
+    d: crate::fsguard::Dir,
+    part: String,
+    side_name: String,
+    leaf: String,
     dest: PathBuf,
     /// whole-file hash (older peers)
     h: blake3::Hasher,
@@ -974,10 +981,10 @@ fn serve_conn(mut s: TcpStream, sh: Arc<Shared>) -> io::Result<()> {
         return Err(bad("handshake"));
     }
     let v: serde_json::Value = serde_json::from_slice(ch.body()).unwrap_or_default();
-    let peer_name = v["name"].as_str().unwrap_or("?").to_string();
-    let peer_id = v["id"].as_str().unwrap_or("").to_string();
+    // the id that trust and "always allow" go by is one the other PC proved, not one it just said
+    let (peer_id, peer_name) = crate::beam::device::check_hello(&v, nc, &ns, true).map_err(bad)?;
     ch.pv = v["v"].as_u64().unwrap_or(1) as u32;
-    ch.send(T_HELLO, serde_json::json!({"id": cfg.machine_id, "name": cfg.machine_name, "v": 2}).to_string().as_bytes())?;
+    ch.send(T_HELLO, sh.device.hello(&cfg.machine_name, nc, &ns, false).to_string().as_bytes())?;
     loop {
         match ch.recv() {
             Ok(T_OFFER) => {
@@ -995,7 +1002,7 @@ fn serve_conn(mut s: TcpStream, sh: Arc<Shared>) -> io::Result<()> {
     }
 }
 
-fn strip_top(files: &mut [(String, u64)], dirs: &mut Vec<String>) {
+fn strip_top(files: &mut [(String, u64)], dirs: &mut [String]) {
     let first = files.first().map(|f| f.0.as_str()).or_else(|| dirs.first().map(|d| d.as_str()));
     let Some(top) = first.and_then(|f| f.split('/').next()).map(|t| t.to_string()) else { return };
     let under = |p: &str| p.split_once('/').map(|(t, _)| t == top).unwrap_or(false);
@@ -1007,6 +1014,17 @@ fn strip_top(files: &mut [(String, u64)], dirs: &mut Vec<String>) {
             *d = d[top.len() + 1..].to_string();
         }
     }
+}
+
+/// Whether an incoming offer waits for the user here. Something to install always does: the
+/// sending PC can't start a program on this one without a click here, whoever it is. Deleting
+/// files always does too. Otherwise a trusted PC, a transfer asked for from here, or one being
+/// continued comes in by itself, and with "Ask me" off so do plain files.
+fn must_ask(cfg: &crate::beam::config::Config, peer_id: &str, install: bool, requested: bool, resuming: bool, deletes: bool) -> bool {
+    if install || deletes {
+        return true;
+    }
+    !requested && !resuming && !cfg.trusts(peer_id) && cfg.ask_before_receive
 }
 
 fn resume_marker(dir: &Path) -> PathBuf {
@@ -1025,10 +1043,8 @@ fn extras(dir: &Path, offered: &std::collections::HashSet<String>, exclude: &[St
             }
             match e.file_type() {
                 Ok(t) if t.is_dir() => rec(base, &e.path(), offered, f, out),
-                Ok(t) if t.is_file() => {
-                    if !name.ends_with(".part") && name != ".appbeam-resume" && !offered.contains(&inner.to_lowercase()) {
-                        out.push(e.path());
-                    }
+                Ok(t) if t.is_file() && !name.ends_with(".part") && name != ".appbeam-resume" && !offered.contains(&inner.to_lowercase()) => {
+                    out.push(e.path());
                 }
                 _ => {}
             }
@@ -1176,23 +1192,20 @@ fn receive_offer(ch: &mut Chan, sh: &Arc<Shared>, peer_id: &str, peer: &str, bod
     // deleting files here is always asked; everything else is asked unless the sending PC is
     // trusted (or, with "Ask me" off, plain files come in by themselves). Asked for here (`req`)
     // and a continued transfer were already agreed to.
-    let mut need_ask = !extra.is_empty();
-    if req.is_none() && !resuming && !cfg.trusts(peer_id) && (cfg.ask_before_receive || (offer.install && !cfg.trust_install)) {
-        need_ask = true;
-    }
+    let need_ask = must_ask(&cfg, peer_id, offer.install, req.is_some(), resuming, !extra.is_empty());
     if need_ask {
         let answer = Arc::new(Mutex::new(None));
-        sh.pending.lock().unwrap().push(crate::beam::config::Pending { id, peer: peer.into(), peer_id: peer_id.into(), label: label.clone(), files: files.len(), total, install: offer.install, deletes: extra.len(), answer: answer.clone() });
+        sh.pending.lock_anyway().push(crate::beam::config::Pending { id, peer: peer.into(), peer_id: peer_id.into(), label: label.clone(), files: files.len(), total, install: offer.install, deletes: extra.len(), answer: answer.clone() });
         sh.attention();
         sh.repaint();
         let t0 = Instant::now();
         let mut res = None;
         while t0.elapsed() < Duration::from_secs(150) {
-            if let Some(a) = *sh.test_answer.lock().unwrap() {
+            if let Some(a) = *sh.test_answer.lock_anyway() {
                 res = Some(a);
                 break;
             }
-            if let Some(a) = *answer.lock().unwrap() {
+            if let Some(a) = *answer.lock_anyway() {
                 res = Some(a);
                 break;
             }
@@ -1206,7 +1219,7 @@ fn receive_offer(ch: &mut Chan, sh: &Arc<Shared>, peer_id: &str, peer: &str, bod
             }
             std::thread::sleep(Duration::from_millis(100));
         }
-        sh.pending.lock().unwrap().retain(|p| p.id != id);
+        sh.pending.lock_anyway().retain(|p| p.id != id);
         if res != Some(true) {
             ch.send(T_REJECT, if res.is_none() { b"nobody answered in time".as_slice() } else { b"declined".as_slice() })?;
             sh.set_state(id, XState::Declined);
@@ -1214,16 +1227,21 @@ fn receive_offer(ch: &mut Chan, sh: &Arc<Shared>, peer_id: &str, peer: &str, bod
         }
     }
 
-    if let Err(e) = std::fs::create_dir_all(&dir) {
-        let _ = ch.send(T_REJECT, format!("can't create the folder: {e}").as_bytes());
-        sh.set_state(id, XState::Failed(format!("can't create {}: {e}", dir.display())));
-        return Ok(());
-    }
+    let target = match open_target(&base, &dir) {
+        Ok(t) => t,
+        Err(e) => {
+            let _ = ch.send(T_REJECT, format!("can't create the folder: {e}").as_bytes());
+            sh.set_state(id, XState::Failed(format!("can't create {}: {e}", dir.display())));
+            return Ok(());
+        }
+    };
     for d in &dirs {
-        let _ = std::fs::create_dir_all(dir.join(d.replace('/', "\\")));
+        let _ = target.walk(&format!("{d}/x"), true);
     }
     // left behind if this is interrupted: the next try of the same offer continues instead of starting over
-    let _ = std::fs::write(resume_marker(&dir), &ident);
+    if let Ok(mut f) = target.create(".appbeam-resume", true) {
+        let _ = f.write_all(ident.as_bytes());
+    }
     let body = if acc.skip.is_empty() && acc.hash.is_empty() && acc.resume.is_empty() { Vec::new() } else { serde_json::to_vec(&acc).unwrap_or_default() };
     ch.send(T_ACCEPT, &body)?;
     sh.set_state(id, XState::Active);
@@ -1231,12 +1249,12 @@ fn receive_offer(ch: &mut Chan, sh: &Arc<Shared>, peer_id: &str, peer: &str, bod
     let cont = if acc.skip.is_empty() && acc.resume.is_empty() { String::new() } else { format!(", continuing: {} files already here{}", acc.skip.len(), if acc.resume.is_empty() { String::new() } else { format!(" + {} partial", acc.resume.len()) }) };
     sh.log(format!("Receiving {label} from {peer} ({} files{cont})", files.len()));
 
-    let r = receive_files(ch, sh, id, &cancel, &dir, &files, &mtimes, project, &acc, blockmode);
+    let r = receive_files(ch, sh, id, &cancel, &target, &files, &mtimes, project, &acc, blockmode);
     match r {
         Ok(()) => {
-            let _ = std::fs::remove_file(resume_marker(&dir));
+            let _ = target.remove(".appbeam-resume");
             if !extra.is_empty() {
-                let n = extra.iter().filter(|p| std::fs::remove_file(p).is_ok()).count();
+                let n = extra.iter().filter(|p| remove_below(&target, &dir, p).is_ok()).count();
                 sh.log(format!("Removed {n} file{} from {} that {peer} no longer has", if n == 1 { "" } else { "s" }, dir.display()));
             }
             sh.xfer(id, |x| x.done = x.total);
@@ -1247,7 +1265,7 @@ fn receive_offer(ch: &mut Chan, sh: &Arc<Shared>, peer_id: &str, peer: &str, bod
             let kind = if is_apps { "apps".to_string() } else if is_setup { "setup".to_string() } else { entry.as_ref().map(|e| crate::beam::setup::kind_of(&dir.join(e.replace('/', "\\")))).unwrap_or_default() };
             let item = InboxItem { name: label.clone(), dir: dir.display().to_string(), entry: entry.clone(), kind: kind.clone(), from: peer.into(), size: total, files: files.len(), time: now_ms(), note: String::new() };
             {
-                let mut ib = sh.inbox.lock().unwrap();
+                let mut ib = sh.inbox.lock_anyway();
                 ib.retain(|i| i.dir != item.dir);
                 ib.insert(0, item);
                 ib.truncate(200);
@@ -1272,6 +1290,8 @@ fn receive_offer(ch: &mut Chan, sh: &Arc<Shared>, peer_id: &str, peer: &str, bod
             // an interrupted copy keeps everything that arrived (and the marker): the next try continues from there.
             // Only a cancelled copy into a brand-new folder is cleaned up.
             if cancelled && !merging {
+                // the held folder can't be deleted while it is open
+                drop(target);
                 let _ = std::fs::remove_dir_all(&dir);
             }
             if req.is_none() {
@@ -1293,7 +1313,25 @@ fn receive_offer(ch: &mut Chan, sh: &Arc<Shared>, peer_id: &str, peer: &str, bod
     }
 }
 
-fn receive_files(ch: &mut Chan, sh: &Shared, id: u64, cancel: &AtomicBool, dir: &Path, files: &[(String, u64)], mtimes: &[u64], project: bool, acc: &Accept, blockmode: bool) -> io::Result<()> {
+/// The folder a transfer lands in (`dir`, directly inside the inbox folder `base`), made if needed
+/// and held. Deck has admin rights and these folders are the user's: everything received is
+/// written relative to the held folder, so a folder swapped for a link to elsewhere (Windows'
+/// own folders) is refused instead of written into.
+fn open_target(base: &Path, dir: &Path) -> io::Result<crate::fsguard::Dir> {
+    let name = dir.file_name().filter(|_| dir.parent() == Some(base)).ok_or_else(|| bad("the folder isn't in the inbox"))?;
+    // the inbox folder is a setting the user can change: it must be a folder they could write in
+    let root = crate::fsguard::open_for_user(base)?;
+    root.child(&name.to_string_lossy(), true)
+}
+
+/// Deletes `p` (a file below `dir`, which `target` holds) without going through any link.
+fn remove_below(target: &crate::fsguard::Dir, dir: &Path, p: &Path) -> io::Result<()> {
+    let rel = p.strip_prefix(dir).map_err(|_| bad("not in the folder"))?;
+    let (d, leaf) = target.walk(&rel.to_string_lossy(), false)?;
+    d.remove(&leaf)
+}
+
+fn receive_files(ch: &mut Chan, sh: &Shared, id: u64, cancel: &AtomicBool, target: &crate::fsguard::Dir, files: &[(String, u64)], mtimes: &[u64], project: bool, acc: &Accept, blockmode: bool) -> io::Result<()> {
     let mut next = 0usize;
     let mut cur: Option<Cur> = None;
     loop {
@@ -1314,31 +1352,26 @@ fn receive_files(ch: &mut Chan, sh: &Shared, id: u64, cancel: &AtomicBool, dir: 
                     return Err(bad("file out of order"));
                 }
                 let (rel, want) = &files[idx];
-                let dest = dir.join(rel.replace('/', "\\"));
-                if let Some(p) = dest.parent() {
-                    std::fs::create_dir_all(p)?;
-                }
-                let mut part = dest.clone().into_os_string();
-                part.push(".part");
-                let part = PathBuf::from(part);
-                let side_path = blk_path(&part);
+                let (d, leaf) = target.walk(rel, true)?;
+                let dest = d.real().join(&leaf);
+                let part = format!("{leaf}.part");
+                let side_name = format!("{part}.blk");
                 let (f, side) = if start > 0 {
                     if !blockmode || acc.resume.get(&idx).map(|r| r.0) != Some(start) || start > *want {
                         return Err(bad("unexpected resume offset"));
                     }
-                    let f = std::fs::OpenOptions::new().read(true).write(true).open(&part)?;
+                    let mut f = d.edit(&part)?;
                     f.set_len(start)?;
-                    let mut f = f;
                     f.seek(SeekFrom::End(0))?;
-                    let mut side = std::fs::OpenOptions::new().read(true).write(true).open(&side_path)?;
+                    let mut side = d.edit(&side_name)?;
                     side.set_len(start.div_ceil(BLOCK) * 32)?;
                     side.seek(SeekFrom::End(0))?;
                     sh.progress(id, start);
                     (f, Some(side))
                 } else {
-                    (File::create(&part)?, if blockmode { Some(File::create(&side_path)?) } else { None })
+                    (d.create(&part, true)?, if blockmode { Some(d.create(&side_name, true)?) } else { None })
                 };
-                cur = Some(Cur { f, side, part, side_path, dest, h: blake3::Hasher::new(), blk: blake3::Hasher::new(), sess: blake3::Hasher::new(), in_blk: 0, got: start, want: *want, mtime: mtimes[idx] });
+                cur = Some(Cur { f, side, d, part, side_name, leaf, dest, h: blake3::Hasher::new(), blk: blake3::Hasher::new(), sess: blake3::Hasher::new(), in_blk: 0, got: start, want: *want, mtime: mtimes[idx] });
                 next = idx + 1;
             }
             T_DATA => {
@@ -1385,8 +1418,8 @@ fn receive_files(ch: &mut Chan, sh: &Shared, id: u64, cancel: &AtomicBool, dir: 
                     let rel = c.dest.display().to_string();
                     drop(c.f);
                     drop(c.side);
-                    let _ = std::fs::remove_file(&c.part);
-                    let _ = std::fs::remove_file(&c.side_path);
+                    let _ = c.d.remove(&c.part);
+                    let _ = c.d.remove(&c.side_name);
                     return Err(bad(&format!("checksum mismatch - {rel} was damaged in transit")));
                 }
                 if c.mtime > 0 {
@@ -1395,8 +1428,8 @@ fn receive_files(ch: &mut Chan, sh: &Shared, id: u64, cancel: &AtomicBool, dir: 
                 let _ = c.f.sync_data();
                 drop(c.f);
                 drop(c.side);
-                let _ = std::fs::remove_file(&c.side_path);
-                std::fs::rename(&c.part, &c.dest)?;
+                let _ = c.d.remove(&c.side_name);
+                c.d.rename(&c.part, &c.leaf, true)?;
             }
             T_DONE => {
                 if cur.is_some() || (!project && acc.skip.is_empty() && acc.hash.is_empty() && next != files.len()) {
@@ -1417,7 +1450,7 @@ fn log_once(who: &str, msg: &str) -> bool {
     if !msg.contains("different") {
         return true;
     }
-    let mut g = SEEN.lock().unwrap();
+    let mut g = SEEN.lock_anyway();
     let m = g.get_or_insert_with(HashMap::new);
     let fresh = m.get(who).map(|t| t.elapsed() > Duration::from_secs(600)).unwrap_or(true);
     if fresh {
@@ -1448,7 +1481,7 @@ pub fn start(sh: Arc<Shared>, lan: Arc<Lan>, port_override: Option<u16>) {
         }
     };
     let port = listener.local_addr().map(|a| a.port()).unwrap_or(0);
-    *lan.port.lock().unwrap() = port;
+    *lan.port.lock_anyway() = port;
     {
         let sh = sh.clone();
         std::thread::spawn(move || {
@@ -1484,9 +1517,9 @@ pub fn start(sh: Arc<Shared>, lan: Arc<Lan>, port_override: Option<u16>) {
                 }
             }
             for addr in addrs.into_iter().filter(|_| !off) {
-                if let Ok((_, id, name)) = connect(addr, &Key::new(&c.code), &c.machine_id, &c.machine_name) {
+                if let Ok((_, id, name)) = connect(addr, &Key::new(&c.code), &sh.device, &c.machine_name) {
                     if id != c.machine_id {
-                        let mut p = lan.peers.lock().unwrap();
+                        let mut p = lan.peers.lock_anyway();
                         // a PC also found on the home network keeps that (faster) address
                         let home = p.get(&id).map(|o| !crate::rdesk::is_tailscale(o.addr.ip()) && o.seen.elapsed() < Duration::from_secs(15)).unwrap_or(false);
                         if !(home && crate::rdesk::is_tailscale(addr.ip())) {
@@ -1543,7 +1576,7 @@ pub fn start(sh: Arc<Shared>, lan: Arc<Lan>, port_override: Option<u16>) {
             }
             let addr = SocketAddr::new(from.ip(), b.port);
             let new = {
-                let mut p = lan.peers.lock().unwrap();
+                let mut p = lan.peers.lock_anyway();
                 let new = p.get(&b.id).map(|o| o.seen.elapsed() > Duration::from_secs(15)).unwrap_or(true);
                 p.insert(b.id.clone(), Peer { id: b.id.clone(), name: b.name.clone(), addr, seen: Instant::now() });
                 new
@@ -1570,4 +1603,118 @@ pub fn resolve(s: &str, default_port: u16) -> Option<SocketAddr> {
     }
     let with_port = if s.contains(':') { s.to_string() } else { format!("{s}:{default_port}") };
     with_port.to_socket_addrs().ok()?.find(|a| a.is_ipv4())
+}
+
+#[cfg(test)]
+mod trust_tests {
+    use super::*;
+    use crate::beam::config::{Config, Paths, Trust};
+
+    /// An installer always waits for a click on this PC, even from a trusted PC, one asked for
+    /// from here, or a transfer being continued; so does deleting files. Plain files from a
+    /// trusted PC come in by themselves.
+    #[test]
+    fn installers_always_ask() {
+        let mut cfg = Config { ask_before_receive: true, trust_install: true, ..Default::default() };
+        cfg.trusted.push(Trust { id: "pc-a".into(), name: "A".into(), until: 0 });
+        assert!(must_ask(&cfg, "pc-a", true, false, false, false), "trusted, still asked to install");
+        assert!(must_ask(&cfg, "pc-a", true, true, true, false), "asked for and continued, still asked to install");
+        assert!(must_ask(&cfg, "pc-a", false, false, false, true), "deleting is asked");
+        assert!(!must_ask(&cfg, "pc-a", false, false, false, false), "plain files from a trusted PC");
+        assert!(must_ask(&cfg, "pc-b", false, false, false, false), "plain files from another PC with Ask on");
+        cfg.ask_before_receive = false;
+        assert!(!must_ask(&cfg, "pc-b", false, false, false, false), "Ask off: plain files come in");
+        assert!(must_ask(&cfg, "pc-b", true, false, false, false), "Ask off: installers still ask");
+    }
+
+    fn shared(name: &str, code: &str) -> Arc<Shared> {
+        let dir = std::env::temp_dir().join(format!("deck-beam-{name}-{}", now_ms()));
+        let sh = Arc::new(Shared::new(Paths::new(Some(dir.display().to_string()))));
+        sh.set_cfg(|c| c.code = code.into());
+        sh
+    }
+
+    /// Over a real connection (this PC only): each side learns the other's proven id; a PC with
+    /// another pairing code is turned away before any message is read.
+    #[test]
+    fn connections_prove_both_pcs() {
+        let (a, b) = (shared("a", "AAAA-BBBB-CCCC-DDDD-EEEE"), shared("b", "AAAA-BBBB-CCCC-DDDD-EEEE"));
+        assert_ne!(a.device.id(), b.device.id());
+        assert_eq!(a.cfg().machine_id, a.device.id(), "a PC's id is its key's");
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = l.local_addr().unwrap();
+        let server = {
+            let b = b.clone();
+            std::thread::spawn(move || {
+                let (s, _) = l.accept().unwrap();
+                let _ = serve_conn(s, b.clone());
+                let (s, _) = l.accept().unwrap();
+                serve_conn(s, b).map_err(|e| e.to_string())
+            })
+        };
+        let (ch, id, name) = connect(addr, &Key::new(&a.cfg().code), &a.device, "PC-A").unwrap();
+        assert_eq!(id, b.device.id());
+        assert_eq!(name, b.cfg().machine_name);
+        drop(ch);
+        let wrong = shared("w", "ZZZZ-ZZZZ-ZZZZ-ZZZZ-ZZZZ");
+        let e = connect(addr, &Key::new(&wrong.cfg().code), &wrong.device, "W").err().expect("refused");
+        assert!(e.to_string().contains("different pairing code"), "{e}");
+        assert!(server.join().unwrap().is_err(), "the server got no message from it");
+    }
+}
+
+#[cfg(test)]
+mod boundary_tests {
+    use super::*;
+    use crate::beam::config::Config;
+
+    /// Names in an offer from the other PC can't leave the destination folder, name a device, or
+    /// reach an alternate data stream.
+    #[test]
+    fn names_from_the_other_pc_stay_inside() {
+        assert_eq!(clean_rel("photos/2026/a.jpg").as_deref(), Some("photos/2026/a.jpg"));
+        for bad in ["../x", "a/../b", "a/./b", "C:/x", "a\\b", "file.txt:secret", "x::$DATA", "CON", "com1.txt", "LPT9", "nul.tar.gz", "a./b", "a /b", "", "a//b", "/abs", "a/b\u{0}c", "x?y", "AUX/inside"] {
+            assert_eq!(clean_rel(bad), None, "{bad:?} must be refused");
+        }
+        assert_eq!(clean_component("COM10").as_deref(), Some("COM10"), "only COM1-COM9 are devices");
+        assert_eq!(clean_name("..\\..\\Windows"), ".._.._Windows", "a plain folder name");
+        assert_eq!(clean_name("   "), "Received");
+    }
+
+    /// A request for a path is answered only inside a shared folder: no "..", no other folder,
+    /// and no link inside a shared folder that leads out of it.
+    #[test]
+    fn requests_stay_inside_shared_folders() {
+        let base = std::env::temp_dir().join(format!("deck-share-req-{}", now_ms()));
+        let (shared, outside) = (base.join("Shared"), base.join("Private"));
+        std::fs::create_dir_all(shared.join("sub")).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(shared.join("sub").join("a.txt"), b"a").unwrap();
+        std::fs::write(outside.join("secret.txt"), b"s").unwrap();
+        let cfg = Config { shared_folders: vec![shared.display().to_string()], ..Default::default() };
+        assert!(resolve_shared(&cfg, "Shared/sub/a.txt").is_ok());
+        assert!(resolve_shared(&cfg, "Shared/../Private/secret.txt").is_err());
+        assert!(resolve_shared(&cfg, &outside.join("secret.txt").display().to_string()).is_err(), "an absolute path elsewhere");
+        assert!(resolve_shared(&cfg, "Private/secret.txt").is_err(), "not a shared folder's name");
+        use std::os::windows::process::CommandExt;
+        let ok = std::process::Command::new("cmd.exe").args(["/c", "mklink", "/J"]).arg(shared.join("link")).arg(&outside).creation_flags(crate::util::CREATE_NO_WINDOW).output().unwrap();
+        assert!(ok.status.success());
+        assert!(resolve_shared(&cfg, "Shared/link/secret.txt").is_err(), "a link out of the shared folder");
+        assert!(resolve_shared(&Config::default(), "Shared/sub/a.txt").is_err(), "nothing shared");
+        let _ = std::fs::remove_dir(shared.join("link"));
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// A frame announcing a size outside the allowed range is refused before anything is read
+    /// or allocated for it.
+    #[test]
+    fn oversized_frames_are_refused() {
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut peer = TcpStream::connect(l.local_addr().unwrap()).unwrap();
+        let (s, _) = l.accept().unwrap();
+        let mut ch = Chan::new(s, &Key::new("AAAA-BBBB-CCCC-DDDD-EEEE"), b"n1", b"n2", false);
+        peer.write_all(&u32::MAX.to_le_bytes()).unwrap();
+        assert!(ch.recv().unwrap_err().to_string().contains("frame size"));
+        assert!(ch.rbuf.capacity() < 1 << 20, "nothing was allocated for it");
+    }
 }

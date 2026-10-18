@@ -1,0 +1,59 @@
+name: Release
+
+# A tag v<version> (matching tauri.conf.json and a "## <version>" section in CHANGELOG.md)
+# builds the setup in CI and publishes it with its SHA-256; nothing is attached by hand.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    env:
+      DECK_REQUIRE_RTSS32: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: i686-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - name: Install the Tauri CLI
+        run: cargo install tauri-cli --version 2.11.4 --locked
+      - name: Tag matches the version
+        shell: pwsh
+        run: |
+          $v = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          if ("v$v" -ne "${{ github.ref_name }}") { throw "tag ${{ github.ref_name }} but tauri.conf.json says $v" }
+      - name: Tests
+        working-directory: src-tauri
+        run: cargo test --locked
+      - name: Build the setup
+        working-directory: src-tauri
+        run: cargo tauri build --bundles nsis
+      - name: Checksum and notes
+        shell: pwsh
+        run: |
+          $s = Get-ChildItem src-tauri/target/release/bundle/nsis/*-setup.exe | Select-Object -First 1
+          $h = (Get-FileHash $s.FullName -Algorithm SHA256).Hash.ToLower()
+          "$h  $($s.Name)" | Out-File -Encoding ascii "$($s.FullName).sha256"
+          # this version's CHANGELOG.md section is the release text
+          $v = "${{ github.ref_name }}".TrimStart("v")
+          $lines = Get-Content CHANGELOG.md
+          $start = ($lines | Select-String -Pattern "^## $([regex]::Escape($v))( |$)" | Select-Object -First 1).LineNumber
+          if (-not $start) { throw "CHANGELOG.md has no section for $v" }
+          $rest = $lines[$start..($lines.Count - 1)]
+          $end = ($rest | Select-String -Pattern "^## " | Select-Object -First 1).LineNumber
+          $body = if ($end) { $rest[0..($end - 2)] } else { $rest }
+          ($body + "", "SHA-256 of $($s.Name): ``$h``") | Out-File -Encoding utf8 notes.md
+      - name: Publish
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $files = Get-ChildItem src-tauri/target/release/bundle/nsis/*-setup.exe*
+          gh release create "${{ github.ref_name }}" $files.FullName --title "Deck ${{ github.ref_name }}" --notes-file notes.md

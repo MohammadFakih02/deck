@@ -219,27 +219,46 @@ fn clean(t: &Target) -> (u64, u64) {
         return (freed, n);
     }
     for root in &t.paths {
+        // deleted through a held folder that really is inside the target (fsguard.rs): a folder
+        // swapped for a link after the scan can't lead the deletes anywhere else
+        let Ok(root_real) = crate::fsguard::real_path(root) else { continue };
         let depth = if t.id == "thumbs" { 1 } else { usize::MAX };
         let entries: Vec<_> = jwalk::WalkDir::new(root).max_depth(depth).skip_hidden(false).into_iter().flatten().collect();
         // files first, then empty folders deepest-first
+        let mut held: Option<(PathBuf, crate::fsguard::Dir)> = None;
         for e in &entries {
             if e.file_type().is_file() && matches(t, &e.path()) {
                 let len = e.metadata().map(|m| m.len()).unwrap_or(0);
-                if std::fs::remove_file(e.path()).is_ok() {
+                if remove_in(&root_real, &e.path(), &mut held).is_ok() {
                     freed += len;
                     n += 1;
                 }
             }
         }
+        drop(held);
         if t.exts.is_empty() {
             let mut dirs: Vec<_> = entries.iter().filter(|e| e.file_type().is_dir() && e.depth() > 0).map(|e| (e.depth(), e.path())).collect();
-            dirs.sort_by(|a, b| b.0.cmp(&a.0));
+            dirs.sort_by_key(|b| std::cmp::Reverse(b.0));
             for (_, d) in dirs {
-                let _ = std::fs::remove_dir(d);
+                // a folder can't be deleted while it is held itself, so nothing is kept here
+                let _ = remove_in(&root_real, &d, &mut None);
             }
         }
     }
     (freed, n)
+}
+
+/// Deletes `p` through its folder, held in `held` for the next file in the same folder.
+fn remove_in(root_real: &Path, p: &Path, held: &mut Option<(PathBuf, crate::fsguard::Dir)>) -> std::io::Result<()> {
+    let (Some(parent), Some(name)) = (p.parent(), p.file_name().and_then(|n| n.to_str())) else { return Err(std::io::ErrorKind::InvalidInput.into()) };
+    if held.as_ref().map(|(d, _)| d.as_path() != parent).unwrap_or(true) {
+        *held = None;
+        *held = Some((parent.to_path_buf(), crate::fsguard::Dir::open_under(root_real, parent)?));
+    }
+    let d = &held.as_ref().unwrap().1;
+    // Deck has admin rights: only what the signed-in user could delete themselves
+    d.check_replace(name)?;
+    d.remove(name)
 }
 
 /// Recycle Bin size (bytes, items) for all drives.
@@ -314,5 +333,33 @@ impl Cleanup {
             app.toast(crate::app::Toast::simple("cleanup", &format!("Freed {}", crate::util::fmt_bytes(freed)), &format!("{n} files removed. Files in use were skipped.")));
             me.scan(app);
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// Found by the scan, then the folder is swapped for a link to somewhere else before the
+    /// delete: the delete is refused and nothing outside the cleanup folder goes.
+    #[test]
+    fn a_folder_swapped_after_the_scan_is_not_followed() {
+        use std::os::windows::process::CommandExt;
+        let base = std::env::temp_dir().join(format!("deck-clean-{}", crate::util::now_ms()));
+        let (root, outside) = (base.join("cache"), base.join("elsewhere"));
+        std::fs::create_dir_all(root.join("sub")).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(root.join("sub").join("x.tmp"), b"cache").unwrap();
+        std::fs::write(outside.join("x.tmp"), b"keep me").unwrap();
+        let root_real = crate::fsguard::real_path(&root).unwrap();
+        let found = root.join("sub").join("x.tmp");
+        // the swap
+        std::fs::remove_dir_all(root.join("sub")).unwrap();
+        let ok = std::process::Command::new("cmd.exe").args(["/c", "mklink", "/J"]).arg(root.join("sub")).arg(&outside).creation_flags(crate::util::CREATE_NO_WINDOW).output().unwrap();
+        assert!(ok.status.success());
+        assert!(super::remove_in(&root_real, &found, &mut None).is_err());
+        assert_eq!(std::fs::read(outside.join("x.tmp")).unwrap(), b"keep me");
+        // the link itself is inside the cleanup folder and may go
+        super::remove_in(&root_real, &root.join("sub"), &mut None).unwrap();
+        assert!(outside.join("x.tmp").exists());
+        let _ = std::fs::remove_dir_all(&base);
     }
 }

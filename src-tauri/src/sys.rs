@@ -1,7 +1,5 @@
 //! PC vitals (CPU, RAM, GPU, disks, network) and the process list.
 
-use nvml_wrapper::enum_wrappers::device::{Clock, TemperatureSensor};
-use nvml_wrapper::Nvml;
 use parking_lot::Mutex;
 use serde_json::{json, Value};
 use std::collections::{HashMap, VecDeque};
@@ -15,8 +13,6 @@ struct Inner {
     disks: Disks,
     disks_at: Instant,
     net_at: Instant,
-    nvml: Option<Nvml>,
-    nvml_tried: bool,
     cpu_hist: VecDeque<f32>,
     ram_hist: VecDeque<f32>,
     down_hist: VecDeque<f64>,
@@ -85,8 +81,6 @@ impl Sys {
                 disks: Disks::new_with_refreshed_list(),
                 disks_at: Instant::now(),
                 net_at: Instant::now(),
-                nvml: None,
-                nvml_tried: false,
                 cpu_hist: VecDeque::new(),
                 ram_hist: VecDeque::new(),
                 down_hist: VecDeque::new(),
@@ -134,21 +128,17 @@ impl Sys {
             })
             .collect();
 
-        if !i.nvml_tried {
-            i.nvml_tried = true;
-            i.nvml = Nvml::init().ok();
-        }
-        let gpu = i.nvml.as_ref().and_then(|n| n.device_by_index(0).ok()).map(|d| {
-            let mem = d.memory_info().ok();
+        let gpu = crate::gpu::nvml::Nvml::shared().map(|n| {
+            let mem = n.memory();
             json!({
-                "name": d.name().unwrap_or_default().replace("NVIDIA GeForce ", ""),
-                "temp": d.temperature(TemperatureSensor::Gpu).ok(),
-                "util": d.utilization_rates().ok().map(|u| u.gpu),
-                "vram_used": mem.as_ref().map(|m| m.used),
-                "vram_total": mem.as_ref().map(|m| m.total),
-                "power_w": d.power_usage().ok().map(|mw| mw / 1000),
-                "clock": d.clock_info(Clock::Graphics).ok(),
-                "fan": d.fan_speed(0).ok(),
+                "name": n.name.replace("NVIDIA GeForce ", ""),
+                "temp": n.temp(),
+                "util": n.util_rates().map(|u| u.0),
+                "vram_used": mem.map(|m| m.0),
+                "vram_total": mem.map(|m| m.1),
+                "power_w": n.power_mw().map(|mw| mw / 1000),
+                "clock": n.clock(crate::gpu::nvml::CLOCK_GRAPHICS),
+                "fan": n.fan_speed(0).ok(),
             })
         });
 
@@ -232,7 +222,7 @@ impl Sys {
             }
         }
         let mut out: Vec<Group> = groups.into_values().collect();
-        out.sort_by(|a, b| b.mem.cmp(&a.mem));
+        out.sort_by_key(|b| std::cmp::Reverse(b.mem));
         out.into_iter()
             .map(|g| {
                 json!({

@@ -1,11 +1,20 @@
 // CPU and GPU pages: profiles you switch with a click, a keyboard shortcut, a desktop shortcut,
 // the tray or the phone. CPU profiles are Windows power plans plus extras; GPU profiles are
 // what MSI Afterburner kept in its five slots (power, clocks, curve, voltage, fan).
+import { I, Pages, S, accent, ago, confirmBox, fmtClock, fmtTemp, h, helpTip, invoke, liveSpan, modal, note, promptBox, run, seg, setSetting, settingRow, slider, spark, toggle } from "./core.js";
+import { watts } from "./home.js";
+import { hover } from "./search.js";
+import { head } from "./pages1.js";
+import { clearRamCard } from "./pages2.js";
+import { curveEditor, niceSteps, placeTip } from "./curve.js";
+import { hotkeyField, selectBox } from "./hw.js";
+import { render } from "./app.js";
 
-const TURBO = [[0, "Off"], [1, "On"], [2, "Aggressive"], [3, "Efficient"], [4, "Efficient aggressive"]];
+
+export const TURBO = [[0, "Off"], [1, "On"], [2, "Aggressive"], [3, "Efficient"], [4, "Efficient aggressive"]];
 
 /** Small menu under a button. items: [label, fn, danger?] */
-function popMenu(anchor, items) {
+export function popMenu(anchor, items) {
   document.querySelectorAll(".pop").forEach((p) => p.remove());
   const r = anchor.getBoundingClientRect();
   const pop = h("div", { class: "pop", style: { top: r.bottom + 4 + "px", left: Math.max(8, r.right - 190) + "px" } },
@@ -14,7 +23,7 @@ function popMenu(anchor, items) {
   setTimeout(() => document.addEventListener("pointerdown", function off(e) { if (!pop.contains(e.target)) { pop.remove(); document.removeEventListener("pointerdown", off); } }), 0);
 }
 
-function profileCard(kind, x, active, opts) {
+export function profileCard(kind, x, active, opts) {
   const p = x.p;
   const hk = p.hotkey ? h("span", { class: "chip sm-chip2" + (x.hotkey_state === "busy" ? " warn" : ""), title: x.hotkey_state === "busy" ? "In use by another program (Deck keeps trying)" : "Keyboard shortcut" }, I("keyboard"), p.hotkey.replaceAll("+", " + ")) : null;
   const more = h("button", { class: "icon-btn sm more", title: "More", onclick: (e) => { e.stopPropagation(); popMenu(e.currentTarget, opts.menu()); } }, I("more"));
@@ -31,7 +40,7 @@ function profileCard(kind, x, active, opts) {
     more);
 }
 
-async function switchProfile(kind, id) {
+export async function switchProfile(kind, id) {
   try {
     await invoke("profile_switch", { kind, id });
   } catch (e) { note(String(e), true); }
@@ -41,7 +50,7 @@ async function switchProfile(kind, id) {
 
 // -------------------------------------------------------------------- icons
 
-async function iconPicker(current, kind) {
+export async function iconPicker(current, kind) {
   S.cache.icons = S.cache.icons || (await invoke("icons_list"));
   return new Promise((resolve) => {
     const grid = h("div", { class: "icon-grid" }, S.cache.icons.map((ic) =>
@@ -58,7 +67,7 @@ async function iconPicker(current, kind) {
 }
 
 /** Name, icon, keyboard shortcut and desktop / Start menu shortcuts: the top of both editors. */
-function identityFields(p, kind, iconUrl, redraw) {
+export function identityFields(p, kind, iconUrl, redraw) {
   const img = iconUrl ? h("img", { src: iconUrl, alt: "" }) : h("div", { class: "ph" }, "?");
   return h("div", { class: "ident" },
     h("button", { class: "ident-ic", title: "Change the icon", onclick: async () => {
@@ -74,7 +83,7 @@ function identityFields(p, kind, iconUrl, redraw) {
 }
 
 /** A slider with a "no limit" switch: value null = off. */
-function optSlider(label, value, min, max, step, unit, offLabel, onset, fmt, help) {
+export function optSlider(label, value, min, max, step, unit, offLabel, onset, fmt, help) {
   const on = value != null;
   const v = on ? value : max;
   const f = fmt || ((x) => x + unit);
@@ -84,13 +93,13 @@ function optSlider(label, value, min, max, step, unit, offLabel, onset, fmt, hel
   return h("div", { class: "srow4" }, toggle(on, (x) => onset(x ? v : null)), h("span", { class: "dim" }, label, help ? helpTip(help) : null), s, out);
 }
 
-function plainSlider(label, value, min, max, step, fmt, onset, help) {
+export function plainSlider(label, value, min, max, step, fmt, onset, help) {
   const out = h("b", { class: "num" }, fmt(value));
   return h("div", { class: "srow4" }, h("span"), h("span", { class: "dim" }, label, help ? helpTip(help) : null), slider(value, min, max, step, (x) => (out.textContent = fmt(x)), (x) => onset(x)), out);
 }
 
 /** Keeps the last minute of live readings (one value per second) for the little graphs. */
-function pushHist(h, vals) {
+export function pushHist(h, vals) {
   for (const [k, v] of Object.entries(vals)) {
     const q = (h[k] ||= []);
     if (v != null) q.push(v);
@@ -148,6 +157,7 @@ Pages.cpu = {
         menu: () => [["Edit…", () => editCpu(x)], ["Duplicate", async () => { await run("cpu_duplicate", { id: x.p.id }, "Copied"); await Pages.cpu.load(); render(); }],
           ["Delete…", () => deleteCpu(x), true]],
       }))));
+      if (st.battery) el.append(...batteryProfiles(st));
     }
     // in-game clock check
     const c = st.clock;
@@ -164,7 +174,22 @@ Pages.cpu = {
   },
 };
 
-async function adoptPlans() {
+/** PCs with a battery: a profile for plugged in and one for battery, switched when the power source changes. */
+export function batteryProfiles(st) {
+  const s = S.state.settings;
+  const opts = [["", "Don't switch"], ...st.profiles.map((x) => [x.p.id, x.p.name])];
+  const set = (k) => (v) => setSetting(k, v).then(render);
+  return [
+    h("div", { class: "section" }, h("h2", null, "Plugged in and on battery", helpTip("cpu.battery"))),
+    h("div", { class: "card col" },
+      h("div", { class: "dim small" }, st.plugged ? "Plugged in right now." : "On battery right now."),
+      settingRow("When plugged in, switch to", "Switches the moment you plug in. A profile you pick yourself stays until the next change.", selectBox(s.cpu_plugged_profile, opts, set("cpu_plugged_profile"))),
+      settingRow("On battery, switch to", "Switches the moment you unplug.", selectBox(s.cpu_battery_profile, opts, set("cpu_battery_profile"))),
+      settingRow("Profiles also apply on battery", "Off: on battery, Windows keeps each plan's own values (changes you make in Deck still reach them).", toggle(s.cpu_battery_same, set("cpu_battery_same")))),
+  ];
+}
+
+export async function adoptPlans() {
   const plans = await run("cpu_plans");
   // plans the user made (not Windows' own Balanced / High performance / Power saver / Ultimate)
   const BUILTIN = ["381b4222-f694-41f0-9685-ff5bb260df2e", "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c", "a1841308-3541-4fab-bc81-f71556f20b4a", "e9a42b02-d5df-448d-aa00-03f14749eb61"];
@@ -183,7 +208,7 @@ async function adoptPlans() {
   ]);
 }
 
-async function newCpuProfile() {
+export async function newCpuProfile() {
   const name = await promptBox("New CPU profile", "Name (a copy of the active power plan)", "", "Create");
   if (name === null) return;
   const p = await run("cpu_create", { name });
@@ -193,7 +218,7 @@ async function newCpuProfile() {
   if (x) editCpu(x);
 }
 
-async function deleteCpu(x) {
+export async function deleteCpu(x) {
   let plan = false;
   const body = h("div", { class: "col" }, h("div", { class: "dim" }, `Delete the profile "${x.p.name}" and its shortcuts?`),
     h("label", { class: "boost-opt" }, toggle(false, (v) => (plan = v)), h("div", null, h("div", { class: "t" }, "Also delete the Windows power plan"), h("div", { class: "s" }, x.plan_name || ""))));
@@ -203,7 +228,7 @@ async function deleteCpu(x) {
   ]);
 }
 
-function editCpu(x) {
+export function editCpu(x) {
   const st = S.cache.cpu, lim = st.limits;
   const p = structuredClone(x.p);
   const body = h("div");
@@ -226,7 +251,7 @@ function editCpu(x) {
   ], { wide: true, keep: true });
 }
 
-function cpuForm(p, st, lim, redraw) {
+export function cpuForm(p, st, lim, redraw) {
   const step = 100, lo = lim.min, hi = lim.turbo;
   const mhz = (v) => fmtClock(v);
   const set = (k) => (v) => { p[k] = v; redraw(); };
@@ -321,7 +346,7 @@ Pages.gpu = {
   },
 };
 
-function gpuLivePanel(caps) {
+export function gpuLivePanel(caps) {
   const L = () => S.cache.gpuLive || {};
   const lv = (fn, cls) => liveSpan(fn, S.cache.gpuUpd, cls);
   const pct = () => (L().power_w != null && caps.power[2] ? Math.round((L().power_w / caps.power[2]) * 100) + "% of default" : "");
@@ -349,7 +374,7 @@ function gpuLivePanel(caps) {
       box("Load", lv(() => (L().util != null ? L().util + "%" : "–")), lv(() => (L().mem_used_mb != null ? `${(L().mem_used_mb / 1024).toFixed(1)} / ${(L().mem_total_mb / 1024).toFixed(0)} GB` : ""), ""), "load", "#b98cff", 100)));
 }
 
-async function stopAfterburner() {
+export async function stopAfterburner() {
   if (!(await confirmBox("Stop Afterburner from tuning",
     "Deck backs up Afterburner's settings, then clears its startup profile, its profile hotkeys and its fan control, and restarts it. Afterburner keeps working for monitoring. You can undo this.", "Stop it tuning"))) return;
   try {
@@ -361,7 +386,7 @@ async function stopAfterburner() {
   } catch (e) { note(String(e), true); }
 }
 
-async function importAfterburner() {
+export async function importAfterburner() {
   let pv;
   try { pv = await invoke("ab_preview"); } catch (e) { return note(String(e), true); }
   let startup = !!pv.startup, osd = pv.osd.length > 0;
@@ -384,7 +409,7 @@ async function importAfterburner() {
 }
 
 /** The editor. `x` = existing card data, or null for a new profile. */
-async function editGpu(x) {
+export async function editGpu(x) {
   const st = S.cache.gpu, caps = st.caps;
   const p = structuredClone(x ? x.p : st.blank);
   let vf = null;
@@ -426,7 +451,7 @@ async function editGpu(x) {
   ], { wide: true, keep: true, onDismiss: () => undoTest() });
 }
 
-function gpuForm(p, caps, vf, redraw) {
+export function gpuForm(p, caps, vf, redraw) {
   const set = (k) => (v) => { p[k] = v; redraw(); };
   const watts = (pct) => Math.round((caps.power[2] * pct) / 100);
   const signed = (v) => (v > 0 ? "+" : "") + v + " MHz";
@@ -449,7 +474,7 @@ function gpuForm(p, caps, vf, redraw) {
     fanMode === "curve" ? h("div", { class: "dim small" }, helpTip("gpu.fan_curve"), ` Deck runs this curve every second against the GPU temperature (minimum ${caps.fan_min}%). The fan goes back to the driver when Deck quits.`) : null);
 }
 
-const VF_STATE = new WeakMap();
+export const VF_STATE = new WeakMap();
 
 /** The voltage/frequency curve, edited the way Afterburner's curve editor works:
  *  drag a point · Shift+drag to select a range · drag a selected point to move the range ·
@@ -457,7 +482,7 @@ const VF_STATE = new WeakMap();
  *  to the selected point · Ctrl+F flattens from it · Ctrl+D resets · Ctrl+Z / Ctrl+Y undo.
  *  The curve never falls to the right (the driver runs it that way), so raising a point lifts
  *  the points after it and lowering one pulls the points before it down, like Afterburner. */
-function vfEditor(p, vf, redraw) {
+export function vfEditor(p, vf, redraw) {
   const base = vf.points; // [{mv, base, delta}]
   const n = base.length;
   // the profile's curve as one delta per card point (matched by voltage), then as the card runs it

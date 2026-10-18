@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 const DIRECT_PORT: u16 = 21118;
 
 fn program_files(rel: &str) -> Option<PathBuf> {
-    let p = PathBuf::from(std::env::var("ProgramFiles").unwrap_or_else(|_| r"C:\Program Files".into())).join(rel);
+    let p = crate::util::program_files().join(rel);
     p.is_file().then_some(p)
 }
 
@@ -28,22 +28,38 @@ pub(crate) fn tailscale_exe() -> Option<PathBuf> {
     program_files(r"Tailscale\tailscale.exe")
 }
 
+/// The environment variable that carries a secret to an already-elevated PowerShell.
+const SECRET_VAR: &str = "DECK_PS_SECRET";
+
 /// Runs a PowerShell script with admin rights: directly when Deck has them, otherwise through one
-/// UAC prompt. The script goes base64-encoded, so passwords and paths need no quoting. Returns what
-/// the script printed (only when Deck is already admin; an elevated child's output can't be read).
+/// UAC prompt. The script goes base64-encoded, so paths need no quoting. Returns what the script
+/// printed (only when Deck is already admin; an elevated child's output can't be read).
 fn admin_ps(script: &str) -> Result<String, String> {
-    let enc = |s: &str| crate::util::base64(&s.encode_utf16().flat_map(u16::to_le_bytes).collect::<Vec<u8>>());
-    let script = format!("$ErrorActionPreference = 'Stop'\ntry {{\n{script}\n}} catch {{ $_.Exception.Message; exit 1 }}");
-    let out = if crate::elevation::is_admin() {
-        run_hidden("powershell.exe", &["-NoProfile", "-NonInteractive", "-EncodedCommand", &enc(&script)])
-    } else {
-        let outer = format!(
-            "try {{ $p = Start-Process powershell.exe -Verb RunAs -WindowStyle Hidden -Wait -PassThru -ArgumentList '-NoProfile','-NonInteractive','-EncodedCommand','{}'; exit $p.ExitCode }} catch {{ 'Admin rights were not given.'; exit 1 }}",
-            enc(&script)
-        );
-        run_hidden("powershell.exe", &["-NoProfile", "-NonInteractive", "-EncodedCommand", &enc(&outer)])
+    admin_ps_secret(script, None)
+}
+
+/// `admin_ps` for a script that needs a secret (a password): the script reads it from `$secret`,
+/// and the secret itself never goes on a command line (see `ps_args`).
+fn admin_ps_secret(script: &str, secret: Option<&str>) -> Result<String, String> {
+    use std::os::windows::process::CommandExt;
+    let admin = crate::elevation::is_admin();
+    // through UAC the elevated PowerShell gets a fresh environment, so the secret waits in a file
+    // only this run knows the name of; the script deletes it as soon as it has read it
+    let file = (secret.is_some() && !admin).then(|| std::env::temp_dir().join(format!("deck-{}.tmp", crate::util::random_token(20))));
+    if let (Some(f), Some(s)) = (&file, secret) {
+        std::fs::write(f, s).map_err(|e| e.to_string())?;
     }
-    .map_err(|e| e.to_string())?;
+    let (args, env) = ps_args(script, secret, admin, file.as_deref());
+    let mut cmd = std::process::Command::new("powershell.exe");
+    cmd.args(&args).creation_flags(crate::util::CREATE_NO_WINDOW);
+    if let Some(v) = env {
+        cmd.env(SECRET_VAR, v);
+    }
+    let out = cmd.output();
+    if let Some(f) = &file {
+        let _ = std::fs::remove_file(f);
+    }
+    let out = out.map_err(|e| e.to_string())?;
     let text = String::from_utf8_lossy(&out.stdout).trim().to_string();
     if out.status.success() {
         Ok(text)
@@ -52,9 +68,47 @@ fn admin_ps(script: &str) -> Result<String, String> {
     }
 }
 
-/// A PowerShell single-quoted string.
+/// PowerShell's arguments for `script`, and the value for `SECRET_VAR` if the secret travels in
+/// the environment. A secret is never in the arguments: process lists and audit logs show those.
+/// Already admin: the child inherits it through `SECRET_VAR`. Through UAC: the elevated script reads
+/// it from `secret_file` and deletes the file.
+fn ps_args(script: &str, secret: Option<&str>, admin: bool, secret_file: Option<&std::path::Path>) -> (Vec<String>, Option<String>) {
+    let enc = |s: &str| crate::util::base64(&s.encode_utf16().flat_map(u16::to_le_bytes).collect::<Vec<u8>>());
+    let take = match (secret, admin, secret_file) {
+        (None, _, _) => String::new(),
+        (Some(_), true, _) => format!("$secret = $env:{SECRET_VAR}; Remove-Item Env:{SECRET_VAR}\n"),
+        (Some(_), false, Some(f)) => {
+            let f = ps_str(&f.to_string_lossy());
+            format!("$secret = [IO.File]::ReadAllText({f}); Remove-Item -LiteralPath {f} -Force\n")
+        }
+        (Some(_), false, None) => "$secret = ''\n".into(),
+    };
+    let script = format!("$ErrorActionPreference = 'Stop'\ntry {{\n{take}{script}\n}} catch {{ $_.Exception.Message; exit 1 }}");
+    let cmd = if admin {
+        enc(&script)
+    } else {
+        enc(&format!(
+            "try {{ $p = Start-Process powershell.exe -Verb RunAs -WindowStyle Hidden -Wait -PassThru -ArgumentList '-NoProfile','-NonInteractive','-EncodedCommand','{}'; exit $p.ExitCode }} catch {{ 'Admin rights were not given.'; exit 1 }}",
+            enc(&script)
+        ))
+    };
+    let env = if admin { secret.map(String::from) } else { None };
+    (vec!["-NoProfile".into(), "-NonInteractive".into(), "-EncodedCommand".into(), cmd], env)
+}
+
+/// A PowerShell single-quoted string. PowerShell also takes the typographic single quotes as
+/// quotes, so every kind is doubled.
 fn ps_str(s: &str) -> String {
-    format!("'{}'", s.replace('\'', "''"))
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('\'');
+    for c in s.chars() {
+        if matches!(c, '\'' | '\u{2018}' | '\u{2019}' | '\u{201A}' | '\u{201B}') {
+            out.push(c);
+        }
+        out.push(c);
+    }
+    out.push('\'');
+    out
 }
 
 fn service_running() -> bool {
@@ -213,7 +267,9 @@ pub fn set_password(pw: &str) -> Result<(), String> {
     if pw.chars().count() < 8 {
         return Err("Use at least 8 characters".into());
     }
-    admin_ps(&rd_cmd(&["--password", pw])).map(|_| ())
+    // RustDesk only takes the password as an argument; it is kept off PowerShell's own command line
+    let exe = ps_str(&rustdesk_exe().map(|p| p.to_string_lossy().to_string()).unwrap_or_default());
+    admin_ps_secret(&format!("& {exe} '--password' $secret | Out-Null"), Some(pw)).map(|_| ())
 }
 
 /// Direct connections: straight to this PC by its address (home network or Tailscale), instead
@@ -281,5 +337,66 @@ mod live {
         let t = std::time::Instant::now();
         println!("{}", serde_json::to_string_pretty(&super::status()).unwrap());
         println!("took {:?}", t.elapsed());
+    }
+}
+
+#[cfg(test)]
+mod ps_tests {
+    fn dec(b64: &str) -> String {
+        let b = crate::util::unbase64(b64).unwrap();
+        String::from_utf16_lossy(&b.chunks(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect::<Vec<_>>())
+    }
+
+    fn decoded(args: &[String]) -> String {
+        let i = args.iter().position(|a| a == "-EncodedCommand").expect("encoded command");
+        dec(&args[i + 1])
+    }
+
+    /// PowerShell also ends a single-quoted string at the typographic quotes; each must be doubled.
+    #[test]
+    fn every_kind_of_single_quote_is_escaped() {
+        for q in ['\'', '\u{2018}', '\u{2019}', '\u{201A}', '\u{201B}'] {
+            assert_eq!(super::ps_str(&format!("a{q}b")), format!("'a{q}{q}b'"));
+        }
+        assert_eq!(super::ps_str("plain"), "'plain'");
+    }
+
+    /// A password never goes on PowerShell's command line (process lists and audit logs show
+    /// those): with admin rights it travels in the child's environment, through UAC in a file that
+    /// the elevated script reads and deletes.
+    #[test]
+    fn a_secret_stays_off_the_command_line() {
+        let pw = "hunter2-Sekr1t";
+        let (args, env) = super::ps_args("Write-Output $secret", Some(pw), true, None);
+        assert!(!args.iter().any(|a| a.contains(pw)) && !decoded(&args).contains(pw));
+        assert_eq!(env.as_deref(), Some(pw));
+        let f = std::env::temp_dir().join("deck-secret-test.tmp");
+        let (args, env) = super::ps_args("Write-Output $secret", Some(pw), false, Some(&f));
+        let outer = decoded(&args);
+        assert!(!args.iter().any(|a| a.contains(pw)) && !outer.contains(pw));
+        assert!(env.is_none());
+        // the inner (elevated) script is encoded inside the outer one; it names the file instead
+        let inner_b64 = outer.split('\'').find(|s| s.len() > 40 && !s.contains(' ')).expect("inner script");
+        let inner = dec(inner_b64);
+        assert!(!inner.contains(pw) && inner.contains("deck-secret-test.tmp"));
+    }
+
+    /// The script really gets the secret both ways (run without elevation: the elevated hop is
+    /// Windows' job, what runs after it is the inner script tested here).
+    #[test]
+    fn the_script_receives_the_secret() {
+        // (ASCII only: the console's code page would mangle other characters on the way back)
+        let pw = "it's a \"test\" $pw;";
+        let (args, env) = super::ps_args("Write-Output $secret", Some(pw), true, None);
+        let out = std::process::Command::new("powershell.exe").args(&args).env(super::SECRET_VAR, env.unwrap()).output().unwrap();
+        assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), pw, "{}", String::from_utf8_lossy(&out.stderr));
+        let f = std::env::temp_dir().join(format!("deck-secret-{}.tmp", crate::util::random_token(8)));
+        std::fs::write(&f, "plain-Secret_1").unwrap();
+        let (args, _) = super::ps_args("Write-Output $secret", Some("plain-Secret_1"), false, Some(&f));
+        let outer = decoded(&args);
+        let inner = outer.split('\'').find(|s| s.len() > 40 && !s.contains(' ')).unwrap().to_string();
+        let out = std::process::Command::new("powershell.exe").args(["-NoProfile", "-NonInteractive", "-EncodedCommand", &inner]).output().unwrap();
+        assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "plain-Secret_1");
+        assert!(!f.exists(), "the secret file is deleted once read");
     }
 }

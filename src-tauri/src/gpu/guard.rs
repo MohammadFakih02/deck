@@ -34,8 +34,26 @@ fn read(p: &std::path::Path) -> Option<Mark> {
     serde_json::from_str(&std::fs::read_to_string(p).ok()?).ok()
 }
 
+/// How a mark file reads: no file (nothing was on), a readable mark, or a file that exists but
+/// can't be parsed (a save cut off by the crash this guard is for).
+enum MarkFile {
+    Missing,
+    Mark(Box<Mark>),
+    Damaged,
+}
+
+fn read_file(p: &std::path::Path) -> MarkFile {
+    match std::fs::read_to_string(p) {
+        Err(_) => MarkFile::Missing,
+        Ok(t) => match serde_json::from_str::<Mark>(&t) {
+            Ok(m) => MarkFile::Mark(Box::new(m)),
+            Err(_) => MarkFile::Damaged,
+        },
+    }
+}
+
 fn write(p: &std::path::Path, m: &Mark) {
-    let _ = std::fs::write(p, serde_json::to_string(m).unwrap_or_default());
+    let _ = crate::util::write_atomic(p, serde_json::to_string(m).unwrap_or_default().as_bytes());
 }
 
 /// The CPU turbo overclock went on (`on`) or off.
@@ -49,7 +67,16 @@ pub fn cpu_record(on: bool) {
 /// True when the CPU overclock must not come back by itself: the PC restarted without Deck
 /// quitting while it was on.
 pub fn cpu_hold() -> bool {
-    read(&cpu_path()).map(|m| decide(&m.into(), boot_ms())).unwrap_or(false)
+    cpu_hold_at(&cpu_path())
+}
+
+/// `cpu_hold` for the mark file `file`.
+fn cpu_hold_at(file: &std::path::Path) -> bool {
+    match read_file(file) {
+        MarkFile::Missing => false,
+        MarkFile::Damaged => true, // can't tell: hold the overclock back to be safe
+        MarkFile::Mark(m) => decide(&(*m).into(), boot_ms()),
+    }
 }
 
 /// Voltages from which a raised curve point is an overclock. Below it, raised points are the
@@ -64,7 +91,7 @@ pub fn risky(p: &GpuProfile) -> bool {
 
 pub fn record(p: &GpuProfile, _ok: bool) {
     let m = Mark { id: p.id.clone(), risky: risky(p), at: crate::util::now_ms(), ..Default::default() };
-    let _ = std::fs::write(path(), serde_json::to_string(&m).unwrap_or_default());
+    write(&path(), &m);
 }
 
 /// Deck is exiting. `session_end`: Windows is shutting down, restarting or signing out, so the
@@ -134,12 +161,24 @@ pub fn applied_this_boot() -> Option<String> {
 /// True when `p` must not be applied automatically now: the PC restarted without Deck
 /// quitting while a risky profile was on, and `p` is risky too.
 pub fn hold_back(p: &GpuProfile) -> bool {
-    let Ok(t) = std::fs::read_to_string(path()) else { return false };
-    let Ok(mut m) = serde_json::from_str::<Mark>(&t) else { return false };
-    let hold = (m.held || decide(&m.clone().into(), boot_ms())) && risky(p);
+    hold_back_at(&path(), p)
+}
+
+/// `hold_back` for the mark file `file`.
+fn hold_back_at(file: &std::path::Path, p: &GpuProfile) -> bool {
+    // only a risky profile is ever held; a safe one is fine to re-apply whatever the file says
+    if !risky(p) {
+        return false;
+    }
+    let mut m = match read_file(file) {
+        MarkFile::Missing => return false,
+        MarkFile::Damaged => return true, // a cut-off mark: this is the crash the guard is for
+        MarkFile::Mark(m) => *m,
+    };
+    let hold = m.held || decide(&m.clone().into(), boot_ms());
     if hold && !m.held {
         m.held = true;
-        let _ = std::fs::write(path(), serde_json::to_string(&m).unwrap_or_default());
+        write(file, &m);
     }
     hold
 }
@@ -200,5 +239,52 @@ mod tests {
         assert!(!exit_mark(held.clone(), true).clean && !exit_mark(held, false).clean);
         // a safe profile is never marked as quit
         assert!(!exit_mark(Mark { risky: false, ..on }, false).quit);
+    }
+}
+
+#[cfg(test)]
+mod damaged_file_tests {
+    use super::*;
+
+    fn file(name: &str, content: Option<&[u8]>) -> std::path::PathBuf {
+        let d = std::env::temp_dir().join(format!("deck-guard-{name}-{}", crate::util::now_ms()));
+        std::fs::create_dir_all(&d).unwrap();
+        let f = d.join("gpu-applied.json");
+        if let Some(c) = content {
+            std::fs::write(&f, c).unwrap();
+        }
+        f
+    }
+
+    fn oc() -> GpuProfile {
+        GpuProfile { id: "oc".into(), core_mhz: 150, ..Default::default() }
+    }
+
+    /// A crash while the mark was being written leaves it empty or cut off. That is exactly the
+    /// case the guard exists for, so an unreadable mark holds a risky profile back.
+    #[test]
+    fn an_unreadable_mark_holds_the_overclock() {
+        for (name, c) in [("empty", &b""[..]), ("cut", &br#"{"id":"oc","risky":tr"#[..]), ("junk", &b"\0\0\0"[..])] {
+            let f = file(name, Some(c));
+            assert!(hold_back_at(&f, &oc()), "{name}: GPU overclock must be held");
+            assert!(cpu_hold_at(&f), "{name}: CPU overclock must be held");
+            let _ = std::fs::remove_dir_all(f.parent().unwrap());
+        }
+    }
+
+    #[test]
+    fn a_safe_profile_is_never_held() {
+        let f = file("safe", Some(b""));
+        let low = GpuProfile { id: "low".into(), power_pct: 41, ..Default::default() };
+        assert!(!hold_back_at(&f, &low));
+        let _ = std::fs::remove_dir_all(f.parent().unwrap());
+    }
+
+    #[test]
+    fn no_mark_at_all_holds_nothing() {
+        let f = file("none", None);
+        assert!(!hold_back_at(&f, &oc()));
+        assert!(!cpu_hold_at(&f));
+        let _ = std::fs::remove_dir_all(f.parent().unwrap());
     }
 }

@@ -1,4 +1,5 @@
 //! Settings (data dir `config.json`), the shared state between the sync thread and the UI, and logging.
+use crate::util::LockAnyway;
 use crate::ccsync::model::now_ms;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, VecDeque};
@@ -166,6 +167,19 @@ pub struct SessionRow {
     pub elsewhere: Vec<String>,
 }
 
+/// An incoming file that would change what Claude Code runs or may do here (see `guard.rs`),
+/// waiting for the user's decision.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Held {
+    /// the version waiting (its hash)
+    pub hash: String,
+    /// the PC it came from
+    pub who: String,
+    pub since: i64,
+    /// None: not decided yet; Some(true): apply it; Some(false): keep this PC's
+    pub decision: Option<bool>,
+}
+
 pub enum Cmd {
     /// sync even if paused
     SyncNow,
@@ -189,6 +203,8 @@ pub struct Shared {
     pub hook_extra: Mutex<String>,
     /// Claude Sync switched off in Deck: no syncing, no hooks, nothing announced or answered
     pub off: AtomicBool,
+    /// canonical path -> a change held for the user's OK (kept in `held.json`)
+    pub held: Mutex<BTreeMap<String, Held>>,
     wake: (Mutex<bool>, Condvar),
 }
 
@@ -206,6 +222,7 @@ impl Shared {
             overrides: Mutex::new(BTreeMap::new()),
             hook_extra: Mutex::new(String::new()),
             off: AtomicBool::new(false),
+            held: Mutex::new(std::fs::read(paths_held(&file)).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()),
             wake: (Mutex::new(false), Condvar::new()),
         };
         sh.save_cfg();
@@ -213,32 +230,28 @@ impl Shared {
     }
 
     pub fn cfg(&self) -> Config {
-        self.cfg.lock().unwrap().clone()
+        self.cfg.lock_anyway().clone()
     }
 
     pub fn save_cfg(&self) {
         let c = self.cfg();
-        let file = self.paths.data.join("config.json");
-        let tmp = file.with_extension("json.tmp");
-        if std::fs::write(&tmp, serde_json::to_vec_pretty(&c).unwrap()).is_ok() {
-            let _ = std::fs::rename(&tmp, &file);
-        }
+        let _ = crate::util::write_atomic(&self.paths.data.join("config.json"), &serde_json::to_vec_pretty(&c).unwrap_or_default());
     }
 
     pub fn set_cfg(&self, f: impl FnOnce(&mut Config)) {
-        f(&mut self.cfg.lock().unwrap());
+        f(&mut self.cfg.lock_anyway());
         self.save_cfg();
     }
 
     /// run a sync cycle now
     pub fn wake(&self) {
-        *self.wake.0.lock().unwrap() = true;
+        *self.wake.0.lock_anyway() = true;
         self.wake.1.notify_all();
     }
 
     /// sleeps until woken or the timeout passes; returns true if woken
     pub fn wait(&self, secs: u64) -> bool {
-        let g = self.wake.0.lock().unwrap();
+        let g = self.wake.0.lock_anyway();
         let (mut g, _) = self.wake.1.wait_timeout_while(g, std::time::Duration::from_secs(secs), |w| !*w).unwrap();
         std::mem::replace(&mut *g, false)
     }
@@ -248,7 +261,7 @@ impl Shared {
         let t = now_ms() / 1000;
         let line = format!("{} {}", clock(t), msg);
         {
-            let mut l = self.log.lock().unwrap();
+            let mut l = self.log.lock_anyway();
             l.push_back(line.clone());
             while l.len() > 800 {
                 l.pop_front();
@@ -264,8 +277,52 @@ impl Shared {
     }
 
     pub fn status(&self, f: impl FnOnce(&mut Status)) {
-        f(&mut self.status.lock().unwrap());
+        f(&mut self.status.lock_anyway());
     }
+
+    /// What to do with version `hash` of `p` from `who`, a change the user has to allow (see
+    /// `guard.rs`): Some(true) write it, Some(false) keep this PC's, None ask (it's recorded, and
+    /// a newer version than the one decided on asks again).
+    pub fn held_decision(&self, p: &str, hash: &str, who: &str) -> Option<bool> {
+        let mut h = self.held.lock_anyway();
+        if let Some(x) = h.get(p).filter(|x| x.hash == hash) {
+            return x.decision;
+        }
+        h.insert(p.to_string(), Held { hash: hash.to_string(), who: who.to_string(), since: now_ms(), decision: None });
+        self.save_held(&h);
+        None
+    }
+
+    /// The user's answer for every change still waiting: `apply` them, or keep this PC's.
+    pub fn decide_held(&self, apply: bool) {
+        let mut h = self.held.lock_anyway();
+        for x in h.values_mut().filter(|x| x.decision.is_none()) {
+            x.decision = Some(apply);
+        }
+        self.save_held(&h);
+    }
+
+    /// `p` was written: nothing is held for it any more.
+    pub fn held_done(&self, p: &str) {
+        let mut h = self.held.lock_anyway();
+        if h.remove(p).is_some() {
+            self.save_held(&h);
+        }
+    }
+
+    /// Changes waiting for a decision: (path, from which PC).
+    pub fn undecided(&self) -> Vec<(String, String)> {
+        self.held.lock_anyway().iter().filter(|(_, x)| x.decision.is_none()).map(|(p, x)| (p.clone(), x.who.clone())).collect()
+    }
+
+    fn save_held(&self, h: &BTreeMap<String, Held>) {
+        let _ = crate::util::write_atomic(&paths_held(&self.paths.data.join("config.json")), &serde_json::to_vec_pretty(h).unwrap_or_default());
+    }
+}
+
+/// `held.json` next to `config.json`.
+fn paths_held(config: &std::path::Path) -> PathBuf {
+    config.with_file_name("held.json")
 }
 
 /// local wall-clock HH:MM:SS for a unix time (seconds)

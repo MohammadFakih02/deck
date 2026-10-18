@@ -12,6 +12,7 @@
 //! line. Exit code: 0 done, 1 failed or declined, 2 no such PC found, 3 PC to PC is off or the
 //! arguments are wrong.
 
+use crate::util::LockAnyway;
 use super::config::{human, parse_list, Paths, Shared, XState};
 use super::net::{self, Lan, ReqOpts, SendOpts};
 use std::path::PathBuf;
@@ -127,7 +128,7 @@ pub fn main(args: &[String]) -> i32 {
     let mut last = Instant::now();
     loop {
         std::thread::sleep(Duration::from_millis(200));
-        let Some(x) = sh.xfers.lock().unwrap().first().cloned() else { continue };
+        let Some(x) = sh.xfers.lock_anyway().first().cloned() else { continue };
         if x.state.finished() {
             let secs = x.finished_at.map(|f| f.duration_since(x.started).as_secs_f64()).unwrap_or(0.0).max(0.01);
             let (what, ok, text) = match &x.state {
@@ -138,7 +139,7 @@ pub fn main(args: &[String]) -> i32 {
                 _ => ("failed", false, "Failed".to_string()),
             };
             if x.state == XState::Done && !x.send {
-                let dir = sh.inbox.lock().unwrap().first().map(|i| i.dir.clone()).unwrap_or_default();
+                let dir = sh.inbox.lock_anyway().first().map(|i| i.dir.clone()).unwrap_or_default();
                 say(what, ok, format!("{text}. Saved in {dir}"));
             } else {
                 say(what, ok, text);

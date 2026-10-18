@@ -125,7 +125,7 @@ impl Index {
                 Some((s, e))
             })
             .collect();
-        hits.sort_by(|a, b| b.0.cmp(&a.0));
+        hits.sort_by_key(|b| std::cmp::Reverse(b.0));
         hits.truncate(limit);
         hits.into_iter()
             .map(|(score, e)| FileHit {

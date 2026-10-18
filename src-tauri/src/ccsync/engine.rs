@@ -3,12 +3,14 @@
 //!  2. note deletions, build our manifest, serve it on the LAN and publish it to the cloud folder
 //!  3. fetch the other machines' manifests (LAN and/or cloud folder)
 //!  4. three-way merge per file against the last version both sides agreed on ("base"):
-//!       only they changed -> take theirs; only we changed -> keep (they pull ours);
-//!       both changed -> session log: if one extends the other take the longer one, otherwise keep both
-//!       (the losing branch becomes a new session with its own id, chosen the same way on both machines);
-//!       other files: newest wins, the loser is saved under the data dir's conflicts folder.
+//!     only they changed -> take theirs; only we changed -> keep (they pull ours);
+//!     both changed -> session log: if one extends the other take the longer one, otherwise keep both
+//!     (the losing branch becomes a new session with its own id, chosen the same way on both machines);
+//!     other files: newest wins, the loser is saved under the data dir's conflicts folder.
+//!
 //! Session logs are never deleted by sync (Claude's own cleanup on one machine stays local); memory and
 //! config deletions are passed on.
+use crate::util::LockAnyway;
 use crate::ccsync::canon::{norm_path, Canon};
 use crate::ccsync::config::{Cmd, Config, MachineStatus, ProjectMap, Shared, HOME_ALIAS};
 use crate::ccsync::crypto::{hash, Key};
@@ -100,31 +102,55 @@ struct Tally {
     errors: Vec<String>,
 }
 
+/// Writes a file in the Claude folder. Deck has admin rights and the folder is the user's, so this
+/// goes only where the signed-in user could write themselves (their own links, like skills kept
+/// elsewhere, still work; one into Windows' folders doesn't) - see crate::fsguard.
 fn write_file(abs: &Path, data: &[u8], mtime: i64) -> std::io::Result<()> {
-    if let Some(d) = abs.parent() {
-        std::fs::create_dir_all(d)?;
+    use std::io::Write;
+    let (Some(dir), Some(name)) = (abs.parent(), abs.file_name()) else {
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, abs.display().to_string()));
+    };
+    let name = name.to_string_lossy().to_string();
+    let d = crate::fsguard::open_for_user(dir)?;
+    d.check_replace(&name)?;
+    let tmp = format!("{name}.ccsync-tmp");
+    let mut f = d.create(&tmp, true)?;
+    if let Err(e) = f.write_all(data) {
+        drop(f);
+        let _ = d.remove(&tmp);
+        return Err(e);
     }
-    let mut tmp = abs.as_os_str().to_owned();
-    tmp.push(".ccsync-tmp");
-    let tmp = PathBuf::from(tmp);
-    std::fs::write(&tmp, data)?;
     if mtime > 0 {
-        if let Ok(f) = std::fs::File::options().write(true).open(&tmp) {
-            let _ = f.set_modified(from_ms(mtime));
-        }
+        let _ = f.set_modified(from_ms(mtime));
     }
-    std::fs::rename(&tmp, abs).inspect_err(|_| {
-        let _ = std::fs::remove_file(&tmp);
+    drop(f);
+    d.rename(&tmp, &name, true).inspect_err(|_| {
+        let _ = d.remove(&tmp);
     })
+}
+
+/// Windows' "not the same drive" error: a move becomes a copy.
+const NOT_SAME_DEVICE: i32 = 17;
+
+/// Moves `from` to `to` for the user (see crate::fsguard::move_for_user); across drives, a copy.
+fn move_item(from: &Path, to: &Path) -> std::io::Result<()> {
+    match crate::fsguard::move_for_user(from, to) {
+        Err(e) if e.raw_os_error() == Some(NOT_SAME_DEVICE) => {
+            if from.is_dir() {
+                copy_dir(from, to)?;
+                std::fs::remove_dir_all(from)
+            } else {
+                std::fs::copy(from, to)?;
+                std::fs::remove_file(from)
+            }
+        }
+        r => r,
+    }
 }
 
 /// moves a file into `dir`, keeping its relative path
 fn stash(abs: &Path, dir: &Path, rel: &str) -> std::io::Result<()> {
-    let dst = dir.join(rel.replace('/', "\\"));
-    if let Some(d) = dst.parent() {
-        std::fs::create_dir_all(d)?;
-    }
-    std::fs::rename(abs, &dst).or_else(|_| std::fs::copy(abs, &dst).and_then(|_| std::fs::remove_file(abs)))
+    move_item(abs, &dir.join(rel.replace('/', "\\")))
 }
 
 fn stamp() -> String {
@@ -207,11 +233,7 @@ impl Engine {
     }
 
     fn save_state(&self) {
-        let p = self.sh.paths.data.join("state.json");
-        let tmp = p.with_extension("tmp");
-        if std::fs::write(&tmp, serde_json::to_vec(&self.state).unwrap_or_default()).is_ok() {
-            let _ = std::fs::rename(&tmp, &p);
-        }
+        let _ = crate::util::write_atomic(&self.sh.paths.data.join("state.json"), &serde_json::to_vec(&self.state).unwrap_or_default());
     }
 
     fn phase(&self, s: &str) {
@@ -231,7 +253,7 @@ impl Engine {
                 force = true;
                 continue;
             }
-            let cmds: Vec<Cmd> = std::mem::take(&mut *self.sh.cmds.lock().unwrap());
+            let cmds: Vec<Cmd> = std::mem::take(&mut *self.sh.cmds.lock_anyway());
             for c in cmds {
                 match c {
                     Cmd::SyncNow => force = true,
@@ -305,7 +327,7 @@ impl Engine {
         }
         // never point Claude at a hook program that isn't there (it would show an error on every prompt)
         let exe_ok = locks::hook_exe(&home).is_file();
-        let cmd = locks::hook_command(&home, &self.sh.hook_extra.lock().unwrap());
+        let cmd = locks::hook_command(&home, &self.sh.hook_extra.lock_anyway());
         // (event, wanted, already applied, what to call it)
         let hooks = [("UserPromptSubmit", cfg.session_lock, self.state.hook_applied, "session-lock"), ("SessionStart", cfg.machine_note, self.state.ident_applied, "machine-name")];
         for (i, (event, want, applied, label)) in hooks.into_iter().enumerate() {
@@ -332,7 +354,7 @@ impl Engine {
 
     /// what the SessionStart hook tells Claude: which machine this is and which sessions came from elsewhere
     fn write_identity(&self, cfg: &Config) {
-        let others: Vec<String> = self.sh.status.lock().unwrap().machines.iter().filter(|m| m.id != cfg.machine_id).map(|m| m.name.clone()).collect();
+        let others: Vec<String> = self.sh.status.lock_anyway().machines.iter().filter(|m| m.id != cfg.machine_id).map(|m| m.name.clone()).collect();
         let visited = self.state.visited.iter().map(|(s, m)| (s.clone(), m.iter().cloned().collect())).collect();
         let id = locks::Identity { enabled: cfg.machine_note, machine: cfg.machine_name.clone(), home: self.sh.paths.home.clone(), others, visited };
         locks::write_identity(&self.sh.paths.data, &id);
@@ -342,7 +364,7 @@ impl Engine {
     fn publish_locks(&self, cfg: &Config, remote: &BTreeMap<String, RemoteLock>, scan: &Scan) {
         let now = now_ms();
         let overrides: BTreeMap<String, i64> = {
-            let mut o = self.sh.overrides.lock().unwrap();
+            let mut o = self.sh.overrides.lock_anyway();
             o.retain(|_, t| *t > now);
             o.clone()
         };
@@ -825,6 +847,21 @@ impl Engine {
         Ok(out)
     }
 
+    /// Whether canonical `data` for `p` may replace the local file `abs`: a change that would alter
+    /// what Claude Code runs or may do here waits for the user (guard.rs); a new one is announced.
+    fn allowed_here(&self, p: &str, local_rel: &str, abs: &Path, data: &[u8], bytes: &[u8], who: Option<&str>) -> bool {
+        if !crate::ccsync::guard::needs_approval(local_rel, std::fs::read(abs).ok().as_deref(), bytes) {
+            return true;
+        }
+        let before = self.sh.undecided().len();
+        let d = self.sh.held_decision(p, &hash(data), who.unwrap_or("another PC"));
+        if self.sh.undecided().len() != before {
+            self.sh.log(format!("{local_rel} from {} would change what Claude Code runs or may do here; waiting for your OK in Deck", who.unwrap_or("another PC")));
+            crate::ccsync::held_changed(&self.sh);
+        }
+        d == Some(true)
+    }
+
     /// writes canonical content to the local file for canonical path `p`; Ok(false) = try again later
     fn write_remote(&self, cfg: &Config, dirs: &ProjDirs, scan: &Scan, canon: &Canon, p: &str, data: &[u8], mtime: i64, from: Option<&str>) -> Result<bool, String> {
         let local_rel = to_local_rel(p, cfg, dirs).ok_or("no local folder for this project")?;
@@ -846,13 +883,17 @@ impl Engine {
             }
         }
         let bytes = canon.decode(data);
+        if !self.allowed_here(p, &local_rel, &abs, data, &bytes, from) {
+            return Ok(false);
+        }
         write_file(&abs, &bytes, mtime).map_err(|e| format!("{local_rel}: {e}"))?;
+        self.sh.held_done(p);
         if let Ok(m) = std::fs::metadata(&abs) {
             let mt = m.modified().map(to_ms).unwrap_or(0);
-            self.cache_puts.lock().unwrap().push((local_rel.clone(), m.len(), mt, hash(data), scan::chunk_hashes(data)));
+            self.cache_puts.lock_anyway().push((local_rel.clone(), m.len(), mt, hash(data), scan::chunk_hashes(data)));
         }
         if let (Some(m), Some(sid)) = (from, session_id(p)) {
-            self.seen.lock().unwrap().push((sid.to_string(), m.to_string()));
+            self.seen.lock_anyway().push((sid.to_string(), m.to_string()));
         }
         Ok(true)
     }
@@ -971,11 +1012,11 @@ impl Engine {
         bases.retain(|p, _| entries.contains_key(p) || scan.files.contains_key(p));
         r.m.entries = entries;
         self.state.base.insert(mid, bases);
-        let puts = std::mem::take(&mut *self.cache_puts.lock().unwrap());
+        let puts = std::mem::take(&mut *self.cache_puts.lock_anyway());
         for (rel, size, mtime, h, chunks) in puts {
             self.cache.put(&rel, size, mtime, h, chunks);
         }
-        let seen = std::mem::take(&mut *self.seen.lock().unwrap());
+        let seen = std::mem::take(&mut *self.seen.lock_anyway());
         for (sid, machine) in seen {
             self.state.visited.entry(sid).or_default().insert(machine);
         }
@@ -1035,19 +1076,21 @@ impl Engine {
         // anything else: newest wins, the other version goes to the conflicts folder
         let remote_wins = (re.mtime, &re.hash) > (l.e.mtime, &l.e.hash);
         let dir = self.sh.paths.data.join("conflicts").join(stamp());
+        // held for the user's OK: no copy to the conflicts folder every cycle while it waits
+        if remote_wins && !self.allowed_here(p, &l.local_rel, &l.abs, &rdata, &canon.decode(&rdata), Some(who)) {
+            return Ok(None);
+        }
         if remote_wins {
-            let _ = std::fs::create_dir_all(&dir);
             let dst = dir.join(l.local_rel.replace('/', "\\"));
-            let _ = std::fs::create_dir_all(dst.parent().unwrap());
-            std::fs::copy(&l.abs, &dst).map_err(|e| e.to_string())?;
+            let ours = std::fs::read(&l.abs).map_err(|e| e.to_string())?;
+            crate::fsguard::write_for_user(&dst, &ours).map_err(|e| e.to_string())?;
             if !self.write_remote(cfg, dirs, scan, canon, p, &rdata, re.mtime, Some(who))? {
                 return Ok(None);
             }
             self.sh.log(format!("{} changed here and on {who}; kept {who}'s newer copy, ours is in {}", l.local_rel, dir.display()));
         } else {
             let dst = dir.join(format!("{}.from-{}", l.local_rel.replace('/', "\\"), who));
-            let _ = std::fs::create_dir_all(dst.parent().unwrap());
-            let _ = std::fs::write(&dst, canon.decode(&rdata));
+            let _ = crate::fsguard::write_for_user(&dst, &canon.decode(&rdata));
             self.sh.log(format!("{} changed here and on {who}; kept ours (newer), theirs is in {}", l.local_rel, dir.display()));
         }
         Ok(Some(remote_wins))
@@ -1111,7 +1154,7 @@ impl Engine {
             }
         }
         let mut v: Vec<_> = rows.into_values().collect();
-        v.sort_by(|a, b| b.meta.mtime.cmp(&a.meta.mtime));
+        v.sort_by_key(|b| std::cmp::Reverse(b.meta.mtime));
         // for testing without a window
         if std::env::var_os("CCSYNC_DUMP_SESSIONS").is_some() {
             let txt: String = v.iter().map(|r| format!("{}|here={}|on={}|prompts={}|alias={}|title={}|first={}|last={}
@@ -1160,18 +1203,7 @@ impl Engine {
             if dst.exists() {
                 return Err(format!("{} is already in the trash folder", dst.display()));
             }
-            if let Some(d) = dst.parent() {
-                std::fs::create_dir_all(d).map_err(|e| e.to_string())?;
-            }
-            if std::fs::rename(&t, &dst).is_err() {
-                if t.is_dir() {
-                    copy_dir(&t, &dst).map_err(|e| format!("can't move {}: {e}", t.display()))?;
-                    std::fs::remove_dir_all(&t).map_err(|e| format!("can't remove {}: {e}", t.display()))?;
-                } else {
-                    std::fs::copy(&t, &dst).map_err(|e| format!("can't move {}: {e}", t.display()))?;
-                    std::fs::remove_file(&t).map_err(|e| format!("can't remove {}: {e}", t.display()))?;
-                }
-            }
+            move_item(&t, &dst).map_err(|e| format!("can't move {}: {e}", t.display()))?;
             moved += 1;
         }
         self.state.hidden.insert(sid.clone(), now_ms().max(from.unwrap_or(0)));
@@ -1205,14 +1237,8 @@ impl Engine {
                     return Err("a Claude Code session in this project is open on this PC; close it first".into());
                 }
                 let dst = self.sh.paths.data.join("trash").join(stamp()).join("projects").join(&name);
-                if let Some(d) = dst.parent() {
-                    std::fs::create_dir_all(d).map_err(|e| e.to_string())?;
-                }
                 moved = std::fs::read_dir(&abs).map(|r| r.flatten().count()).unwrap_or(0);
-                if std::fs::rename(&abs, &dst).is_err() {
-                    copy_dir(&abs, &dst).map_err(|e| format!("can't move {}: {e}", abs.display()))?;
-                    std::fs::remove_dir_all(&abs).map_err(|e| format!("can't remove {}: {e}", abs.display()))?;
-                }
+                move_item(&abs, &dst).map_err(|e| format!("can't move {}: {e}", abs.display()))?;
             }
         }
         self.sh.set_cfg(|c| {

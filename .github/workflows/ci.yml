@@ -8,12 +8,16 @@ on:
 jobs:
   test:
     runs-on: windows-latest
+    env:
+      # a build without the 32-bit RivaTuner helper must fail, not ship without it
+      DECK_REQUIRE_RTSS32: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           # the 32-bit RivaTuner helper (src-tauri/rtss32) that build.rs embeds
           targets: i686-pc-windows-msvc
+          components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
@@ -23,6 +27,63 @@ jobs:
       - name: Check UI scripts
         shell: bash
         run: for f in ui/js/*.js ui/guard.js; do node --check "$f" || exit 1; done
+      - name: Clippy
+        working-directory: src-tauri
+        run: cargo clippy --locked --all-targets -- -D warnings
       - name: Rust tests
         working-directory: src-tauri
-        run: cargo test --release --locked
+        run: cargo test --locked
+      # the UI against its fake backend, in headless Edge (no Deck running)
+      - name: UI regression checks
+        working-directory: tools/testing/ui-preview
+        run: node regress.mjs
+      - name: Accessibility checks
+        working-directory: tools/testing/ui-preview
+        run: node a11y.mjs
+      - name: Notification window checks
+        working-directory: tools/testing/ui-preview
+        run: node toast-test.mjs
+      - name: Phone page checks
+        working-directory: tools/testing/ui-preview
+        run: node phone-shot.mjs
+      - name: Phone request signing
+        working-directory: tools/testing
+        run: node phone-sign.mjs
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+      - name: Dependency audit
+        working-directory: src-tauri
+        run: cargo audit
+
+  setup:
+    needs: test
+    runs-on: windows-latest
+    env:
+      DECK_REQUIRE_RTSS32: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: i686-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - name: Install the Tauri CLI
+        run: cargo install tauri-cli --version 2.11.4 --locked
+      - name: Build the setup
+        working-directory: src-tauri
+        run: cargo tauri build --bundles nsis
+      - name: Checksum
+        shell: pwsh
+        run: |
+          $s = Get-ChildItem src-tauri/target/release/bundle/nsis/*-setup.exe | Select-Object -First 1
+          $h = (Get-FileHash $s.FullName -Algorithm SHA256).Hash.ToLower()
+          "$h  $($s.Name)" | Out-File -Encoding ascii "$($s.FullName).sha256"
+          Write-Host "$h  $($s.Name)"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: setup
+          path: |
+            src-tauri/target/release/bundle/nsis/*-setup.exe
+            src-tauri/target/release/bundle/nsis/*-setup.exe.sha256

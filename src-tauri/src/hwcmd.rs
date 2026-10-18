@@ -1,6 +1,7 @@
 //! Tauri commands for the Hardware pages (Fans, Lighting, Cooler display, Sensors, This PC).
 //! The engine itself lives in `hw`; these only translate to and from JSON.
 
+use crate::util::LockAnyway;
 use crate::app::App;
 use crate::hw::{self, cfg, Shared};
 use serde_json::{json, Value};
@@ -40,8 +41,8 @@ pub fn hw_state(app: A) -> Value {
     let Some(sh) = app.hw.lock().clone() else {
         return json!({ "admin": admin, "ready": false, "pages": hw::pages(None, gpu), "moboctl": hw::kv::moboctl_dir().is_some() });
     };
-    let h = sh.hw.lock().unwrap().clone();
-    let st = sh.status.lock().unwrap().clone();
+    let h = sh.hw.lock_anyway().clone();
+    let st = sh.status.lock_anyway().clone();
     let (control, why) = control_text(&h.control);
     json!({
         "admin": admin,
@@ -66,8 +67,8 @@ pub fn hw_state(app: A) -> Value {
 #[tauri::command]
 pub fn hw_live(app: A) -> R<Value> {
     let sh = engine(&app)?;
-    let l = sh.live.lock().unwrap().clone();
-    let st = sh.status.lock().unwrap().clone();
+    let l = sh.live.lock_anyway().clone();
+    let st = sh.status.lock_anyway().clone();
     let status = json!({ "rgb": st.rgb.0, "rgb_ok": st.rgb.1, "ram": st.ram, "disp": st.disp.0, "disp_ok": st.disp.1, "fans_error": st.fans });
     Ok(json!({
         "cpu_t": l.cpu_t, "cpu_l": l.cpu_l, "cpu_mhz": l.cpu_mhz, "gpu_t": l.gpu_t, "gpu_l": l.gpu_l,
@@ -83,7 +84,7 @@ pub fn hw_live(app: A) -> R<Value> {
 #[tauri::command]
 pub fn hw_hist(app: A) -> R<Value> {
     let sh = engine(&app)?;
-    let h = sh.hist.lock().unwrap().clone();
+    let h = sh.hist.lock_anyway().clone();
     let v = |q: &std::collections::VecDeque<f32>| q.iter().map(|x| if x.is_nan() { None } else { Some(*x) }).collect::<Vec<_>>();
     Ok(json!({
         "cpu_t": v(&h.cpu_t), "gpu_t": v(&h.gpu_t), "cpu_l": v(&h.cpu_l), "gpu_l": v(&h.gpu_l),
@@ -96,7 +97,7 @@ pub fn hw_hist(app: A) -> R<Value> {
 #[tauri::command]
 pub fn hw_table(app: A) -> R<Value> {
     let sh = engine(&app)?;
-    let t = sh.table.lock().unwrap().clone();
+    let t = sh.table.lock_anyway().clone();
     let since = t.since.duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
     let rows: Vec<Value> = t
         .rows
@@ -111,7 +112,7 @@ pub fn hw_table(app: A) -> R<Value> {
 
 #[tauri::command]
 pub fn hw_table_reset(app: A) -> R<()> {
-    engine(&app)?.table.lock().unwrap().reset();
+    engine(&app)?.table.lock_anyway().reset();
     Ok(())
 }
 
@@ -206,7 +207,7 @@ pub fn hw_import_moboctl(app: A) -> R<String> {
     for (k, v) in fresh.all() {
         sh.s.set(&k, &v);
     }
-    *sh.curves.lock().unwrap() = hw::kv::Curve::load_all();
+    *sh.curves.lock_anyway() = hw::kv::Curve::load_all();
     let c = cfg::load(&sh);
     cfg::apply(&sh, &c);
     app.changed("hw");
@@ -217,7 +218,7 @@ pub fn hw_import_moboctl(app: A) -> R<String> {
 #[tauri::command]
 pub fn hw_lcd_preview(app: A, display: cfg::Display, lighting: cfg::Lighting) -> R<Vec<Option<String>>> {
     let sh = engine(&app)?;
-    let l = sh.live.lock().unwrap().clone();
+    let l = sh.live.lock_anyway().clone();
     let mut fin = sh.fx_in();
     fin.audio = l.audio;
     let inp = hw::lcd::DispIn { cpu_t: l.cpu_t, cpu_l: l.cpu_l, gpu_t: l.gpu_t, gpu_l: l.gpu_l, audio: l.audio, light: Some((cfg::effect_params(&lighting), fin)), ..Default::default() }.now();
@@ -234,7 +235,7 @@ pub fn hw_lcd_preview(app: A, display: cfg::Display, lighting: cfg::Lighting) ->
 #[tauri::command]
 pub fn hw_lcd_grab(app: A, display: cfg::Display) -> R<Vec<String>> {
     let sh = engine(&app)?;
-    let l = sh.live.lock().unwrap().clone();
+    let l = sh.live.lock_anyway().clone();
     let mut p = cfg::disp_params(&display);
     p.content = "Sensors".into();
     p.color_mode = "Custom".into();

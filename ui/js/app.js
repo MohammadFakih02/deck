@@ -1,7 +1,15 @@
 // Deck's shell: navigation, the search box, live refresh and events.
+import { I, Pages, S, h, invoke, listen, nameControls, note, withLocalWrites } from "./core.js";
+import { applySideWidth } from "./layout.js";
+import { refreshHome, renderHome } from "./home.js";
+import { doSearch, renderResults, searchKey } from "./search.js";
+import { head } from "./pages1.js";
+import { applyAccent, themeWelcome } from "./pages3.js";
+import { HW } from "./hw.js";
+
 
 // Sidebar: every item is its own page, grouped. [page, sub, label, icon]
-const NAV = [
+export const NAV = [
   [null, [["home", null, "Home", "home"], ["boost", null, "Game boost", "zap"]]],
   ["Hardware", [["cpu", null, "CPU", "chip"], ["gpu", null, "GPU", "gpu"], ["fans", null, "Fans", "fan"], ["lighting", null, "Lighting", "bulb"], ["lcd", null, "Cooler display", "monitor"], ["thispc", null, "This PC", "info"]]],
   ["Monitor", [["sensors", null, "Sensors", "gauge"], ["overlay", null, "Overlay", "gamepad"], ["drives", null, "Drives", "disk"], ["system", "processes", "Processes", "cpu"], ["system", "network", "Network", "wifi"]]],
@@ -10,31 +18,40 @@ const NAV = [
   ["Power & time", [["power", "awake", "Keep awake", "coffee"], ["power", "timers", "Timers & breaks", "timer"], ["power", "plan", "Shut down when…", "power"]]],
 ];
 /** Hardware pages only show when this PC has something for them (the backend says which). */
-const HW_PAGES = ["cpu", "gpu", "fans", "lighting", "lcd", "sensors"];
-const navShown = (page) => page === "claudesync" ? !!(S.state?.settings?.claude_sync_nav || S.state?.settings?.claude_sync_on)
+export const HW_PAGES = ["cpu", "gpu", "fans", "lighting", "lcd", "sensors"];
+export const navShown = (page) => page === "claudesync" ? !!(S.state?.settings?.claude_sync_nav || S.state?.settings?.claude_sync_on)
   : !HW_PAGES.includes(page) || !S.state?.hw || S.state.hw.pages.includes(page);
 /** Each group's own icon, in the same column as the pages' icons. */
-const NAV_GROUP_ICON = { Hardware: "sliders", Monitor: "activity", Desktop: "layout", Maintenance: "shield", "Power & time": "clock" };
-const NAV_END = [["transfer", null, "PC to PC", "swap"], ["phone", null, "Phone", "smartphone"], ["settings", null, "Settings", "gear"]];
+export const NAV_GROUP_ICON = { Hardware: "sliders", Monitor: "activity", Desktop: "layout", Maintenance: "shield", "Power & time": "clock" };
+export const NAV_END = [["transfer", null, "PC to PC", "swap"], ["phone", null, "Phone", "smartphone"], ["settings", null, "Settings", "gear"]];
 /** Which part of a page opens when only the page is given. */
-const DEFAULT_SUB = { transfer: "send", claudesync: "status", windows: "open", files: "space", system: "processes", power: "awake", tools: "screen" };
-const curSub = () => S.sub || DEFAULT_SUB[S.page] || null;
+export const DEFAULT_SUB = { transfer: "send", claudesync: "status", windows: "open", files: "space", system: "processes", power: "awake", tools: "screen" };
+export const curSub = () => S.sub || DEFAULT_SUB[S.page] || null;
 
-function navBadge(page, sub) {
+/** A small bubble on the page's icon: a count, or a dot for a state (its word is the tooltip and what a
+ *  screen reader says). On the icon it never pushes the page's name out of a narrow sidebar. */
+export function navBadge(page, sub) {
   const p = S.live?.power;
-  if (page === "power" && sub === "timers" && p?.timers?.length) return h("span", { class: "badge" }, p.timers.length);
-  if (page === "power" && sub === "awake" && p?.awake_active) return h("span", { class: "badge" }, "On");
-  if (page === "power" && sub === "plan" && p?.plan) return h("span", { class: "badge warn" }, "Set");
-  if (page === "phone" && S.state?.remote?.clients) return h("span", { class: "badge" }, S.state.remote.clients);
-  if (page === "transfer" && S.cache.tx && ((S.cache.tx.pending || []).length + (S.cache.tx.reqs || []).length)) return h("span", { class: "badge warn" }, "Waiting");
-  if (page === "boost" && S.live?.boost?.on) return h("span", { class: "badge" }, "On");
+  const n = (v) => h("span", { class: "badge" }, v);
+  const dot = (word, warn) => h("span", { class: "badge dot" + (warn ? " warn" : ""), title: word }, word);
+  if (page === "power" && sub === "timers" && p?.timers?.length) return n(p.timers.length);
+  if (page === "power" && sub === "awake" && p?.awake_active) return dot("On");
+  if (page === "power" && sub === "plan" && p?.plan) return dot("Set", true);
+  if (page === "phone" && S.state?.remote?.clients) return n(S.state.remote.clients);
+  if (page === "transfer" && S.cache.tx && ((S.cache.tx.pending || []).length + (S.cache.tx.reqs || []).length)) return dot("Waiting", true);
+  if (page === "boost" && S.live?.boost?.on) return dot("On");
   return null;
 }
 
-const navOn = ([page, sub]) => !S.query && S.page === page && (!sub || curSub() === sub);
+export const navOn = ([page, sub]) => !S.query && S.page === page && (!sub || curSub() === sub);
 
-let sideSig = "";
-function renderSide() {
+export let sideSig = "";
+/** Redraws the sidebar even when nothing it shows seems to have changed (after its order changed). */
+export function resetSide() {
+  sideSig = "";
+  renderSide();
+}
+export function renderSide() {
   if (holdRedraw(renderSide)) return;
   const side = document.getElementById("side");
   const list = side.querySelector(".nav-scroll");
@@ -74,10 +91,10 @@ function renderSide() {
 }
 
 // ---- the user's own sidebar order: drag a group's header, or a page up and down inside its group
-const navKey = (it) => it[0] + "/" + (it[1] || "");
+export const navKey = (it) => it[0] + "/" + (it[1] || "");
 
 /** NAV in the saved order. Pages and groups the saved order doesn't know (added in an update) keep their default place at the end. */
-function navOrdered() {
+export function navOrdered() {
   const o = S.state?.settings?.nav_order || {};
   const at = (list, k) => { const i = (list || []).indexOf(k); return i < 0 ? 1e6 : i; };
   const groups = NAV.map(([g, items]) => [g, [...items].sort((a, b) => at(o.items?.[g || ""], navKey(a)) - at(o.items?.[g || ""], navKey(b)))]);
@@ -85,9 +102,9 @@ function navOrdered() {
   return [...groups.filter((g) => !g[0]), ...groups.filter((g) => g[0]).sort((a, b) => at(o.groups, a[0]) - at(o.groups, b[0]))];
 }
 
-let navDrag = null;
+export let navDrag = null;
 /** Drag and drop on the sidebar (listeners set once on the sidebar itself; its buttons are redrawn). */
-function navDnd(side) {
+export function navDnd(side) {
   if (side.dataset.dnd) return;
   side.dataset.dnd = "1";
   const clear = () => side.querySelectorAll(".drop-above, .drop-below").forEach((e) => e.classList.remove("drop-above", "drop-below"));
@@ -125,7 +142,7 @@ function navDnd(side) {
   side.addEventListener("dragend", () => { clear(); navDrag?.el.classList.remove("dragging"); navDrag = null; });
 }
 
-function navMove(d, el, below) {
+export function navMove(d, el, below) {
   const cur = navOrdered();
   const o = { groups: cur.filter((g) => g[0]).map((g) => g[0]), items: Object.fromEntries(cur.map(([g, items]) => [g || "", items.map(navKey)])) };
   const place = (list, moving, before) => { const l = list.filter((x) => x !== moving); l.splice(l.indexOf(before) + (below ? 1 : 0), 0, moving); return l; };
@@ -137,7 +154,7 @@ function navMove(d, el, below) {
   invoke("set_setting", { key: "nav_order", value: o }).catch((e) => console.error(e));
 }
 
-async function foldGroup(group) {
+export async function foldGroup(group) {
   const cur = S.state.settings.nav_folded || [];
   const next = cur.includes(group) ? cur.filter((g) => g !== group) : [...cur, group];
   S.state.settings.nav_folded = next;
@@ -145,9 +162,9 @@ async function foldGroup(group) {
   try { await invoke("set_setting", { key: "nav_folded", value: next }); } catch (e) { console.error(e); }
 }
 
-const appMode = () => S.state?.settings?.mode === "app";
+export const appMode = () => S.state?.settings?.mode === "app";
 
-function renderTop() {
+export function renderTop() {
   const top = document.getElementById("top");
   if (top.dataset.built) {
     const pin = top.querySelector(".pin");
@@ -179,15 +196,15 @@ function renderTop() {
 }
 
 /** Where keyboard focus is inside `root`, so a redraw can put it back on the same control. */
-function focusSpot(root) {
+export function focusSpot(root) {
   const a = document.activeElement;
   if (!a || a === document.body || !root.contains(a)) return null;
   const path = [];
   for (let n = a; n !== root; n = n.parentElement) path.unshift([...n.parentElement.children].indexOf(n));
   return { path, sig: focusSig(a) };
 }
-const focusSig = (el) => el.tagName + "|" + (el.getAttribute("aria-label") || el.title || el.textContent || "").trim().slice(0, 40);
-function refocus(root, spot) {
+export const focusSig = (el) => el.tagName + "|" + (el.getAttribute("aria-label") || el.title || el.textContent || "").trim().slice(0, 40);
+export function refocus(root, spot) {
   if (!spot) return;
   let n = root;
   for (const i of spot.path) n = n && n.children[i];
@@ -195,11 +212,11 @@ function refocus(root, spot) {
   if (n && typeof n.focus === "function") n.focus({ preventScroll: true });
 }
 
-let lastView = null;
-const foldTitle = (d) => d.querySelector(":scope > summary")?.textContent || "";
-const openFolds = (root) => new Set([...root.querySelectorAll("details[open]")].map(foldTitle).filter(Boolean));
+export let lastView = null;
+export const foldTitle = (d) => d.querySelector(":scope > summary")?.textContent || "";
+export const openFolds = (root) => new Set([...root.querySelectorAll("details[open]")].map(foldTitle).filter(Boolean));
 
-function render() {
+export function render() {
   if (holdRedraw(render)) return;
   renderSide();
   renderTop();
@@ -232,9 +249,9 @@ function render() {
 // (A release that never arrives, say outside the window, stops counting after 5 s, or 2 min while dragging.)
 // Every whole-page redraw (the tick, backend events, anything else) goes through render() or
 // renderSide(), and both wait here, so no caller can swap a button out from under a click.
-let pressedAt = 0;
-const heldRedraws = new Set();
-const releasePress = () => {
+export let pressedAt = 0;
+export const heldRedraws = new Set();
+export const releasePress = () => {
   pressedAt = 0;
   // after the click event of this press has run
   if (heldRedraws.size) setTimeout(() => { if (mouseHeld()) return; const fns = [...heldRedraws]; heldRedraws.clear(); fns.forEach((f) => f()); }, 0);
@@ -243,17 +260,17 @@ document.addEventListener("pointerdown", () => (pressedAt = Date.now()), true);
 for (const ev of ["pointerup", "pointercancel"]) document.addEventListener(ev, releasePress, true);
 window.addEventListener("blur", releasePress);
 // a drag (moving or resizing a panel, a slider) can take longer than a click: it holds for up to 2 min
-const mouseHeld = () => !!pressedAt && Date.now() - pressedAt < (S.interacting ? 120000 : 5000);
+export const mouseHeld = () => !!pressedAt && Date.now() - pressedAt < (S.interacting ? 120000 : 5000);
 /** True (and `fn` runs once the button is released) while a mouse button is held. */
-function holdRedraw(fn) {
+export function holdRedraw(fn) {
   if (!mouseHeld()) return false;
   heldRedraws.add(fn);
   return true;
 }
 /** True while a redraw would get in the way: dragging, a held button, a dialog, or typing. */
-const uiBusy = () => S.interacting || mouseHeld() || !!document.querySelector(".modal-back") || ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName);
+export const uiBusy = () => S.interacting || mouseHeld() || !!document.querySelector(".modal-back") || ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName);
 
-async function go(page, sub) {
+export async function go(page, sub) {
   const changed = page !== S.page || (sub || null) !== (S.sub || null);
   S.page = page;
   S.sub = sub || null;
@@ -278,8 +295,8 @@ async function go(page, sub) {
 
 // ---------------------------------------------------------- live updates
 
-let ticking = false;
-async function tick() {
+export let ticking = false;
+export async function tick() {
   if (ticking || !document.body.classList.contains("shown") || document.visibilityState === "hidden") return;
   ticking = true;
   try {
@@ -306,7 +323,7 @@ async function tick() {
   }
 }
 
-async function refreshSlow() {
+export async function refreshSlow() {
   // things that change rarely: fetched on open
   try {
     const [audio, clips, disp] = await Promise.all([invoke("audio_state"), invoke("clip_list", { q: "", limit: 8 }), invoke("display_state")]);
@@ -326,7 +343,7 @@ async function refreshSlow() {
   invoke("processes").then((p) => (S.cache.procs = p)).catch(() => {});
 }
 
-async function onShown(payload) {
+export async function onShown(payload) {
   document.body.classList.toggle("style-window", payload?.style === "window");
   document.body.classList.toggle("mode-app", payload?.mode === "app");
   document.body.classList.toggle("pin-float", !!payload?.float);
@@ -353,7 +370,7 @@ async function onShown(payload) {
   }
 }
 
-async function boot() {
+export async function boot() {
   // listen before asking for the state, so a show in between is either seen here or in the state
   await Promise.all([
     listen("shown", (e) => onShown(e.payload)),
@@ -440,4 +457,3 @@ async function boot() {
   document.addEventListener("contextmenu", (e) => { if (!e.target.closest("input, textarea, pre")) e.preventDefault(); });
 }
 
-boot();

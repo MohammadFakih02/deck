@@ -15,7 +15,7 @@ export async function openDeck({ w = 1260, h = 900, port = 9370, page = null } =
   ws.onmessage = (m) => { const d = JSON.parse(m.data); if (d.id && pend.has(d.id)) { pend.get(d.id)(d); pend.delete(d.id); } if (d.method === "Runtime.exceptionThrown") logs.push("EXC " + (d.params.exceptionDetails.exception?.description || d.params.exceptionDetails.text)); if (d.method === "Runtime.consoleAPICalled" && d.params.type === "error") logs.push("ERR " + d.params.args.map((a) => a.value || a.description).join(" ")); };
   await new Promise((r) => (ws.onopen = r));
   const send = (method, params = {}) => new Promise((res) => { const i = ++id; pend.set(i, res); ws.send(JSON.stringify({ id: i, method, params })); });
-  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms * (+process.env.SLEEP_SCALE || 1)));
   await send("Runtime.enable");
   await send("Emulation.setDeviceMetricsOverride", { width: w, height: h, deviceScaleFactor: 1, mobile: false });
   const here = path.dirname(fileURLToPath(import.meta.url));
@@ -25,12 +25,13 @@ export async function openDeck({ w = 1260, h = 900, port = 9370, page = null } =
   const harness = path.join(here, `harness-${port}.html`);
   fs.writeFileSync(harness, html);
   await send("Page.navigate", { url: pathToFileURL(harness).href });
-  await sleep(1500);
   const ev = async (e) => { const r = await send("Runtime.evaluate", { expression: e, awaitPromise: true, returnByValue: true }); if (r.result?.exceptionDetails) return { error: r.result.exceptionDetails.exception?.description || r.result.exceptionDetails.text }; return r.result?.result?.value; };
+  // ready as soon as the app has drawn its first page (the fake backend answers at once)
+  for (let i = 0; i < 100; i++) { if (await ev(`typeof go === "function" && !!document.querySelector(".panel")`)) break; await sleep(30); }
   await ev(`document.body.classList.add("shown","style-window")`);
   const mouse = (type, x, y) => send("Input.dispatchMouseEvent", { type, x, y, button: "left", clickCount: 1 });
   const key = async (k, code = k, vk = 0) => { await send("Input.dispatchKeyEvent", { type: "rawKeyDown", key: k, code, windowsVirtualKeyCode: vk }); await send("Input.dispatchKeyEvent", { type: "keyUp", key: k, code, windowsVirtualKeyCode: vk }); };
   const shot = async (file) => { const r = await send("Page.captureScreenshot", { format: "png" }); fs.writeFileSync(file, Buffer.from(r.result.data, "base64")); };
-  const close = () => { try { ws.close(); spawnSync("taskkill", ["/pid", String(edge.pid), "/T", "/F"], { stdio: "ignore" }); } catch {} };
+  const close = () => { try { fs.unlinkSync(harness); } catch {} try { ws.close(); spawnSync("taskkill", ["/pid", String(edge.pid), "/T", "/F"], { stdio: "ignore" }); } catch {} };
   return { ev, send, mouse, key, shot, sleep, logs, close };
 }

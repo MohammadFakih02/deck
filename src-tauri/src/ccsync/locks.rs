@@ -62,10 +62,7 @@ pub fn write_identity(data: &Path, id: &Identity) {
     if std::fs::read(&p).map(|b| b == body).unwrap_or(false) {
         return;
     }
-    let tmp = p.with_extension("json.tmp");
-    if std::fs::write(&tmp, body).is_ok() {
-        let _ = std::fs::rename(&tmp, &p);
-    }
+    let _ = crate::util::write_atomic(&p, &body);
 }
 
 /// machine names come from synced files: keep them to plain characters before they reach Claude's context
@@ -174,11 +171,7 @@ pub fn read_file(data: &Path) -> Option<LocksFile> {
 }
 
 pub fn write_file(data: &Path, f: &LocksFile) {
-    let p = data.join("locks.json");
-    let tmp = p.with_extension("json.tmp");
-    if std::fs::write(&tmp, serde_json::to_vec_pretty(f).unwrap_or_default()).is_ok() {
-        let _ = std::fs::rename(&tmp, &p);
-    }
+    let _ = crate::util::write_atomic(&data.join("locks.json"), &serde_json::to_vec_pretty(f).unwrap_or_default());
 }
 
 pub fn sync_event_name(data: &Path) -> String {

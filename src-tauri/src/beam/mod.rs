@@ -5,10 +5,12 @@
 //! The engine runs in its own threads; Deck's Transfer page reads `state()` and acts through
 //! `act()`. Offers and requests that wait for an answer also show as Deck notifications.
 
+use crate::util::LockAnyway;
 pub mod apps;
 pub mod cli;
 pub mod config;
 pub mod crypto;
+pub mod device;
 pub mod net;
 pub mod setup;
 pub mod snapshot;
@@ -48,7 +50,7 @@ pub fn set_on(app: &Arc<App>, on: bool) {
     if let Some(t) = T.get() {
         t.sh.off.store(!on, Ordering::Relaxed);
         if !on {
-            t.lan.peers.lock().unwrap().clear();
+            t.lan.peers.lock_anyway().clear();
         }
         app.ui_changed("transfer");
         return;
@@ -93,8 +95,8 @@ pub fn set_on(app: &Arc<App>, on: bool) {
 /// Offers and requests waiting for an answer, as notifications with the answer buttons.
 fn prompt_toasts(app: &Arc<App>) {
     let Some(t) = T.get() else { return };
-    let pend = t.sh.pending.lock().unwrap().clone();
-    let reqs = t.sh.reqs.lock().unwrap().clone();
+    let pend = t.sh.pending.lock_anyway().clone();
+    let reqs = t.sh.reqs.lock_anyway().clone();
     let mut seen = t.toasted.lock();
     let live: HashSet<u64> = pend.iter().map(|p| p.id).chain(reqs.iter().map(|r| r.id)).collect();
     // answered or timed out elsewhere: their notifications go
@@ -143,15 +145,15 @@ fn prompt_toasts(app: &Arc<App>) {
 /// "trust_182" and "trust_always" accept and trust the sending PC for that many days (or always).
 pub fn answer(id: u64, action: &str) {
     let Some(t) = T.get() else { return };
-    let pend = t.sh.pending.lock().unwrap().iter().find(|p| p.id == id).cloned();
+    let pend = t.sh.pending.lock_anyway().iter().find(|p| p.id == id).cloned();
     if let Some(p) = pend {
         if let Some(days) = action.strip_prefix("trust_") {
             trust(&t.sh, &p.peer_id, &p.peer, days);
         }
-        *p.answer.lock().unwrap() = Some(matches!(action, "accept" | "allow") || action.starts_with("trust_"));
+        *p.answer.lock_anyway() = Some(matches!(action, "accept" | "allow") || action.starts_with("trust_"));
     }
-    if let Some(r) = t.sh.reqs.lock().unwrap().iter().find(|r| r.id == id) {
-        *r.answer.lock().unwrap() = Some(match action {
+    if let Some(r) = t.sh.reqs.lock_anyway().iter().find(|r| r.id == id) {
+        *r.answer.lock_anyway() = Some(match action {
             "allow" | "accept" => 1,
             "always" => 3,
             _ => 2,
@@ -242,8 +244,8 @@ pub fn state() -> Value {
                     "state": state, "error": err, "speed": x.speed, "secs": secs, "note": x.note })
         })
         .collect();
-    let pending: Vec<Value> = sh.pending.lock().unwrap().iter().map(|p| json!({ "id": p.id, "peer": p.peer, "label": p.label, "files": p.files, "total": p.total, "install": p.install, "deletes": p.deletes, "peer_id": p.peer_id })).collect();
-    let reqs: Vec<Value> = sh.reqs.lock().unwrap().iter().map(|r| json!({ "id": r.id, "peer": r.peer, "what": r.what, "left": 60u64.saturating_sub(r.since.elapsed().as_secs()) })).collect();
+    let pending: Vec<Value> = sh.pending.lock_anyway().iter().map(|p| json!({ "id": p.id, "peer": p.peer, "label": p.label, "files": p.files, "total": p.total, "install": p.install, "deletes": p.deletes, "peer_id": p.peer_id })).collect();
+    let reqs: Vec<Value> = sh.reqs.lock_anyway().iter().map(|r| json!({ "id": r.id, "peer": r.peer, "what": r.what, "left": 60u64.saturating_sub(r.since.elapsed().as_secs()) })).collect();
     let inbox: Vec<Value> = sh
         .inbox
         .lock()
@@ -274,14 +276,14 @@ pub fn state() -> Value {
         }
         devs.into_iter().map(|(id, name, mode)| json!({ "id": id, "name": name, "mode": mode })).collect()
     };
-    let logs: Vec<String> = sh.logs.lock().unwrap().iter().rev().take(200).cloned().collect();
+    let logs: Vec<String> = sh.logs.lock_anyway().iter().rev().take(200).cloned().collect();
     json!({
         "on": !sh.off.load(Ordering::Relaxed),
         "name": cfg.machine_name, "code": cfg.code, "manual_peers": cfg.manual_peers, "inbox_dir": cfg.inbox_dir,
         "ask_before_receive": cfg.ask_before_receive, "trust_install": cfg.trust_install, "shared_folders": cfg.shared_folders,
         "trusted": cfg.trusted.iter().filter(|t| t.until == 0 || t.until > config::now_ms()).map(|t| json!({ "id": t.id, "name": t.name, "until": t.until })).collect::<Vec<_>>(),
         "skip_build": cfg.skip_build, "excludes": cfg.excludes, "dest_exists": cfg.dest_exists, "policies": policies,
-        "port": *t.lan.port.lock().unwrap(),
+        "port": *t.lan.port.lock_anyway(),
         "peers": peers, "xfers": xfers, "pending": pending, "reqs": reqs, "inbox": inbox, "scans": scans, "browse": browse,
         "claude_skill": skill_on(),
         "setup_msg": *t.setup_msg.lock(), "logs": logs, "data": sh.paths.data.display().to_string(),
@@ -385,15 +387,15 @@ pub fn act(app: &Arc<App>, what: &str, a: &Value) -> Result<Value, String> {
         }
         "cancel" => {
             let id = a["id"].as_u64().unwrap_or(0);
-            if let Some(x) = sh.xfers.lock().unwrap().iter().find(|x| x.id == id) {
+            if let Some(x) = sh.xfers.lock_anyway().iter().find(|x| x.id == id) {
                 x.cancel.store(true, Ordering::Relaxed);
             }
         }
         "dismiss" => {
             let id = a["id"].as_u64().unwrap_or(0);
-            sh.xfers.lock().unwrap().retain(|x| x.id != id || !x.state.finished());
+            sh.xfers.lock_anyway().retain(|x| x.id != id || !x.state.finished());
         }
-        "clear_done" => sh.xfers.lock().unwrap().retain(|x| !x.state.finished()),
+        "clear_done" => sh.xfers.lock_anyway().retain(|x| !x.state.finished()),
         "answer" => answer(a["id"].as_u64().unwrap_or(0), s(a, "answer")),
         // the other PC's shared folders
         "browse" => {
@@ -491,7 +493,7 @@ pub fn act(app: &Arc<App>, what: &str, a: &Value) -> Result<Value, String> {
                 }
                 std::fs::remove_dir_all(&dir).or_else(|e| if Path::new(&dir).exists() { Err(e.to_string()) } else { Ok(()) })?;
             }
-            sh.inbox.lock().unwrap().retain(|i: &InboxItem| i.dir != dir);
+            sh.inbox.lock_anyway().retain(|i: &InboxItem| i.dir != dir);
             sh.save_inbox();
         }
         // settings
@@ -553,7 +555,7 @@ pub fn act(app: &Arc<App>, what: &str, a: &Value) -> Result<Value, String> {
                 return Err(e.into());
             }
             if key == "code" || key == "new_code" {
-                t.lan.peers.lock().unwrap().clear();
+                t.lan.peers.lock_anyway().clear();
                 sh.log("Pairing code changed");
             }
         }
@@ -593,7 +595,7 @@ mod tests {
             c.inbox_dir = inbox;
             c.manual_peers = vec![format!("127.0.0.1:{peer_port}")];
         });
-        *sh.test_answer.lock().unwrap() = Some(true);
+        *sh.test_answer.lock_anyway() = Some(true);
         let lan = Arc::new(Lan::new());
         net::start(sh.clone(), lan.clone(), Some(port));
         (sh, lan)
@@ -608,7 +610,7 @@ mod tests {
     }
 
     fn done(sh: &Shared) -> usize {
-        sh.xfers.lock().unwrap().iter().filter(|x| x.state == XState::Done).count()
+        sh.xfers.lock_anyway().iter().filter(|x| x.state == XState::Done).count()
     }
 
     /// Two Transfer engines on this PC: a file, a project folder (build output left out) and a
@@ -628,8 +630,8 @@ mod tests {
         let big: Vec<u8> = (0..5_000_000u32).map(|i| (i.wrapping_mul(2654435761) >> 13) as u8).collect();
         std::fs::write(src.join("big.bin"), &big).unwrap();
         net::send(a.clone(), pb.clone(), vec![src.join("big.bin")], false);
-        wait("file", 30, || done(&a) >= 1 && b.inbox.lock().unwrap().iter().any(|i| i.name.contains("big.bin")));
-        let it = b.inbox.lock().unwrap().iter().find(|i| i.name.contains("big.bin")).cloned().unwrap();
+        wait("file", 30, || done(&a) >= 1 && b.inbox.lock_anyway().iter().any(|i| i.name.contains("big.bin")));
+        let it = b.inbox.lock_anyway().iter().find(|i| i.name.contains("big.bin")).cloned().unwrap();
         let got = std::fs::read(Path::new(&it.dir).join("big.bin")).unwrap();
         assert_eq!(got, big, "file arrives byte for byte");
 
@@ -653,14 +655,14 @@ mod tests {
         assert!(list.iter().any(|i| i.name == "shared" && i.dir), "B's shared folder is listed: {:?}", list.iter().map(|i| &i.name).collect::<Vec<_>>());
         net::request(a.clone(), pb.clone(), "shared/notes.txt".into(), ReqOpts { exclude: vec![], include: vec![], sync: false, delete_extra: false });
         let inbox_a = PathBuf::from(a.cfg().inbox_dir);
-        wait("request", 30, || a.inbox.lock().unwrap().iter().any(|i| i.name.contains("notes.txt")));
-        let it = a.inbox.lock().unwrap().iter().find(|i| i.name.contains("notes.txt")).cloned().unwrap();
+        wait("request", 30, || a.inbox.lock_anyway().iter().any(|i| i.name.contains("notes.txt")));
+        let it = a.inbox.lock_anyway().iter().find(|i| i.name.contains("notes.txt")).cloned().unwrap();
         assert!(Path::new(&it.dir).starts_with(&inbox_a));
         assert_eq!(std::fs::read(Path::new(&it.dir).join("notes.txt")).unwrap(), b"from B");
 
         // switched off: B stops being found
         b.off.store(true, Ordering::Relaxed);
-        la.peers.lock().unwrap().clear();
+        la.peers.lock_anyway().clear();
         std::thread::sleep(Duration::from_secs(7));
         assert!(!la.live_peers().iter().any(|p| p.name == "PCB"), "an engine that is off isn't found");
         let _ = std::fs::remove_dir_all(&root);

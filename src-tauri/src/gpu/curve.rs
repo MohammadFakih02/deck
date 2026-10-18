@@ -161,7 +161,7 @@ pub struct AbPt {
 /// `count` points of three little-endian floats {mV, MHz, delta MHz}; the rest is padding.
 pub fn decode_ab(hex: &str) -> Option<Vec<AbPt>> {
     let hex = hex.trim();
-    if hex.len() < 24 || hex.len() % 2 != 0 {
+    if hex.len() < 24 || !hex.len().is_multiple_of(2) {
         return None;
     }
     let bytes: Vec<u8> = (0..hex.len() / 2).map(|i| u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16)).collect::<Result<_, _>>().ok()?;

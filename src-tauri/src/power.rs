@@ -418,7 +418,7 @@ pub fn start(app: Arc<App>) {
                             }
                         }
                         "app" => {
-                            if tick % 5 == 0 && !a.app.is_empty() && !app.sys.running(&a.app) {
+                            if tick.is_multiple_of(5) && !a.app.is_empty() && !app.sys.running(&a.app) {
                                 a.mode = "off".into();
                                 app.changed("power");
                                 false
@@ -469,7 +469,7 @@ pub fn start(app: Arc<App>) {
                 }
 
                 // ---- plan
-                if tick % 3 == 0 {
+                if tick.is_multiple_of(3) {
                     plan_tick(&app);
                 }
                 // keep plan.json in step with the plan (set, cancelled or done from anywhere)
@@ -477,7 +477,7 @@ pub fn start(app: Arc<App>) {
                 if now_key != saved {
                     let plan = p.plan.lock().clone();
                     let _ = match plan {
-                        Some(pl) => std::fs::write(plan_file(), serde_json::to_string(&pl).unwrap_or_default()),
+                        Some(pl) => crate::util::write_atomic(&plan_file(), serde_json::to_string(&pl).unwrap_or_default().as_bytes()),
                         None => std::fs::remove_file(plan_file()),
                     };
                     saved = now_key;
@@ -485,7 +485,7 @@ pub fn start(app: Arc<App>) {
 
                 // ---- downloads keep-awake: off a minute after the last download it saw ends
                 // (not before one starts, and not in the gap between two files)
-                if tick % 5 == 0 && p.awake.lock().mode == "downloads" {
+                if tick.is_multiple_of(5) && p.awake.lock().mode == "downloads" {
                     let busy = downloading(&app);
                     let mut a = p.awake.lock();
                     let was_seen = a.dl_seen;
@@ -512,7 +512,7 @@ pub fn start(app: Arc<App>) {
                 }
 
                 // ---- breaks
-                if tick % 15 == 0 {
+                if tick.is_multiple_of(15) {
                     breaks_tick(&app);
                 }
             }

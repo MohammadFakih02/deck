@@ -744,6 +744,7 @@ pub fn render(ls: &[Line], st: &OsdStyle) -> String {
     format!("{head}{}", body.join("\n"))
 }
 
+#[cfg(test)]
 pub fn osd_text(items: &[String], st: &OsdStyle, s: &Snap, app: &str) -> String {
     osd_text_width(items, st, s, app).0
 }

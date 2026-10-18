@@ -170,7 +170,7 @@ impl Impact {
     /// Feed the game loudness every ~15 ms; returns (impact 1..0, seconds since the last impact).
     pub fn update(&mut self, level: f32) -> (f32, f32) {
         let now = std::time::Instant::now();
-        let spike = level > 0.3 && level - self.avg > 0.25 && self.last.map_or(true, |t| t.elapsed().as_millis() > 150);
+        let spike = level > 0.3 && level - self.avg > 0.25 && self.last.is_none_or(|t| t.elapsed().as_millis() > 150);
         if spike {
             self.impact = 1.0;
             self.last = Some(now);

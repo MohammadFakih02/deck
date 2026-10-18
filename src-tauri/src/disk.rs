@@ -399,12 +399,12 @@ impl Disk {
             })
             .collect();
         let mut own: Vec<(usize, &FileRec)> = (node.own.0 as usize..node.own.1 as usize).map(|i| (i, &s.files[i])).collect();
-        own.sort_by(|a, b| b.1.size.cmp(&a.1.size));
+        own.sort_by_key(|b| std::cmp::Reverse(b.1.size));
         for (i, f) in own.into_iter().take(300) {
             let name = s.file_name(f).to_string();
             out.push(Entry { id: None, file: Some(i as u32), path: path.join(&name).to_string_lossy().to_string(), name, size: f.size, files: 1, folders: 0, dir: false, keep: false });
         }
-        out.sort_by(|a, b| b.size.cmp(&a.size));
+        out.sort_by_key(|b| std::cmp::Reverse(b.size));
         out.truncate(300);
         for e in &mut out {
             e.keep = protected(&e.path).is_some();
@@ -428,7 +428,7 @@ impl Disk {
         let g = self.scan.lock();
         let Some(s) = g.as_ref() else { return vec![] };
         let mut top: Vec<&FileRec> = s.files.iter().filter(|f| f.size > 50_000_000).collect();
-        top.sort_by(|a, b| b.size.cmp(&a.size));
+        top.sort_by_key(|b| std::cmp::Reverse(b.size));
         top.into_iter()
             .take(100)
             .map(|f| {
@@ -471,7 +471,7 @@ impl Disk {
             stack.extend(n.children.iter().copied());
         }
         let mut v: Vec<(u16, (u64, u64))> = per.into_iter().collect();
-        v.sort_by(|a, b| b.1 .0.cmp(&a.1 .0));
+        v.sort_by_key(|b| std::cmp::Reverse(b.1 .0));
         json!(v.into_iter().take(24).map(|(e, (bytes, count))| json!({
             "ext": s.exts[e as usize].0, "bytes": bytes, "count": count, "color": PALETTE[s.ext_color[e as usize] as usize],
         })).collect::<Vec<_>>())
@@ -595,7 +595,7 @@ fn lay(s: &Scan, id: u32, r: [f64; 4], depth: u8, t: &mut Tm) {
         return;
     }
     let mut items: Vec<(u64, Item)> = n.children.iter().map(|&c| (s.nodes[c as usize].size, Item::Dir(c))).chain((n.own.0..n.own.1).map(|i| (s.files[i as usize].size, Item::File(i)))).filter(|(sz, _)| *sz > 0).collect();
-    items.sort_by(|a, b| b.0.cmp(&a.0));
+    items.sort_by_key(|b| std::cmp::Reverse(b.0));
     let total: u64 = items.iter().map(|i| i.0).sum();
     if total == 0 {
         return;
@@ -686,13 +686,15 @@ pub fn protected(path: &str) -> Option<&'static str> {
         return Some("A whole drive can't be moved to the Recycle Bin");
     }
     let env = |k: &str| std::env::var(k).map(|v| norm(&v)).unwrap_or_default();
-    if within(&env("SystemRoot")) {
+    // Windows' own folders as Windows records them (environment variables can be changed by the user)
+    let known = |p: std::path::PathBuf| norm(&p.display().to_string());
+    if within(&known(crate::util::windows_dir())) {
         return Some("Windows' own files can't be moved to the Recycle Bin");
     }
     let drive = &p[..2];
-    let mut exact = vec![env("ProgramFiles"), env("ProgramFiles(x86)"), env("ProgramData"), env("USERPROFILE"), env("APPDATA"), env("LOCALAPPDATA"), format!("{drive}\\users")];
+    let mut exact = vec![known(crate::util::program_files()), known(crate::util::program_files_x86()), known(crate::util::program_data()), env("USERPROFILE"), env("APPDATA"), env("LOCALAPPDATA"), format!("{drive}\\users")];
     exact.retain(|b| !b.is_empty());
-    if exact.iter().any(|b| p == *b) {
+    if exact.contains(&p) {
         return Some("This folder belongs to Windows; pick something inside it instead");
     }
     for name in ["system volume information", "$recycle.bin", "recovery", "boot", "pagefile.sys", "hiberfil.sys", "swapfile.sys"] {
@@ -706,6 +708,26 @@ pub fn protected(path: &str) -> Option<&'static str> {
 /// Moves files/folders to the Recycle Bin. If Windows can't keep something
 /// there (too big for the bin, or a drive without one) it asks first instead
 /// of deleting it for good.
+/// What actually goes to the Recycle Bin for `p`: where it really is (folder links followed),
+/// refused when that is one of Windows' own places. Deck does this with admin rights, so a path
+/// that only looks harmless (a link inside Downloads) must not reach Windows' files.
+fn recycle_target(p: &str) -> Result<String, String> {
+    let real = crate::fsguard::real_path(std::path::Path::new(p)).map_err(|e| format!("{p}: {e}"))?;
+    // Deck has admin rights: only what the signed-in user could delete themselves
+    if let Err(e) = crate::fsguard::user_may_delete(std::path::Path::new(&real)) {
+        crate::log::warn(format!("refused to recycle {p}: {e}"));
+        return Err(format!("{p}: your account can't delete that"));
+    }
+    let real = real.display().to_string();
+    match protected(&real) {
+        Some(why) => {
+            crate::log::warn(format!("refused to recycle {p}: it is {real}"));
+            Err(why.to_string())
+        }
+        None => Ok(real),
+    }
+}
+
 pub fn recycle(paths: &[String]) -> Result<(), String> {
     use windows::Win32::UI::Shell::{SHFileOperationW, FOF_ALLOWUNDO, FOF_NOCONFIRMATION, FOF_NOERRORUI, FOF_SILENT, FOF_WANTNUKEWARNING, FO_DELETE, SHFILEOPSTRUCTW};
     if paths.is_empty() {
@@ -713,7 +735,7 @@ pub fn recycle(paths: &[String]) -> Result<(), String> {
     }
     let mut from: Vec<u16> = Vec::new();
     for p in paths {
-        from.extend(p.encode_utf16());
+        from.extend(recycle_target(p)?.encode_utf16());
         from.push(0);
     }
     from.push(0);
@@ -866,6 +888,36 @@ mod tests {
         assert_eq!(super::ext_of("README"), "");
         assert_eq!(super::ext_of("archive.tar.gz"), ".gz");
         assert_eq!(super::ext_of("My file.with spaces"), "");
+    }
+
+    /// What is checked is where a path really leads: a folder link to System32 doesn't get a
+    /// Windows file into the Recycle Bin. And Windows' folder comes from Windows, not from an
+    /// environment variable the user can change.
+    #[test]
+    fn a_link_into_windows_is_still_protected() {
+        use std::os::windows::process::CommandExt;
+        let dir = std::env::temp_dir().join(format!("deck-recycle-{}", crate::util::now_ms()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let link = dir.join("old installers");
+        let sys = crate::util::system_dir();
+        let ok = std::process::Command::new("cmd.exe").args(["/c", "mklink", "/J"]).arg(&link).arg(&sys).creation_flags(crate::util::CREATE_NO_WINDOW).output().unwrap();
+        assert!(ok.status.success());
+        let via = link.join("notepad.exe").display().to_string();
+        assert!(super::protected(&via).is_none(), "the path alone looks harmless");
+        assert!(super::recycle_target(&via).is_err(), "where it leads is Windows");
+        let plain = dir.join("setup.exe");
+        std::fs::write(&plain, b"x").unwrap();
+        assert!(super::recycle_target(&plain.display().to_string()).is_ok());
+        let old = std::env::var_os("SystemRoot");
+        std::env::set_var("SystemRoot", r"Q:\nowhere");
+        let still = super::protected(&sys.join("notepad.exe").display().to_string()).is_some();
+        match old {
+            Some(v) => std::env::set_var("SystemRoot", v),
+            None => std::env::remove_var("SystemRoot"),
+        }
+        assert!(still, "Windows' folder isn't taken from SystemRoot");
+        let _ = std::fs::remove_dir(&link);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

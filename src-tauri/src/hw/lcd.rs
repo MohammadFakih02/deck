@@ -304,7 +304,7 @@ pub fn frame(p: &DisplayParams, t: f64, inp: &DispIn) -> [Option<Rgb>; LEDS] {
             put_number(&mut lit, 0, false, h as i32, base);
             put_char(&mut lit, 0, 3, char::from_digit(inp.min / 10, 10).unwrap_or('0'), base);
             put_char(&mut lit, 0, 4, char::from_digit(inp.min % 10, 10).unwrap_or('0'), base);
-            if inp.sec % 2 == 0 {
+            if inp.sec.is_multiple_of(2) {
                 lit[deg_c(0)] = Some(base); // blinking separator
             }
             match p.clock_bottom.as_str() {

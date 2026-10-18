@@ -136,7 +136,7 @@ pub fn codec_string(sps: &[u8]) -> String {
 fn avcc_sample(d: &[u8]) -> Vec<u8> {
     let mut v = Vec::with_capacity(d.len());
     for n in nals(d) {
-        if matches!(nal_type(d, n), 7 | 8 | 9) {
+        if matches!(nal_type(d, n), 7..=9) {
             continue;
         }
         v.extend_from_slice(&((n.1 - n.0) as u32).to_be_bytes());
@@ -332,10 +332,6 @@ pub struct Encoder {
     mft: IMFTransform,
     api: Option<ICodecAPI>,
     events: Option<IMFMediaEventGenerator>,
-    pub name: String,
-    pub hardware: bool,
-    pub w: u32,
-    pub h: u32,
     fps: u32,
     kbps: u32,
     need_input: u32,
@@ -349,6 +345,7 @@ pub struct Encoder {
 
 impl Encoder {
     /// Opens `cand` for `w`×`h` (even numbers) at `fps` and `kbps`, Main profile.
+    #[cfg(test)]
     pub fn open(cand: &Cand, w: u32, h: u32, fps: u32, kbps: u32) -> Result<Encoder, String> {
         Encoder::open_as(cand, w, h, fps, kbps, false)
     }
@@ -431,10 +428,6 @@ impl Encoder {
                 mft,
                 api,
                 events,
-                name: cand.name.clone(),
-                hardware: cand.hardware,
-                w,
-                h,
                 fps,
                 kbps,
                 need_input: if is_async { 0 } else { 1 },
@@ -473,10 +466,6 @@ impl Encoder {
                 let _ = api.SetValue(&CODECAPI_AVEncCommonMeanBitRate, &variant_u32(kbps * 1000));
             }
         }
-    }
-
-    pub fn kbps(&self) -> u32 {
-        self.kbps
     }
 
     /// Feeds one NV12 picture. Returns the pictures that came out (usually one; none when the
@@ -648,6 +637,7 @@ pub fn plan(kbps: u32, wanted_fps: u32, smooth: bool, max_w: u32, native: (u32, 
 }
 
 /// Even picture height for a width (the monitor's shape).
+#[cfg(test)]
 pub fn height_for(w: u32, native: (u32, u32)) -> u32 {
     ((w as f64 * native.1 as f64 / native.0.max(1) as f64).round() as u32).max(2) & !1
 }
@@ -740,7 +730,7 @@ mod tests {
         assert!(w60 < w);
         // sharp keeps the picture and drops frames
         let (w, fps) = plan(1_000, 30, false, 2560, native);
-        assert!(w >= 854 && fps < 30 && fps >= 5, "{w} {fps}");
+        assert!(w >= 854 && (5..30).contains(&fps), "{w} {fps}");
         let (w, fps) = plan(8_000, 30, false, 2560, native);
         assert!(w >= 1600 && fps >= 20, "{w} {fps}");
         // the picture-size setting caps it

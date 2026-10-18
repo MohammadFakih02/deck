@@ -1,6 +1,10 @@
 // Regression checks for Deck's UI shell, run against the fake backend:
 //   node regress.mjs           prints PASS/FAIL per check, exit code 1 on any failure
 import { openDeck } from "./harness.mjs";
+// the fake backend answers at once, so the waits below are mostly for redraws: run them at 30%
+// (SLEEP_SCALE=1 restores the full waits on a slow machine); `real` waits are timed against a slow answer
+process.env.SLEEP_SCALE ??= "0.3";
+const real = (ms) => new Promise((r) => setTimeout(r, ms));
 const d = await openDeck({ port: +(process.env.PORT || 9371) });
 let failed = 0;
 const check = (name, ok, info = "") => { console.log(`${ok ? "PASS" : "FAIL"}  ${name}${info ? "  (" + info + ")" : ""}`); if (!ok) failed++; };
@@ -139,10 +143,10 @@ await d.ev(`(() => {
   window.__realInvoke = real;
 })()`);
 await d.ev(`(() => { const q = document.getElementById("q"); q.focus(); q.value = "2+2"; q.dispatchEvent(new Event("input")); })()`);
-await d.sleep(700);
+await real(700);
 await d.ev(`(() => { const q = document.getElementById("q"); q.value = "2+23"; q.dispatchEvent(new Event("input")); })()`);
 await d.key("Enter", "Enter", 13);
-await d.sleep(800);
+await real(800);
 const copied = await d.ev(`window.__copied.join(",")`);
 check("Enter after typing uses the new query's answer", copied === "25", `copied: ${copied || "nothing"}`);
 await d.ev(`(() => { T.core.invoke = window.__realInvoke; const q = document.getElementById("q"); q.value = ""; q.dispatchEvent(new Event("input")); })()`);
@@ -215,8 +219,8 @@ await d.ev(`document.querySelectorAll(".modal-back").forEach((m) => m.remove())`
 const both = await d.ev(`fetch("js/profiles.js").then((r) => r.text()).then((s) => (s.match(/wide: true, keep: true/g) || []).length)`);
 check("both profile editors are kept while hidden", both === 2, `found ${both}`);
 
-// 15. The sidebar: Notes is gone; Snap zones and Workspaces are tabs of Windows, Locked files and
-//     Windows panels tabs of Tools.
+// 15. The sidebar: Notes is gone; Snap zones and Workspaces are tabs of Windows; Tools is one page
+//     with parts (Screen tools, Locked files, Windows panels).
 await d.ev(`go("windows")`);
 await d.sleep(400);
 const nav = await d.ev(`[...document.querySelectorAll("#side .nav span")].map((x) => x.textContent)`);
@@ -224,9 +228,10 @@ const wtabs = await d.ev(`[...document.querySelectorAll(".page-head .seg button"
 await d.ev(`go("tools")`);
 await d.sleep(400);
 const ttabs = await d.ev(`[...document.querySelectorAll(".page-head .seg button")].map((x) => x.textContent).join("|")`);
+const tsecs = await d.ev(`[...document.querySelectorAll(".tl-head h2")].map((x) => x.textContent).join("|")`);
 check("sidebar merges Windows and Tools pages and drops Notes",
   nav.includes("Windows") && nav.includes("Tools") && !["Notes", "Snap zones", "Workspaces", "Screen tools", "Locked files", "Windows panels"].some((x) => nav.includes(x))
-    && wtabs === "Open windows|Snap zones|Workspaces" && ttabs === "Screen tools|Locked files|Windows panels", `${wtabs} / ${ttabs}`);
+    && wtabs === "Open windows|Snap zones|Workspaces" && ttabs === "" && tsecs === "Screen tools|Locked files|Windows panels", `${wtabs} / ${ttabs} / ${tsecs}`);
 await d.ev(`(async () => { window.__mockCalls.length = 0; await go("settings"); })()`);
 await d.sleep(300);
 const tileNames = await d.ev(`document.querySelector(".content").textContent.includes("Quick note")`);
@@ -267,8 +272,8 @@ const gpuTips = await d.ev(`document.querySelectorAll(".modal .help-q").length`)
 await d.ev(`document.querySelectorAll(".modal-back").forEach((m) => m.remove())`);
 check("CPU and GPU editors explain each setting", cpuTips >= 14 && gpuTips >= 10 && !!card && gone, `cpu ${cpuTips}, gpu ${gpuTips}, card "${card}"`);
 
-// 18. The overlay font is a real list (a text box with suggestions only offered the font already typed).
-await d.ev(`(async () => { await go("overlay"); })()`);
+// 18. The overlay font is a real list of every installed font (on the Look tab, where the font control lives).
+await d.ev(`(async () => { S.cache.ovTab = "look"; await go("overlay"); })()`);
 await d.sleep(700);
 const fonts = await d.ev(`(() => { const s = document.querySelector("select.ov-font"); return s ? s.options.length : 0; })()`);
 check("overlay font offers every font, not just the one chosen", fonts > 10, `${fonts} options`);
@@ -295,7 +300,7 @@ const graphs = await d.ev(`(async () => { await go("sensors"); S.cache.sensTab =
   return { panels: [...document.querySelectorAll(".pgrid > .pg-panel")].map((p) => p.dataset.panel).join(","), low: document.querySelector(".ft-fig.lo .num")?.textContent }; })()`);
 check("Sensors graphs include power and frametimes with the lows", graphs.panels.includes("power") && graphs.panels.includes("frames") && graphs.low === "88", JSON.stringify(graphs));
 
-const grp = await d.ev(`(async () => { await go("overlay"); S.cache.ovSel = new Set(); render(); await new Promise((r) => setTimeout(r, 300));
+const grp = await d.ev(`(async () => { S.cache.ovTab = "items"; await go("overlay"); S.cache.ovSel = new Set(); render(); await new Promise((r) => setTimeout(r, 300));
   for (const n of ["GPU temp", "CPU temp"]) { document.querySelector('[aria-label="Select ' + n + '"]').click(); await new Promise((r) => setTimeout(r, 150)); }
   const bar = document.querySelector(".ov-selbar b")?.textContent;
   await setSetting("osd_style", { ...ovStyleNow(), groups: { gpu_temp: "TEMP", cpu_temp: "TEMP" } }); await ovRefresh(); render(); await new Promise((r) => setTimeout(r, 300));
@@ -303,6 +308,35 @@ const grp = await d.ev(`(async () => { await go("overlay"); S.cache.ovSel = new 
   await setSetting("osd_style", { ...ovStyleNow(), groups: {} }); S.cache.ovSel = new Set();
   return { bar, lines: lines.join("|") }; })()`);
 check("overlay items can be picked together and put on one line", grp.bar === "2 selected" && grp.lines.split("|").includes("TEMP"), JSON.stringify(grp));
+
+// The tick box's larger click area (the label around it) picks an item exactly once, and again un-picks it.
+const tick = await d.ev(`(async () => { S.cache.ovTab = "items"; await go("overlay"); S.cache.ovSel = new Set(); render(); await new Promise((r) => setTimeout(r, 300));
+  const wrap = () => document.querySelector('[aria-label="Select GPU temp"]').closest(".ov-checkwrap");
+  wrap().click(); await new Promise((r) => setTimeout(r, 150));
+  const one = [...S.cache.ovSel].join(","), box = document.querySelector('[aria-label="Select GPU temp"]').checked;
+  wrap().click(); await new Promise((r) => setTimeout(r, 150));
+  const r = wrap().getBoundingClientRect();
+  return { one, box, after: S.cache.ovSel.size, w: Math.round(r.width), h: Math.round(r.height) }; })()`);
+check("overlay tick box: its 24px click area picks once and un-picks", tick.one === "gpu_temp" && tick.box === true && tick.after === 0 && tick.w >= 24 && tick.h >= 24, JSON.stringify(tick));
+
+// Synced Claude Code settings that would change what Claude Code runs wait on the Status tab for an OK.
+const held = await d.ev(`(async () => { S.cache.csTab = "status"; await go("claudesync"); await new Promise((r) => setTimeout(r, 400));
+  const alert = document.querySelector('.panel [role="alert"]')?.textContent || "";
+  const apply = [...document.querySelectorAll(".panel button")].find((b) => b.textContent.trim() === "Apply");
+  apply?.click(); await new Promise((r) => setTimeout(r, 400));
+  return { alert: /settings\\.json/.test(alert) && /LAPTOP/.test(alert), applied: window.__R?.__csHeldApply ?? null, gone: !document.querySelector('.panel [role="alert"]') }; })()`);
+check("Claude Code sync: held settings wait for an OK and Apply sends it", held.alert && held.gone, JSON.stringify(held));
+
+// A huge clipboard item (a whole log copied) only puts a short preview on the page; Copy still uses all of it.
+const huge = await d.ev(`(async () => { await go("clipboard"); const big = "x".repeat(199990) + " the end";
+  S.cache.clipAll = [{ id: 99999, kind: "text", text: big, files: [], app: "Test", ts: Date.now() / 1000, pinned: false }, ...(S.cache.clipAll || [])];
+  S.cache.clipSel = 99999; render(); await new Promise((r) => setTimeout(r, 200));
+  const card = [...document.querySelectorAll(".clip .txt")].map((e) => e.textContent.length);
+  const pre = document.querySelector(".content pre")?.textContent.length || 0;
+  const t0 = performance.now(); render(); await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))); const ms = performance.now() - t0;
+  S.cache.clipAll = S.cache.clipAll.filter((c) => c.id !== 99999); S.cache.clipSel = null; render();
+  return { card: Math.max(...card), pre, ms: Math.round(ms) }; })()`);
+check("a huge clipboard item shows a short preview, not all of it", huge.card <= 1000 && huge.pre <= 20100 && huge.pre > 0, JSON.stringify(huge));
 
 check("no script errors", d.logs.length === 0, d.logs.slice(0, 3).join(" | "));
 d.close();

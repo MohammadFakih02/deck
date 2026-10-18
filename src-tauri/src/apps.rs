@@ -96,7 +96,7 @@ fn enumerate() -> Vec<AppEntry> {
             out.push(AppEntry { id, name, path, store });
         }
     }
-    out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    out.sort_by_key(|a| a.name.to_lowercase());
     out.dedup_by(|a, b| a.name == b.name && a.path == b.path);
     out
 }

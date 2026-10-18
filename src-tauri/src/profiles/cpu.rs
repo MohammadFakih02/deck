@@ -75,34 +75,126 @@ pub fn read_plan(g: &GUID, into: &mut CpuProfile) {
     into.epp = ac(&EPP[0]).map(|v| v.min(100));
 }
 
-/// Writes a profile's plan values into its plan: plugged-in (AC) always; the battery (DC) value
-/// only for fields that differ from `prev` (what the user changed), so a laptop keeps its own
-/// battery settings. `prev` None = this profile is new: nothing on battery changes.
-pub fn write_plan(p: &CpuProfile, prev: Option<&CpuProfile>) -> Result<GUID, String> {
-    let g = plans::parse(&p.plan).ok_or("This profile has no Windows power plan.")?;
+/// What `write_plan` writes: (setting, value, on battery too). Plugged-in (AC) always. On battery
+/// (DC) everything when `battery_too` (Settings → "Profiles also apply on battery"); otherwise
+/// only the fields that differ from `prev` (what the user just changed), so the plan keeps its own
+/// battery values (`prev` None = a new profile: nothing on battery changes).
+fn plan_values(p: &CpuProfile, prev: Option<&CpuProfile>, battery_too: bool) -> Vec<(GUID, u32, bool)> {
     let caps = |q: &CpuProfile| if hybrid() { (q.cap_e, q.cap_p) } else { (q.cap_p.or(q.cap_e), q.cap_p.or(q.cap_e)) };
     let (c0, c1) = caps(p);
     let old = prev.map(|q| (caps(q), q.max_state, q.min_state, q.turbo, q.min_cores, q.epp));
-    let put = |s: &GUID, v: u32, changed: bool| if changed { plans::write(&g, s, v) } else { plans::write_ac(&g, s, v) };
-    let ch = |f: &dyn Fn(&((Option<u32>, Option<u32>), u32, u32, u32, u32, Option<u32>)) -> bool| old.as_ref().map(f).unwrap_or(false);
-    put(&FREQ_MAX[0], c0.unwrap_or(0), ch(&|o| o.0 .0 != c0))?;
-    put(&FREQ_MAX[1], c1.unwrap_or(0), ch(&|o| o.0 .1 != c1))?;
+    let ch = |f: &dyn Fn(&((Option<u32>, Option<u32>), u32, u32, u32, u32, Option<u32>)) -> bool| battery_too || old.as_ref().map(f).unwrap_or(false);
+    let mut out = vec![(FREQ_MAX[0], c0.unwrap_or(0), ch(&|o| o.0 .0 != c0)), (FREQ_MAX[1], c1.unwrap_or(0), ch(&|o| o.0 .1 != c1))];
     for s in STATE_MAX {
-        put(&s, p.max_state.clamp(1, 100), ch(&|o| o.1 != p.max_state))?;
+        out.push((s, p.max_state.clamp(1, 100), ch(&|o| o.1 != p.max_state)));
     }
     for s in STATE_MIN {
-        put(&s, p.min_state.min(p.max_state), ch(&|o| o.2 != p.min_state))?;
+        out.push((s, p.min_state.min(p.max_state), ch(&|o| o.2 != p.min_state)));
     }
-    put(&BOOST_MODE, p.turbo.min(6), ch(&|o| o.3 != p.turbo))?;
+    out.push((BOOST_MODE, p.turbo.min(6), ch(&|o| o.3 != p.turbo)));
     for s in MIN_CORES {
-        put(&s, p.min_cores.min(100), ch(&|o| o.4 != p.min_cores))?;
+        out.push((s, p.min_cores.min(100), ch(&|o| o.4 != p.min_cores)));
     }
     if let Some(e) = p.epp {
         for s in EPP {
-            put(&s, e.min(100), ch(&|o| o.5 != p.epp))?;
+            out.push((s, e.min(100), ch(&|o| o.5 != p.epp)));
+        }
+    }
+    out
+}
+
+/// Writes a profile's values into its plan (see `plan_values`).
+pub fn write_plan(p: &CpuProfile, prev: Option<&CpuProfile>, battery_too: bool) -> Result<GUID, String> {
+    let g = plans::parse(&p.plan).ok_or("This profile has no Windows power plan.")?;
+    for (s, v, dc) in plan_values(p, prev, battery_too) {
+        if dc {
+            plans::write(&g, &s, v)?;
+        } else {
+            plans::write_ac(&g, &s, v)?;
         }
     }
     Ok(g)
+}
+
+fn battery_too(app: &App) -> bool {
+    app.settings.lock().cpu_battery_same
+}
+
+/// Plugged in (Some(true)), on battery (Some(false)); None on a PC without a battery or when
+/// Windows doesn't know.
+pub fn plugged_in() -> Option<bool> {
+    use windows::Win32::System::Power::{GetSystemPowerStatus, SYSTEM_POWER_STATUS};
+    let mut s = SYSTEM_POWER_STATUS::default();
+    unsafe { GetSystemPowerStatus(&mut s) }.ok()?;
+    if s.BatteryFlag & 128 != 0 || s.BatteryFlag == 255 {
+        return None;
+    }
+    match s.ACLineStatus {
+        1 => Some(true),
+        0 => Some(false),
+        _ => None,
+    }
+}
+
+/// The profile to switch to when the power source went from `was` to `now` (plugged in = true):
+/// only on a change, so a profile picked by hand afterwards stays until the next one.
+fn power_switch(was: Option<bool>, now: Option<bool>, plugged: &str, battery: &str) -> Option<String> {
+    let (was, now) = (was?, now?);
+    if was == now {
+        return None;
+    }
+    let id = if now { plugged } else { battery };
+    (!id.is_empty()).then(|| id.to_string())
+}
+
+/// The power source the watcher has acted on.
+static POWER: Mutex<Option<bool>> = Mutex::new(None);
+
+/// One look at the power source: what to remember as seen, and the profile to switch to.
+/// While `held` (hardware settings wait for the user, or Game boost holds the plan) the change is
+/// not used up: it switches once the hold ends, if the PC is still on that power source.
+/// A profile that no longer exists is not switched to.
+fn power_step(seen: Option<bool>, now: Option<bool>, held: bool, plugged: &str, battery: &str, exists: impl Fn(&str) -> bool) -> (Option<bool>, Option<String>) {
+    if now.is_none() || held {
+        return (seen, None);
+    }
+    (now, power_switch(seen, now, plugged, battery).filter(|id| exists(id)))
+}
+
+fn power_tick(app: &App) {
+    let now = plugged_in();
+    let held = crate::app::hw_held() || crate::boost::is_on();
+    let id = {
+        let s = app.settings.lock();
+        let mut p = POWER.lock();
+        let (seen, id) = power_step(*p, now, held, &s.cpu_plugged_profile, &s.cpu_battery_profile, |id| s.cpu_profiles.iter().any(|x| x.id == id));
+        *p = seen;
+        id
+    };
+    if let Some(id) = id {
+        super::switch(app, "cpu", &id, if now == Some(true) { "plugged in" } else { "on battery" });
+    }
+}
+
+/// "Profiles also apply on battery" was turned on: the active profile's values reach the battery now.
+pub fn rewrite_active(app: &App) {
+    // hardware settings changed outside Deck wait for the user's Apply
+    if crate::app::hw_held() {
+        return;
+    }
+    let p = {
+        let s = app.settings.lock();
+        s.cpu_profiles.iter().find(|p| p.id == s.active_cpu).cloned()
+    };
+    if let Some(p) = p {
+        let _one = SWITCH.lock();
+        // only the plan in use is made active again (the user may have picked another one outside Deck)
+        if let Ok(g) = write_plan(&p, Some(&p), battery_too(app)) {
+            if plans::active() == Some(g) {
+                let _ = activate(&g);
+            }
+        }
+    }
 }
 
 /// A profile has a clock cap that Game Mode would undo.
@@ -249,7 +341,7 @@ pub fn apply(app: &App, p: &CpuProfile) -> Result<String, String> {
     }
     let p = &ensure_plan(app, p)?;
     // the profile is the source of truth: put its values back into the plan
-    let g = write_plan(p, Some(p))?;
+    let g = write_plan(p, Some(p), battery_too(app))?;
     activate(&g)?;
     let notes = apply_extras(app, Some(p));
     let sum = super::cpu_summary(p);
@@ -261,7 +353,7 @@ pub fn apply(app: &App, p: &CpuProfile) -> Result<String, String> {
 pub fn save(app: &App, p: &CpuProfile, prev: Option<&CpuProfile>) -> Result<(), String> {
     let _one = SWITCH.lock();
     let p = &ensure_plan(app, p)?;
-    let g = write_plan(p, prev)?;
+    let g = write_plan(p, prev, battery_too(app))?;
     plans::rename(&g, &format!("Deck · {}", p.name)).ok();
     if plans::active() == Some(g) {
         activate(&g)?;
@@ -332,6 +424,12 @@ pub fn remove(app: &App, id: &str, delete_plan: bool) -> Result<(), String> {
     if s.active_cpu == id {
         s.active_cpu.clear();
     }
+    if s.cpu_plugged_profile == id {
+        s.cpu_plugged_profile.clear();
+    }
+    if s.cpu_battery_profile == id {
+        s.cpu_battery_profile.clear();
+    }
     Ok(())
 }
 
@@ -390,15 +488,15 @@ fn tick(app: &App) {
         follow_plan(app);
     }
     clock_tick(app);
+    power_tick(app);
 }
 
 /// Picks up a plan change made outside Deck (Windows settings, another tool, a shortcut).
 fn follow_plan(app: &App) {
     let cur = plans::active();
     let seen = *WATCH.lock();
-    if cur.is_some() && cur != seen {
+    if let Some(g) = cur.filter(|_| cur != seen) {
         *WATCH.lock() = cur;
-        let g = cur.unwrap();
         let (prof, active) = {
             let s = app.settings.lock();
             (s.cpu_profiles.iter().find(|p| plans::parse(&p.plan) == Some(g)).cloned(), s.active_cpu.clone())
@@ -489,6 +587,47 @@ pub fn probe() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn profiles_reach_the_battery_settings_unless_the_user_keeps_windows_own() {
+        let p = CpuProfile { cap_p: Some(3500), cap_e: Some(2600), max_state: 90, turbo: 1, ..Default::default() };
+        let all = plan_values(&p, Some(&p), true);
+        assert!(!all.is_empty() && all.iter().all(|w| w.2), "switching writes the battery values too");
+        assert!(plan_values(&p, Some(&p), false).iter().all(|w| !w.2), "kept: switching leaves Windows' battery values alone");
+        let before = CpuProfile { cap_p: Some(4000), ..p.clone() };
+        let edited: Vec<GUID> = plan_values(&p, Some(&before), false).into_iter().filter(|w| w.2).map(|w| w.0).collect();
+        assert!(!edited.is_empty() && edited.iter().all(|g| FREQ_MAX.contains(g)), "kept: an edit still reaches the battery, only what changed");
+    }
+
+    #[test]
+    fn plugging_in_and_out_switches_to_the_chosen_profile() {
+        assert_eq!(power_switch(None, Some(false), "full", "eco"), None, "Deck just started: the profile in use stays");
+        assert_eq!(power_switch(Some(true), Some(false), "full", "eco"), Some("eco".into()));
+        assert_eq!(power_switch(Some(false), Some(true), "full", "eco"), Some("full".into()));
+        assert_eq!(power_switch(Some(false), Some(false), "full", "eco"), None, "no change: a profile picked by hand stays");
+        assert_eq!(power_switch(Some(true), Some(false), "full", ""), None, "nothing chosen for battery");
+        assert_eq!(power_switch(Some(true), None, "full", "eco"), None, "power source unknown (no battery)");
+    }
+
+    #[test]
+    fn a_power_change_while_held_waits_until_the_hold_ends() {
+        let ok = |_: &str| true;
+        // unplugged while Game boost (or a held hardware change) is on: nothing switches, nothing is used up
+        assert_eq!(power_step(Some(true), Some(false), true, "full", "eco", ok), (Some(true), None));
+        // the hold ends while still on battery: the battery profile comes now
+        assert_eq!(power_step(Some(true), Some(false), false, "full", "eco", ok), (Some(false), Some("eco".into())));
+        // plugged back in during the hold and it ended: nothing changed overall, nothing switches
+        assert_eq!(power_step(Some(true), Some(true), false, "full", "eco", ok), (Some(true), None));
+        // power source unknown: what was seen stays
+        assert_eq!(power_step(Some(true), None, false, "full", "eco", ok), (Some(true), None));
+    }
+
+    #[test]
+    fn a_deleted_profile_is_not_switched_to() {
+        let only_full = |id: &str| id == "full";
+        assert_eq!(power_step(Some(true), Some(false), false, "full", "gone", only_full), (Some(false), None));
+        assert_eq!(power_step(Some(false), Some(true), false, "full", "gone", only_full), (Some(true), Some("full".into())));
+    }
 
     #[test]
     fn power_modes() {

@@ -310,10 +310,8 @@ pub fn start(app: Arc<App>) {
                             }
                         }
                     }
-                    WM_TIMER if msg.wParam == retry_timer => {
-                        if bound.iter().any(|b| !b.3) {
-                            register(&mut bound, true);
-                        }
+                    WM_TIMER if msg.wParam == retry_timer && bound.iter().any(|b| !b.3) => {
+                        register(&mut bound, true);
                     }
                     _ => {}
                 }

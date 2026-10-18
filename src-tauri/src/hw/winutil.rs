@@ -10,6 +10,7 @@ pub fn set_notify(f: Notify) {
 }
 
 pub fn notify(title: &str, text: &str) {
+    crate::log::info(format!("hardware: {title}: {text}"));
     if let Some(f) = NOTIFY.get() {
         f(title, text);
     }

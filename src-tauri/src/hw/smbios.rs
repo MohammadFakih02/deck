@@ -24,7 +24,7 @@ impl Info {
     pub fn form_factor(&self) -> &'static str {
         match self.chassis {
             8 | 9 | 10 | 14 => "Laptop",
-            30 | 31 | 32 => "Tablet / 2-in-1",
+            30..=32 => "Tablet / 2-in-1",
             3 | 4 | 5 | 6 | 7 | 15 | 16 | 35 | 36 => "Desktop",
             13 => "All-in-one",
             17 | 23 | 28 | 29 => "Server",

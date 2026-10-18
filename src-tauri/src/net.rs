@@ -112,7 +112,7 @@ struct CancelReader<'a> {
 impl Read for CancelReader<'_> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         if self.stop.load(Ordering::SeqCst) {
-            return Err(std::io::Error::new(std::io::ErrorKind::Other, CANCELLED));
+            return Err(std::io::Error::other(CANCELLED));
         }
         let n = buf.len().min(64 * 1024);
         self.inner.read(&mut buf[..n])

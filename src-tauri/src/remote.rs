@@ -139,7 +139,11 @@ fn allow_program(rule: &str, protocol: &str) {
     }
     let _ = crate::util::run_hidden("netsh.exe", &["advfirewall", "firewall", "delete", "rule", rule]);
     let prog = format!("program={exe}");
-    let _ = crate::util::run_hidden("netsh.exe", &["advfirewall", "firewall", "add", "rule", rule, "dir=in", "action=allow", &prog, &format!("protocol={protocol}"), "profile=private,domain", "enable=yes"]);
+    let added = crate::util::run_hidden("netsh.exe", &["advfirewall", "firewall", "add", "rule", rule, "dir=in", "action=allow", &prog, &format!("protocol={protocol}"), "profile=private,domain", "enable=yes"]);
+    match added {
+        Ok(o) if o.status.success() => crate::log::info(format!("firewall rule \"{}\" set for this exe ({protocol})", rule.trim_start_matches("name="))),
+        _ => crate::log::warn(format!("firewall rule \"{}\" couldn't be added", rule.trim_start_matches("name="))),
+    }
 }
 
 pub fn start(app: Arc<App>, remote: Arc<Remote>) {
@@ -172,6 +176,7 @@ pub fn start(app: Arc<App>, remote: Arc<Remote>) {
             .route("/ws", get(ws))
             .route("/screen", get(screen_ws))
             .route("/audio", get(audio_ws))
+            .route("/session", post(session))
             .route("/check", get(check))
             .route("/upload", post(upload).get(upload_have))
             .route("/file/{id}", get(file))
@@ -183,6 +188,7 @@ pub fn start(app: Arc<App>, remote: Arc<Remote>) {
             .route("/h264dec-2.js", get(|| async { ([(header::CONTENT_TYPE, "text/javascript"), (header::CACHE_CONTROL, "max-age=31536000, immutable")], H264_DEC) }))
             .route("/tailscale", get(tailscale_page))
             .route("/manifest.webmanifest", get(manifest))
+            .layer(axum::middleware::from_fn(guard))
             .with_state(app.clone());
         // no Nagle: the Screen view's pictures and the phone's answers go out at once (the last
         // part of each picture otherwise waits for the phone's delayed acknowledgement)
@@ -206,7 +212,23 @@ pub fn stop(remote: &Remote) {
 }
 
 async fn page() -> impl IntoResponse {
-    ([(header::CACHE_CONTROL, "no-store")], Html(PHONE_HTML))
+    static CSP: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    let csp = CSP.get_or_init(|| crate::phoneauth::csp_for(PHONE_HTML)).clone();
+    ([(header::CACHE_CONTROL, "no-store".to_string()), (header::CONTENT_SECURITY_POLICY, csp)], Html(PHONE_HTML))
+}
+
+/// Every request: refused unless it names this PC (see `phoneauth::host_ok`), and every answer
+/// tells the browser not to guess types or pass the address on.
+async fn guard(req: axum::extract::Request, next: axum::middleware::Next) -> Response {
+    let host = req.headers().get(header::HOST).and_then(|h| h.to_str().ok()).unwrap_or("");
+    if !crate::phoneauth::host_ok(host) {
+        return (StatusCode::MISDIRECTED_REQUEST, "Open the phone remote by this PC's address").into_response();
+    }
+    let mut resp = next.run(req).await;
+    let h = resp.headers_mut();
+    h.insert(header::X_CONTENT_TYPE_OPTIONS, header::HeaderValue::from_static("nosniff"));
+    h.insert(header::REFERRER_POLICY, header::HeaderValue::from_static("no-referrer"));
+    resp
 }
 
 async fn png(bytes: &'static [u8]) -> impl IntoResponse {
@@ -251,7 +273,8 @@ a.b.p{{background:#4f8cff;border-color:#4f8cff;color:#fff}}small{{display:block;
 <script>var a=/android/i.test(navigator.userAgent),i=/iphone|ipad|ipod/i.test(navigator.userAgent)||(navigator.platform==="MacIntel"&&navigator.maxTouchPoints>1);
 document.querySelectorAll(a?".android":i?".ios":".android,.ios").forEach(function(e){{e.style.display="block"}});</script>
 </body></html>"##);
-    ([(header::CACHE_CONTROL, "no-store")], Html(html))
+    let csp = crate::phoneauth::csp_for(&html);
+    ([(header::CACHE_CONTROL, "no-store".to_string()), (header::CONTENT_SECURITY_POLICY, csp)], Html(html))
 }
 
 async fn service_worker() -> impl IntoResponse {
@@ -279,9 +302,12 @@ async fn manifest() -> impl IntoResponse {
     ([(header::CONTENT_TYPE, "application/manifest+json")], m.to_string())
 }
 
+/// A request's signature (see `phoneauth`): session, counter, MAC.
 #[derive(Deserialize)]
 struct Key {
-    k: Option<String>,
+    s: Option<String>,
+    c: Option<String>,
+    m: Option<String>,
     name: Option<String>,
     /// resumable upload: the phone's id for the file (name, size and date), its size, and where this piece starts
     id: Option<String>,
@@ -401,16 +427,32 @@ fn refuse(up: WebSocketUpgrade, why: String) -> Response {
     })
 }
 
-fn authorized(app: &App, k: &Option<String>) -> bool {
-    let t = app.settings.lock().remote_token.clone();
-    k.as_deref() == Some(t.as_str())
+static SESSIONS: Mutex<crate::phoneauth::Sessions> = parking_lot::const_mutex(crate::phoneauth::Sessions::new());
+
+/// Whether a request for `path` is signed by a page that knows the phone key (see `phoneauth`).
+/// `repeatable`: a plain read the browser may ask for again with the same signature.
+fn verdict(app: &App, s: &Option<String>, c: &Option<String>, m: &Option<String>, path: &str, repeatable: bool) -> crate::phoneauth::Verdict {
+    let token = app.settings.lock().remote_token.clone();
+    let counter = c.as_deref().and_then(|c| c.parse().ok()).unwrap_or(0);
+    SESSIONS.lock().check(&token, s.as_deref().unwrap_or(""), counter, m.as_deref().unwrap_or(""), path, repeatable)
 }
 
+fn authorized(app: &App, s: &Option<String>, c: &Option<String>, m: &Option<String>, path: &str, repeatable: bool) -> bool {
+    verdict(app, s, c, m, path, repeatable) == crate::phoneauth::Verdict::Ok
+}
+
+/// A new session for a phone page (an id, not a secret: what proves the key is the signature).
+async fn session() -> impl IntoResponse {
+    ([(header::CACHE_CONTROL, "no-store")], SESSIONS.lock().open())
+}
+
+/// Whether the page still has the right key: 204 yes, 401 no (the PC made a new code), 409 its
+/// session is gone (Deck restarted) and it should open a new one.
 async fn check(State(app): State<St>, Query(q): Query<Key>) -> StatusCode {
-    if authorized(&app, &q.k) {
-        StatusCode::NO_CONTENT
-    } else {
-        StatusCode::UNAUTHORIZED
+    match verdict(&app, &q.s, &q.c, &q.m, "/check", false) {
+        crate::phoneauth::Verdict::Ok => StatusCode::NO_CONTENT,
+        crate::phoneauth::Verdict::Refused => StatusCode::UNAUTHORIZED,
+        crate::phoneauth::Verdict::NoSession => StatusCode::CONFLICT,
     }
 }
 
@@ -443,30 +485,45 @@ fn unique(dir: &std::path::Path, name: &str) -> PathBuf {
 /// Uploads stop when the drive would have less than this left.
 const KEEP_FREE: u64 = 2 << 30;
 
-/// Where a resumable upload collects its pieces (in the inbox folder, hidden by its name).
-fn upload_part(id: &str) -> Option<PathBuf> {
+/// The name a resumable upload collects its pieces under (in the inbox folder, hidden by its name).
+fn upload_part(id: &str) -> Option<String> {
     let ok = !id.is_empty() && id.len() <= 80 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
-    ok.then(|| inbox_dir().join(format!(".deck-upload-{id}.part")))
+    ok.then(|| format!(".deck-upload-{id}.part"))
+}
+
+/// The inbox folder, made if needed and held open. Deck has admin rights and the folder is the
+/// user's (even where Downloads is, is theirs to change), so it must be a folder they could write
+/// in themselves, and files are written relative to the held folder.
+fn open_inbox() -> std::io::Result<crate::fsguard::Dir> {
+    crate::fsguard::open_for_user(&inbox_dir())
+}
+
+fn file_name(p: &std::path::Path) -> String {
+    p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()
 }
 
 /// How much of a resumable upload the PC already has (the phone asks before sending, and again
 /// after a dropped connection, so nothing is sent twice). Parts nobody came back for in 3 days go.
 async fn upload_have(State(app): State<St>, ConnectInfo(addr): ConnectInfo<SocketAddr>, Query(q): Query<Key>) -> Response {
-    if !authorized(&app, &q.k) {
+    if !authorized(&app, &q.s, &q.c, &q.m, "/upload", false) {
         return (StatusCode::UNAUTHORIZED, "bad key").into_response();
     }
     if let Err(why) = allowed(&app, addr.ip()) {
         return (StatusCode::FORBIDDEN, why).into_response();
     }
-    if let Ok(rd) = std::fs::read_dir(inbox_dir()) {
+    let Ok(d) = open_inbox() else {
+        return (StatusCode::INTERNAL_SERVER_ERROR, "can't open folder").into_response();
+    };
+    if let Ok(rd) = std::fs::read_dir(d.real()) {
         for e in rd.flatten() {
             let old = e.metadata().and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).is_some_and(|d| d > Duration::from_secs(3 * 86400));
-            if old && e.file_name().to_string_lossy().starts_with(".deck-upload-") {
-                let _ = std::fs::remove_file(e.path());
+            let name = e.file_name().to_string_lossy().to_string();
+            if old && name.starts_with(".deck-upload-") {
+                let _ = d.remove(&name);
             }
         }
     }
-    let have = q.id.as_deref().and_then(upload_part).and_then(|p| std::fs::metadata(p).ok()).map(|m| m.len()).unwrap_or(0);
+    let have = q.id.as_deref().and_then(upload_part).and_then(|p| d.len(&p).ok()).unwrap_or(0);
     axum::Json(json!({ "have": have })).into_response()
 }
 
@@ -475,11 +532,11 @@ async fn upload_have(State(app): State<St>, ConnectInfo(addr): ConnectInfo<Socke
 async fn upload_piece(app: &App, q: &Key, id: &str, body: Body) -> Response {
     let Some(part) = upload_part(id) else { return (StatusCode::BAD_REQUEST, "bad id").into_response() };
     let (size, off) = (q.size.unwrap_or(0), q.off.unwrap_or(0));
-    let dir = inbox_dir();
-    if tokio::fs::create_dir_all(&dir).await.is_err() {
+    let Ok(d) = open_inbox() else {
         return (StatusCode::INTERNAL_SERVER_ERROR, "can't create folder").into_response();
-    }
-    let have = tokio::fs::metadata(&part).await.map(|m| m.len()).unwrap_or(0);
+    };
+    let dir = d.real().to_path_buf();
+    let have = d.len(&part).unwrap_or(0);
     if off != have {
         return (StatusCode::CONFLICT, axum::Json(json!({ "have": have }))).into_response();
     }
@@ -492,15 +549,14 @@ async fn upload_piece(app: &App, q: &Key, id: &str, body: Body) -> Response {
     if have + bytes.len() as u64 > size {
         return (StatusCode::BAD_REQUEST, "more than the file's size").into_response();
     }
-    let Ok(mut f) = tokio::fs::OpenOptions::new().create(true).append(true).open(&part).await else {
+    let Ok(f) = d.append(&part) else {
         return (StatusCode::INTERNAL_SERVER_ERROR, "can't write").into_response();
     };
+    let mut f = tokio::fs::File::from_std(f);
     if f.write_all(&bytes).await.is_err() || f.flush().await.is_err() {
         drop(f);
         // whatever of this piece got written is cut off again: the phone resends the whole piece
-        if let Ok(f) = std::fs::OpenOptions::new().write(true).open(&part) {
-            let _ = f.set_len(have);
-        }
+        let _ = d.truncate(&part, have);
         return (StatusCode::INTERNAL_SERVER_ERROR, "disk full?").into_response();
     }
     drop(f);
@@ -510,7 +566,7 @@ async fn upload_piece(app: &App, q: &Key, id: &str, body: Body) -> Response {
     }
     let name = safe_name(q.name.as_deref().unwrap_or("file"));
     let path = unique(&dir, &name);
-    if tokio::fs::rename(&part, &path).await.is_err() {
+    if d.rename(&part, &file_name(&path), false).is_err() {
         return (StatusCode::INTERNAL_SERVER_ERROR, "can't save").into_response();
     }
     received(app, &path, size);
@@ -534,7 +590,7 @@ fn received(app: &App, path: &std::path::Path, size: u64) {
 }
 
 async fn upload(State(app): State<St>, ConnectInfo(addr): ConnectInfo<SocketAddr>, Query(q): Query<Key>, body: Body) -> Response {
-    if !authorized(&app, &q.k) {
+    if !authorized(&app, &q.s, &q.c, &q.m, "/upload", false) {
         return (StatusCode::UNAUTHORIZED, "bad key").into_response();
     }
     if let Err(why) = allowed(&app, addr.ip()) {
@@ -544,22 +600,23 @@ async fn upload(State(app): State<St>, ConnectInfo(addr): ConnectInfo<SocketAddr
     if let Some(id) = q.id.clone() {
         return upload_piece(&app, &q, &id, body).await;
     }
-    let dir = inbox_dir();
-    if tokio::fs::create_dir_all(&dir).await.is_err() {
+    let Ok(d) = open_inbox() else {
         return (StatusCode::INTERNAL_SERVER_ERROR, "can't create folder").into_response();
-    }
+    };
+    let dir = d.real().to_path_buf();
     let name = safe_name(q.name.as_deref().unwrap_or("file"));
     let path = unique(&dir, &name);
-    let part = path.with_extension(format!("{}.part", path.extension().map(|e| e.to_string_lossy().to_string()).unwrap_or_default()));
-    let Ok(mut f) = tokio::fs::File::create(&part).await else {
+    let part = file_name(&path.with_extension(format!("{}.part", path.extension().map(|e| e.to_string_lossy().to_string()).unwrap_or_default())));
+    let Ok(f) = d.create(&part, true) else {
         return (StatusCode::INTERNAL_SERVER_ERROR, "can't write").into_response();
     };
+    let mut f = tokio::fs::File::from_std(f);
     let mut stream = body.into_data_stream();
     let mut size = 0u64;
     let mut checked = 0u64;
     while let Some(chunk) = stream.next().await {
         let Ok(chunk) = chunk else {
-            let _ = tokio::fs::remove_file(&part).await;
+            let _ = d.remove(&part);
             return (StatusCode::BAD_REQUEST, "upload interrupted").into_response();
         };
         size += chunk.len() as u64;
@@ -568,18 +625,18 @@ async fn upload(State(app): State<St>, ConnectInfo(addr): ConnectInfo<SocketAddr
             checked = size;
             if crate::util::free_bytes(&dir).is_some_and(|free| free < KEEP_FREE + chunk.len() as u64) {
                 drop(f);
-                let _ = tokio::fs::remove_file(&part).await;
+                let _ = d.remove(&part);
                 return (StatusCode::INSUFFICIENT_STORAGE, "The PC's drive is almost full").into_response();
             }
         }
         if f.write_all(&chunk).await.is_err() {
-            let _ = tokio::fs::remove_file(&part).await;
+            let _ = d.remove(&part);
             return (StatusCode::INTERNAL_SERVER_ERROR, "disk full?").into_response();
         }
     }
     let _ = f.flush().await;
     drop(f);
-    if tokio::fs::rename(&part, &path).await.is_err() {
+    if d.rename(&part, &file_name(&path), false).is_err() {
         return (StatusCode::INTERNAL_SERVER_ERROR, "can't save").into_response();
     }
     received(&app, &path, size);
@@ -598,7 +655,7 @@ pub fn push_shared(app: &App, mut s: Shared) {
 }
 
 async fn file(State(app): State<St>, ConnectInfo(addr): ConnectInfo<SocketAddr>, AxPath(id): AxPath<u64>, Query(q): Query<Key>, headers: axum::http::HeaderMap) -> Response {
-    if !authorized(&app, &q.k) {
+    if !authorized(&app, &q.s, &q.c, &q.m, &format!("/file/{id}"), true) {
         return (StatusCode::UNAUTHORIZED, "bad key").into_response();
     }
     if let Err(why) = allowed(&app, addr.ip()) {
@@ -614,7 +671,9 @@ async fn file(State(app): State<St>, ConnectInfo(addr): ConnectInfo<SocketAddr>,
 /// `on_end` runs once the file's last byte has gone out (a whole download, or the end of a continued one).
 pub(crate) async fn serve_file(path: &str, name: &str, headers: &axum::http::HeaderMap, on_end: Option<Box<dyn FnOnce() + Send>>) -> Response {
     use tokio::io::AsyncSeekExt;
-    let Ok(mut f) = tokio::fs::File::open(path).await else { return (StatusCode::NOT_FOUND, "gone").into_response() };
+    // Deck has admin rights: only a file the signed-in user could open themselves goes out
+    let Ok(f) = crate::fsguard::open_read_for_user(std::path::Path::new(path)) else { return (StatusCode::NOT_FOUND, "gone").into_response() };
+    let mut f = tokio::fs::File::from_std(f);
     let len = f.metadata().await.map(|m| m.len()).unwrap_or(0);
     // "bytes=START-" or "bytes=START-END" (one range; anything else gets the whole file)
     let range = headers.get(header::RANGE).and_then(|v| v.to_str().ok()).and_then(|r| r.strip_prefix("bytes=")).and_then(|r| {
@@ -682,7 +741,7 @@ pub(crate) fn pct(s: &str) -> String {
 }
 
 async fn ws(State(app): State<St>, ConnectInfo(addr): ConnectInfo<SocketAddr>, Query(q): Query<Key>, up: WebSocketUpgrade) -> Response {
-    if !authorized(&app, &q.k) {
+    if !authorized(&app, &q.s, &q.c, &q.m, "/ws", false) {
         return (StatusCode::UNAUTHORIZED, "bad key").into_response();
     }
     let reg = match admit(&app, addr.ip()) {
@@ -698,7 +757,7 @@ async fn ws(State(app): State<St>, ConnectInfo(addr): ConnectInfo<SocketAddr>, Q
 /// from home (buttons lagged, text didn't get through, the Screen view starved).
 static ART: parking_lot::Mutex<(u64, String)> = parking_lot::const_mutex((0, String::new()));
 
-fn art_link(app: &App, media: &mut Value) {
+fn art_link(media: &mut Value) {
     let Some(a) = media.pointer_mut("/current/art") else { return };
     let Some(s) = a.as_str().filter(|s| s.starts_with("data:")) else { return };
     // FNV-1a: the link changes when the picture does
@@ -709,11 +768,12 @@ fn art_link(app: &App, media: &mut Value) {
             *g = (h, s.to_string());
         }
     }
-    *a = json!(format!("/art?h={h:x}&k={}", pct(&app.settings.lock().remote_token)));
+    // the page adds its signature (see `phoneauth`)
+    *a = json!(format!("/art?h={h:x}"));
 }
 
 async fn art(State(app): State<St>, ConnectInfo(addr): ConnectInfo<SocketAddr>, Query(q): Query<Key>) -> Response {
-    if !authorized(&app, &q.k) {
+    if !authorized(&app, &q.s, &q.c, &q.m, "/art", true) {
         return (StatusCode::UNAUTHORIZED, "bad key").into_response();
     }
     if let Err(why) = allowed(&app, addr.ip()) {
@@ -756,7 +816,7 @@ fn phone_state(app: &App) -> Value {
         })
     };
     let mut media = app.media.state();
-    art_link(app, &mut media);
+    art_link(&mut media);
     json!({
         "t": "state",
         "pc": std::env::var("COMPUTERNAME").unwrap_or_default(),
@@ -778,13 +838,15 @@ fn phone_state(app: &App) -> Value {
 
 #[derive(Deserialize)]
 struct AudioQuery {
-    k: Option<String>,
+    s: Option<String>,
+    c: Option<String>,
+    m: Option<String>,
     /// best, good or low (see `screencast::start_sound`)
     q: Option<String>,
 }
 
 async fn audio_ws(State(app): State<St>, ConnectInfo(addr): ConnectInfo<SocketAddr>, Query(q): Query<AudioQuery>, up: WebSocketUpgrade) -> Response {
-    if !authorized(&app, &q.k) {
+    if !authorized(&app, &q.s, &q.c, &q.m, "/audio", false) {
         return (StatusCode::UNAUTHORIZED, "bad key").into_response();
     }
     if app.settings.lock().remote_screen == "off" {
@@ -830,7 +892,9 @@ async fn audio_client(mut socket: WebSocket, app: Arc<App>, quality: String, _re
 
 #[derive(serde::Deserialize)]
 struct ScreenQuery {
-    k: Option<String>,
+    s: Option<String>,
+    c: Option<String>,
+    m: Option<String>,
     /// video the phone can decode: h264w (WebCodecs), h264s (the page's decoder), h264m (Media
     /// Source), or jpeg
     v: Option<String>,
@@ -841,7 +905,7 @@ struct ScreenQuery {
 }
 
 async fn screen_ws(State(app): State<St>, ConnectInfo(addr): ConnectInfo<SocketAddr>, Query(q): Query<ScreenQuery>, up: WebSocketUpgrade) -> Response {
-    if !authorized(&app, &q.k) {
+    if !authorized(&app, &q.s, &q.c, &q.m, "/screen", false) {
         return (StatusCode::UNAUTHORIZED, "bad key").into_response();
     }
     if app.settings.lock().remote_screen == "off" {
@@ -1010,6 +1074,11 @@ async fn client(mut socket: WebSocket, app: Arc<App>, reg: Registered) {
     app.changed("remote");
 }
 
+/// The phone's complete capability allow-list, and therefore a trust boundary: an authenticated
+/// phone may do exactly what this match permits and nothing else. Anything not listed here is a
+/// PC-only (`Caller::Local`) capability reachable only from Deck's own window. Before adding an arm,
+/// check it is safe to expose to a paired phone — the `"toast"` arm, in particular, re-checks the
+/// caller tier via `app::toast_allowed` because it can otherwise reach PC-only actions (see S5).
 fn handle(app: &Arc<App>, v: &Value) -> Option<Value> {
     let a = v.get("a").and_then(Value::as_str).unwrap_or("");
     let s = |k: &str| v.get(k).and_then(Value::as_str).unwrap_or("").to_string();
@@ -1080,7 +1149,8 @@ fn handle(app: &Arc<App>, v: &Value) -> Option<Value> {
             }
         }
         "toast" => {
-            app.toast_action(&s("id"), &s("do"));
+            // the phone answers only its own kind of notification (see app::toast_allowed)
+            app.toast_action_as(crate::app::Caller::Phone, &s("id"), &s("do"));
             Ok(())
         }
         // Full power on/off or Clean up; takes a few seconds, the result comes as a toast.

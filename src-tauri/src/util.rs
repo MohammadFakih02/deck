@@ -14,6 +14,19 @@ use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 
 pub const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
+/// A std mutex's guard even when another thread panicked while holding it. A failed hardware
+/// worker or sync thread must not take down the next user of its lock (the tray menu, a page):
+/// the data is still there, as the panicking thread left it.
+pub trait LockAnyway<T> {
+    fn lock_anyway(&self) -> std::sync::MutexGuard<'_, T>;
+}
+
+impl<T> LockAnyway<T> for std::sync::Mutex<T> {
+    fn lock_anyway(&self) -> std::sync::MutexGuard<'_, T> {
+        self.lock().unwrap_or_else(|e| e.into_inner())
+    }
+}
+
 /// COM for the calling thread (multithreaded apartment). Harmless when the
 /// thread already has COM in either mode.
 pub fn com() {
@@ -55,6 +68,71 @@ pub fn appdata() -> PathBuf {
 
 pub fn downloads() -> PathBuf {
     home().join("Downloads")
+}
+
+/// A Windows folder as Windows itself records it. Not from environment variables: the signed-in
+/// user can set those (an elevated Deck inherits them), and the elevated Deck must not follow them
+/// to programs, drivers or libraries.
+fn known_folder(id: &windows::core::GUID, fallback: &str) -> PathBuf {
+    use windows::Win32::UI::Shell::{SHGetKnownFolderPath, KF_FLAG_DEFAULT};
+    unsafe { SHGetKnownFolderPath(id, KF_FLAG_DEFAULT, None).ok().map(|p| take_pwstr(p)) }
+        .filter(|s| !s.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(fallback))
+}
+
+pub fn program_files() -> PathBuf {
+    known_folder(&windows::Win32::UI::Shell::FOLDERID_ProgramFiles, r"C:\Program Files")
+}
+
+pub fn program_files_x86() -> PathBuf {
+    known_folder(&windows::Win32::UI::Shell::FOLDERID_ProgramFilesX86, r"C:\Program Files (x86)")
+}
+
+pub fn program_data() -> PathBuf {
+    known_folder(&windows::Win32::UI::Shell::FOLDERID_ProgramData, r"C:\ProgramData")
+}
+
+/// The Windows folder.
+pub fn windows_dir() -> PathBuf {
+    known_folder(&windows::Win32::UI::Shell::FOLDERID_Windows, r"C:\Windows")
+}
+
+/// Windows' System32 folder.
+pub fn system_dir() -> PathBuf {
+    known_folder(&windows::Win32::UI::Shell::FOLDERID_System, r"C:\Windows\System32")
+}
+
+/// Where a vendor library (GPU drivers' DLLs) may be loaded from: Windows' own folder, and for
+/// NVIDIA's management library also NVIDIA's folder under Program Files (older drivers put it
+/// there). Never a bare name: that would also search the current folder and PATH, which the
+/// signed-in user controls, and Deck loads these with admin rights. Empty for anything that isn't
+/// a plain file name.
+pub fn trusted_dll_paths(name: &str) -> Vec<PathBuf> {
+    let plain = !name.is_empty() && !name.contains(['\\', '/', ':']) && name != "." && name != "..";
+    if !plain {
+        return vec![];
+    }
+    let mut out = vec![system_dir().join(name)];
+    if name.eq_ignore_ascii_case("nvml.dll") {
+        out.push(program_files().join("NVIDIA Corporation").join("NVSMI").join(name));
+    }
+    out
+}
+
+/// Loads a vendor library from the first of its trusted places (see `trusted_dll_paths`) that
+/// has it; its own dependencies come from its folder and System32 only. Null when none has it.
+pub fn load_trusted_dll(name: &str) -> *mut std::ffi::c_void {
+    use windows_sys::Win32::System::LibraryLoader::{LoadLibraryExW, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR, LOAD_LIBRARY_SEARCH_SYSTEM32};
+    use std::os::windows::ffi::OsStrExt;
+    for p in trusted_dll_paths(name).into_iter().filter(|p| p.is_file()) {
+        let w: Vec<u16> = p.as_os_str().encode_wide().chain(Some(0)).collect();
+        let h = unsafe { LoadLibraryExW(w.as_ptr(), std::ptr::null_mut(), LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32) };
+        if !h.is_null() {
+            return h as *mut _;
+        }
+    }
+    std::ptr::null_mut()
 }
 
 /// Takes ownership of a CoTaskMem string.
@@ -122,28 +200,46 @@ fn shell_exec(file: &str, args: &str, dir: &str) -> Result<(), String> {
     }
 }
 
+/// Tries `attempt` up to `tries` times, `wait` apart (Explorer may be restarting, which Deck itself
+/// does when it applies a setup). There is no fallback: the caller gets an error instead.
+fn retry_as_user(mut attempt: impl FnMut() -> Result<(), String>, tries: u32, wait: std::time::Duration) -> Result<(), String> {
+    let mut last = String::new();
+    for i in 0..tries.max(1) {
+        if i > 0 {
+            std::thread::sleep(wait);
+        }
+        match attempt() {
+            Ok(()) => return Ok(()),
+            Err(e) => last = e,
+        }
+    }
+    crate::log::warn(format!("open as the user: Explorer didn't answer ({last})"));
+    Err(format!("Windows Explorer isn't answering ({last}), and Deck won't open this with its admin rights. Try again in a moment."))
+}
+
 /// Starts a program, file or link the way Explorer would, **without** Deck's admin rights:
 /// when Deck is elevated the request is handed to Explorer (which runs as the normal user)
-/// through its shell automation object. Falls back to a plain ShellExecute.
+/// through its shell automation object. If Explorer can't take it, this fails rather than start
+/// the target elevated.
 pub fn launch_as_user(file: &str, args: &str, dir: &str) -> Result<(), String> {
     if !crate::elevation::is_admin() {
         return shell_exec(file, args, dir);
     }
-    let (f, a, d) = (file.to_string(), args.to_string(), dir.to_string());
-    // shell automation objects want a fresh single-threaded apartment
-    let r = std::thread::spawn(move || {
-        com_sta();
-        unsafe { via_explorer(&f, &a, &d) }
-    })
-    .join()
-    .unwrap_or_else(|_| Err(windows::core::Error::from_hresult(windows::Win32::Foundation::E_FAIL)));
-    match r {
-        Ok(()) => Ok(()),
-        Err(e) => {
-            eprintln!("launch_as_user via Explorer failed ({e}); starting with Deck's rights");
-            shell_exec(file, args, dir)
-        }
-    }
+    retry_as_user(
+        || {
+            let (f, a, d) = (file.to_string(), args.to_string(), dir.to_string());
+            // shell automation objects want a fresh single-threaded apartment
+            std::thread::spawn(move || {
+                com_sta();
+                unsafe { via_explorer(&f, &a, &d) }
+            })
+            .join()
+            .unwrap_or_else(|_| Err(windows::core::Error::from_hresult(windows::Win32::Foundation::E_FAIL)))
+            .map_err(|e| e.message())
+        },
+        6,
+        std::time::Duration::from_millis(500),
+    )
 }
 
 unsafe fn via_explorer(file: &str, args: &str, dir: &str) -> windows::core::Result<()> {
@@ -235,11 +331,32 @@ pub fn free_bytes(path: &std::path::Path) -> Option<u64> {
     Some(free)
 }
 
+const TOKEN_CHARS: &[u8] = b"abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+
+/// A random token of `n` characters. Panics if Windows' random number generator fails: a token made
+/// without it would be guessable (the phone's key and share links are tokens).
 pub fn random_token(n: usize) -> String {
-    const A: &[u8] = b"abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-    let mut buf = vec![0u8; n];
-    let _ = getrandom::fill(&mut buf);
-    buf.iter().map(|b| A[*b as usize % A.len()] as char).collect()
+    let mut out = String::with_capacity(n);
+    let mut buf = [0u8; 64];
+    while out.len() < n {
+        getrandom::fill(&mut buf).expect("the system's random number generator failed");
+        out.extend(buf.iter().filter_map(|b| token_char(*b)).take(n - out.len()));
+    }
+    out
+}
+
+/// The token character for one random byte, or None for the top bytes that would make the first
+/// characters more likely than the others (256 isn't a multiple of the alphabet's size).
+fn token_char(b: u8) -> Option<char> {
+    let keep = 256 - 256 % TOKEN_CHARS.len();
+    ((b as usize) < keep).then(|| TOKEN_CHARS[b as usize % TOKEN_CHARS.len()] as char)
+}
+
+/// Replaces `path` with `data` so that a crash leaves either the old file or the new one, never a
+/// cut-off mix. Deck's own files live in the user's folders while Deck has admin rights, so this
+/// writes only where the signed-in user could write themselves (see crate::fsguard).
+pub fn write_atomic(path: &Path, data: &[u8]) -> std::io::Result<()> {
+    crate::fsguard::write_for_user(path, data)
 }
 
 pub fn base64(data: &[u8]) -> String {
@@ -303,12 +420,6 @@ bG8="), Some(b"hello".to_vec()));
 
 #[cfg(test)]
 mod free_space_tests {
-    #[test]
-    fn free_space_is_read() {
-        let free = super::free_bytes(&std::env::temp_dir()).expect("free space of the temp drive");
-        assert!(free > 0);
-        assert!(super::free_bytes(std::path::Path::new("Q:/no/such/drive")).is_none());
-    }
 }
 
 /// Whether a row of Windows' adapter table is a real network adapter whose traffic counts once:
@@ -359,5 +470,165 @@ impl NetCounter {
         }
         self.prev = now;
         (rx, tx)
+    }
+}
+
+#[cfg(test)]
+mod token_tests {
+    #[test]
+    fn every_character_is_equally_likely() {
+        // 256 isn't a multiple of the alphabet's 55 characters: the top bytes must be thrown away,
+        // or the first characters come up more often than the rest
+        let keep = 256 - 256 % super::TOKEN_CHARS.len();
+        assert!(super::token_char((keep - 1) as u8).is_some());
+        for b in keep..256 {
+            assert!(super::token_char(b as u8).is_none(), "byte {b} would bias the token");
+        }
+        let t = super::random_token(64);
+        assert_eq!(t.chars().count(), 64);
+        assert!(t.bytes().all(|c| super::TOKEN_CHARS.contains(&c)));
+    }
+}
+
+#[cfg(test)]
+mod atomic_tests {
+    /// A reader that looks while the file is being replaced sees the whole old or the whole new
+    /// file, never a cut-off one (what a crash in the middle of a save would leave behind).
+    #[test]
+    fn a_reader_never_sees_a_half_written_file() {
+        let dir = std::env::temp_dir().join(format!("deck-atomic-{}", super::now_ms()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("a.json");
+        let (a, b) = (vec![b'a'; 4 << 20], vec![b'b'; 4 << 20]);
+        super::write_atomic(&f, &a).unwrap();
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let reader = {
+            let (f, stop) = (f.clone(), stop.clone());
+            std::thread::spawn(move || {
+                let mut torn = 0;
+                while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                    if let Ok(d) = std::fs::read(&f) {
+                        if d.len() != 4 << 20 {
+                            torn += 1;
+                        }
+                    }
+                }
+                torn
+            })
+        };
+        for i in 0..30 {
+            super::write_atomic(&f, if i % 2 == 0 { &b } else { &a }).unwrap();
+        }
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        assert_eq!(reader.join().unwrap(), 0, "the reader saw a cut-off file");
+        let names: Vec<String> = std::fs::read_dir(&dir).unwrap().flatten().map(|e| e.file_name().to_string_lossy().to_string()).collect();
+        assert_eq!(names, vec!["a.json".to_string()], "no temp file left over");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod as_user_tests {
+    use std::cell::Cell;
+    use std::time::Duration;
+
+    /// When Explorer can't take the request (not running, restarting), the launch fails after a
+    /// few tries; it never falls back to starting the target with Deck's admin rights.
+    #[test]
+    fn a_failing_explorer_is_retried_then_refused() {
+        let tries = Cell::new(0);
+        let r = super::retry_as_user(
+            || {
+                tries.set(tries.get() + 1);
+                Err("no Explorer".into())
+            },
+            4,
+            Duration::ZERO,
+        );
+        assert_eq!(tries.get(), 4);
+        assert!(r.unwrap_err().contains("Explorer"));
+    }
+
+    #[test]
+    fn explorer_coming_back_is_waited_for() {
+        let tries = Cell::new(0);
+        let r = super::retry_as_user(
+            || {
+                tries.set(tries.get() + 1);
+                if tries.get() < 3 {
+                    Err("restarting".into())
+                } else {
+                    Ok(())
+                }
+            },
+            6,
+            Duration::ZERO,
+        );
+        assert!(r.is_ok());
+        assert_eq!(tries.get(), 3);
+    }
+}
+
+#[cfg(test)]
+mod trusted_path_tests {
+    use std::path::Path;
+
+    /// The folders come from Windows, not from environment variables the signed-in user can set
+    /// (an elevated Deck inherits the user's variables).
+    #[test]
+    fn system_folders_ignore_the_environment() {
+        let fake = std::env::temp_dir().join("deck-fake-pf86");
+        let old = std::env::var_os("ProgramFiles(x86)");
+        std::env::set_var("ProgramFiles(x86)", &fake);
+        let pf86 = super::program_files_x86();
+        match old {
+            Some(v) => std::env::set_var("ProgramFiles(x86)", v),
+            None => std::env::remove_var("ProgramFiles(x86)"),
+        }
+        assert_ne!(pf86, fake);
+        for p in [super::program_files(), super::program_files_x86(), super::program_data(), super::system_dir()] {
+            assert!(p.is_absolute() && p.is_dir(), "{p:?}");
+        }
+        assert!(super::system_dir().join("kernel32.dll").is_file());
+    }
+
+    /// Vendor libraries are looked for only in Windows' own folder (and NVIDIA's management folder
+    /// under Program Files), never by a bare name that would search the current folder or PATH.
+    #[test]
+    fn vendor_libraries_come_only_from_trusted_folders() {
+        let sys = super::system_dir();
+        let nvsmi = super::program_files().join("NVIDIA Corporation").join("NVSMI");
+        let c = super::trusted_dll_paths("nvml.dll");
+        assert_eq!(c, vec![sys.join("nvml.dll"), nvsmi.join("nvml.dll")]);
+        assert_eq!(super::trusted_dll_paths("nvapi64.dll"), vec![sys.join("nvapi64.dll")]);
+        for bad in [r"..\nvml.dll", "sub/nvml.dll", r"C:\x\nvml.dll", "nvml.dll:evil", ""] {
+            assert!(super::trusted_dll_paths(bad).is_empty(), "{bad} must be refused");
+        }
+        assert!(!super::load_trusted_dll("kernel32.dll").is_null());
+        assert!(super::load_trusted_dll("deck-no-such-library.dll").is_null());
+        assert!(super::load_trusted_dll(r"..\kernel32.dll").is_null());
+        assert!(Path::new(&sys).is_absolute());
+    }
+}
+
+#[cfg(test)]
+mod poison_tests {
+    use super::LockAnyway;
+
+    /// A thread that panicked while holding a lock (a hardware worker, the sync engine) doesn't
+    /// take the next user of that lock down with it (the tray menu, a page refresh).
+    #[test]
+    fn a_poisoned_lock_still_opens() {
+        let m = std::sync::Arc::new(std::sync::Mutex::new(5));
+        let m2 = m.clone();
+        let _ = std::thread::spawn(move || {
+            let _g = m2.lock().unwrap();
+            panic!("a worker failed while holding the lock");
+        })
+        .join();
+        assert!(m.is_poisoned());
+        assert_eq!(*m.lock_anyway(), 5);
+        *m.lock_anyway() = 6;
+        assert_eq!(*m.lock_anyway(), 6);
     }
 }

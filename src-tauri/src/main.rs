@@ -1,18 +1,30 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+// House style, on purpose: worker and protocol functions take their context as plain arguments,
+// hardware code indexes registers by number, and a few settings structs are filled field by field
+// after Default. CI denies every other warning (`cargo clippy -- -D warnings`).
+#![allow(clippy::too_many_arguments, clippy::type_complexity, clippy::needless_range_loop, clippy::field_reassign_with_default)]
 
+use crate::util::LockAnyway;
 mod app;
 mod apps;
 mod audio;
+mod audiocmd;
 mod beam;
 mod ccsync;
 mod boost;
+mod boostcmd;
 mod calc;
 mod cleanup;
 mod clipboard;
 mod disk;
+mod diskcmd;
+mod fsguard;
+mod kdf;
+mod log;
 mod support;
 mod mft;
 mod display;
+mod displaycmd;
 mod elevation;
 mod files;
 mod gameping;
@@ -24,6 +36,9 @@ mod hwcmd;
 mod locksmith;
 mod media;
 mod net;
+mod netcmd;
+mod phoneauth;
+mod phonecmd;
 mod picker;
 mod power;
 mod profcmd;
@@ -34,11 +49,14 @@ mod screencast;
 mod remote;
 mod osd;
 mod rtss;
+mod seal;
 mod settings;
 mod share;
 mod startup;
 mod sys;
+mod syscmd;
 mod util;
+mod watchdog;
 mod webview_guard;
 mod winmgr;
 
@@ -114,10 +132,10 @@ fn show_deck(handle: &AppHandle, page: Option<&str>) {
         // the pin keeps the app window above other windows (in the quick panel it keeps it open)
         let _ = w.set_always_on_top(PINNED.load(Ordering::Relaxed));
         if !app.is_visible() {
-            let fit = rect.and_then(|r| {
+            let fit = rect.map(|r| {
                 let (_, wk, _) = monitor_info(POINT { x: r[0] + r[2] / 2, y: r[1] + r[3] / 2 }, false);
                 let (ww, wh) = (r[2].max(700).min(wk.right - wk.left), r[3].max(500).min(wk.bottom - wk.top));
-                Some([r[0].min(wk.right - ww).max(wk.left), r[1].min(wk.bottom - wh).max(wk.top), ww, wh])
+                [r[0].min(wk.right - ww).max(wk.left), r[1].min(wk.bottom - wh).max(wk.top), ww, wh]
             });
             let [x, y, ww, wh] = fit.unwrap_or_else(|| {
                 let ww = ((1280.0 * scale) as i32).min(work.right - work.left - 40);
@@ -399,6 +417,20 @@ fn shutdown_hardware(session_end: bool) {
     gpu::release();
     rtss::stop();
     hw::stop();
+    // released: the watchdog has nothing to do
+    watchdog::clean_exit();
+}
+
+/// Fans back to the BIOS, the GPU fan back to the driver, Game Mode back to the user's setting
+/// (after a crash, from uninstall.ps1, or by the watchdog when Deck was ended from outside).
+fn release_everything() -> String {
+    let msg = if elevation::is_admin() { hw::release_fans_direct() } else { "Needs admin rights.".into() };
+    gpu::FAN_MANUAL.store(true, Ordering::SeqCst);
+    gpu::CLOCK_LOCKED.store(true, Ordering::SeqCst);
+    gpu::release();
+    let s = settings::Settings::load();
+    profiles::cpu::restore_game_mode(s.game_mode_orig);
+    msg
 }
 
 /// Changes one setting (by key) and applies its side effects.
@@ -435,6 +467,10 @@ fn set_setting(handle: AppHandle, app: A, remote: State<Arc<Remote>>, key: Strin
         }
         "theme_auto" | "light_at" | "dark_at" | "theme_mode" => display::theme_schedule_changed(&app),
         "hotkeys_on" | "osd_hotkey" | "osd_reset_hotkey" | "limiter_hotkey" | "open_hotkey" => profiles::hotkeys::reload(),
+        "cpu_battery_same" if value.as_bool() == Some(true) => {
+            let a = app.inner().clone();
+            std::thread::spawn(move || profiles::cpu::rewrite_active(&a));
+        }
         "mode" if app.is_visible() => {
             // re-open in the new mode
             let h = handle.clone();
@@ -450,7 +486,7 @@ fn set_setting(handle: AppHandle, app: A, remote: State<Arc<Remote>>, key: Strin
             let st = app.settings.lock().osd_style.clone();
             if (rtss::look_edits(&st), st.all_games) != (rtss::look_edits(&old_style), old_style.all_games) {
                 if let Err(e) = rtss::apply_look(&st) {
-                    eprintln!("overlay look: {e}");
+                    log::warn(format!("overlay look: {e}"));
                 }
             }
             rtss::refresh_now();
@@ -479,7 +515,7 @@ async fn search(app: A<'_>, q: String) -> R<Value> {
         .into_iter()
         .filter_map(|e| files::score_loose(&e.name, &q).map(|s| (s + app.frecency(&format!("app:{}", e.id)), e)))
         .collect();
-    apps.sort_by(|a, b| b.0.cmp(&a.0));
+    apps.sort_by_key(|b| std::cmp::Reverse(b.0));
     apps.truncate(if q.is_empty() { 0 } else { 8 });
     let calc = calc::eval(&q).map(|v| json!({ "value": calc::fmt_num(v), "raw": v }));
     let conv = calc::base_convert(&q).or_else(|| calc::convert(&q, &app.rates)).map(|(a, d)| json!({ "value": a, "detail": d }));
@@ -502,7 +538,7 @@ async fn search(app: A<'_>, q: String) -> R<Value> {
                 None => files::score_loose(&g.name, &q).map(|s| (s, g)),
             })
             .collect();
-        g.sort_by(|a, b| b.0.cmp(&a.0));
+        g.sort_by_key(|b| std::cmp::Reverse(b.0));
         g.into_iter().take(4).map(|(s, g)| json!({ "score": s, "game": g })).collect()
     } else {
         Vec::new()
@@ -588,35 +624,6 @@ fn open_system(handle: AppHandle, what: String) -> R<()> {
 #[tauri::command]
 async fn games_list() -> R<Vec<games::Game>> {
     Ok(games::installed())
-}
-
-// ---- audio / media
-
-#[tauri::command]
-async fn audio_state() -> R<Value> {
-    Ok(json!({ "outputs": audio::outputs(), "master": audio::master(), "apps": audio::apps() }))
-}
-
-#[tauri::command]
-async fn set_output(app: A<'_>, id: String) -> R<()> {
-    audio::set_default_output(&id)?;
-    app.changed("audio");
-    Ok(())
-}
-
-#[tauri::command]
-async fn set_master(vol: Option<f32>, muted: Option<bool>) -> R<()> {
-    audio::set_master(vol, muted)
-}
-
-#[tauri::command]
-async fn set_app_volume(key: String, vol: Option<f32>, muted: Option<bool>) -> R<()> {
-    audio::set_app(&key, vol, muted)
-}
-
-#[tauri::command]
-async fn media_control(app: A<'_>, id: String, action: String, pos: Option<f64>) -> R<()> {
-    app.media.control(&id, &action, pos)
 }
 
 // ---- clipboard
@@ -759,7 +766,7 @@ fn stopwatch(app: A, cmd: String) {
 
 #[tauri::command]
 fn toast_action(app: A, id: String, action: String) {
-    app.toast_action(&id, &action);
+    app.toast_action_as(app::Caller::Local, &id, &action);
 }
 
 #[tauri::command]
@@ -825,155 +832,6 @@ fn ws_open(handle: AppHandle, app: A, id: String) -> R<()> {
     Ok(())
 }
 
-// ---- disk & cleanup
-
-#[tauri::command]
-fn disk_scan(app: A, root: String) {
-    let a = app.inner().clone();
-    app.disk.start(root, move || a.changed("disk"));
-    app.changed("disk");
-}
-
-#[tauri::command]
-fn disk_status(app: A) -> Value {
-    app.disk.status()
-}
-
-#[tauri::command]
-fn disk_cancel(app: A) {
-    app.disk.cancel()
-}
-
-/// The support report (This PC): works with or without admin. `save` writes it to a file and
-/// shows it in Explorer instead of returning the text; `lights` adds the lights test (every zone
-/// red, green and blue for about 15 s, then what the controllers answered).
-#[tauri::command]
-async fn support_report(app: A<'_>, save: bool, lights: Option<bool>) -> R<String> {
-    let a = app.inner().clone();
-    let lights = lights.unwrap_or(false);
-    let text = tauri::async_runtime::spawn_blocking(move || {
-        let mut text = support::report(&a);
-        if lights {
-            text.push_str("\r\n== Lights test ==\r\n");
-            text.push_str(&match a.hw.lock().clone() {
-                Some(sh) => hw::lights_test(&sh).unwrap_or_else(|| "skipped: a lights test was already running\r\n".into()),
-                None => "skipped: the hardware engine isn't running\r\n".into(),
-            });
-        }
-        text
-    })
-    .await
-    .map_err(|e| e.to_string())?;
-    if !save {
-        return Ok(text);
-    }
-    let dir = util::appdata().join("Deck");
-    let _ = std::fs::create_dir_all(&dir);
-    let path = dir.join("deck-support-report.txt");
-    std::fs::write(&path, &text).map_err(|e| e.to_string())?;
-    util::reveal(&path.to_string_lossy());
-    Ok(path.to_string_lossy().to_string())
-}
-
-/// The nested treemap of folder `id`, laid out for a w × h canvas.
-#[tauri::command]
-fn disk_treemap(app: A, id: u32, w: f64, h: f64) -> Value {
-    app.disk.treemap(id, w, h)
-}
-
-/// The file types under folder `id`, biggest first, with their treemap colours.
-#[tauri::command]
-fn disk_types(app: A, id: u32) -> Value {
-    app.disk.types(id)
-}
-
-/// A treemap cell's path: a file (`file`) or a folder (`id`).
-#[tauri::command]
-fn disk_path(app: A, id: Option<u32>, file: Option<u32>) -> Option<String> {
-    match (file, id) {
-        (Some(f), _) => app.disk.file_path(f),
-        (None, Some(d)) => app.disk.dir_path(d),
-        _ => None,
-    }
-}
-
-#[tauri::command]
-fn disk_children(app: A, id: u32) -> Value {
-    app.disk.children(id)
-}
-
-#[tauri::command]
-fn disk_big(app: A) -> Vec<Value> {
-    app.disk.big_files()
-}
-
-#[tauri::command]
-async fn recycle(app: A<'_>, paths: Vec<String>, sizes: Vec<u64>) -> R<()> {
-    if let Some(why) = paths.iter().find_map(|p| disk::protected(p)) {
-        return Err(why.into());
-    }
-    disk::recycle(&paths)?;
-    for (p, s) in paths.iter().zip(sizes.iter()) {
-        app.disk.forget(p, *s);
-    }
-    app.changed("disk");
-    Ok(())
-}
-
-#[tauri::command]
-fn cleanup_scan(app: A) {
-    app.cleanup.scan(app.inner().clone());
-}
-
-#[tauri::command]
-fn cleanup_state(app: A) -> Value {
-    let (rb, rbn) = cleanup::recycle_bin();
-    json!({
-        "targets": *app.cleanup.targets.lock(),
-        "busy": app.cleanup.busy.load(Ordering::Relaxed),
-        "last": *app.cleanup.last.lock(),
-        "recycle": { "size": rb, "items": rbn },
-    })
-}
-
-#[tauri::command]
-fn cleanup_run(app: A, ids: Vec<String>) {
-    app.cleanup.run(ids, app.inner().clone());
-}
-
-// ---- system
-
-#[tauri::command]
-async fn processes(app: A<'_>) -> R<Vec<Value>> {
-    let windowed: std::collections::HashMap<u32, (String, bool)> = winmgr::list().into_iter().map(|w| (w.pid, (w.title, w.hung))).collect();
-    Ok(app.sys.processes(&windowed))
-}
-
-#[tauri::command]
-async fn kill(app: A<'_>, name: String) -> R<usize> {
-    app.sys.kill_name(&name)
-}
-
-#[tauri::command]
-fn kill_pid(app: A, pid: u32) -> bool {
-    app.sys.kill_pid(pid)
-}
-
-#[tauri::command]
-async fn startup_list() -> R<Vec<startup::Entry>> {
-    Ok(startup::list())
-}
-
-#[tauri::command]
-fn startup_set(id: String, on: bool) -> R<()> {
-    startup::set_enabled(&id, on)
-}
-
-#[tauri::command]
-async fn who_uses(path: String) -> R<Vec<locksmith::Holder>> {
-    locksmith::who_uses(&path)
-}
-
 /// A file dialog owned by Deck's window, so it opens in front of it (Deck can be always on top,
 /// and a dialog without an owner then lands behind it).
 fn file_dialog(handle: &AppHandle, title: String) -> tauri_plugin_dialog::FileDialogBuilder<tauri::Wry> {
@@ -1005,124 +863,6 @@ async fn pick_many(handle: AppHandle, title: Option<String>) -> R<Vec<String>> {
 #[tauri::command]
 async fn fonts_list() -> R<Vec<String>> {
     Ok(display::fonts())
-}
-
-#[tauri::command]
-async fn display_state(app: A<'_>) -> R<Value> {
-    Ok(display::state(&app))
-}
-
-#[tauri::command]
-async fn set_refresh(device: String, hz: u32) -> R<()> {
-    display::set_refresh(&device, hz)
-}
-
-#[tauri::command]
-async fn set_brightness(device: String, pct: u32) -> R<()> {
-    display::set_brightness(&device, pct)
-}
-
-#[tauri::command]
-async fn set_hdr(device: String, on: bool) -> R<()> {
-    display::set_hdr(&device, on)
-}
-
-#[tauri::command]
-fn set_dark(app: A, dark: bool) -> R<()> {
-    display::set_dark(dark)?;
-    app.changed("display");
-    Ok(())
-}
-
-/// Rough location from the internet address, for the sunset schedule.
-#[tauri::command]
-async fn locate(app: A<'_>) -> R<Value> {
-    let v: Value = ureq::get("https://ipwho.is/")
-        .timeout(std::time::Duration::from_secs(6))
-        .call()
-        .map_err(|e| e.to_string())?
-        .into_json()
-        .map_err(|e| e.to_string())?;
-    let lat = v.get("latitude").and_then(Value::as_f64).ok_or("no location")?;
-    let lon = v.get("longitude").and_then(Value::as_f64).ok_or("no location")?;
-    let place = format!("{}, {}", v.get("city").and_then(Value::as_str).unwrap_or(""), v.get("country").and_then(Value::as_str).unwrap_or(""));
-    {
-        let mut s = app.settings.lock();
-        s.lat = Some((lat * 100.0).round() / 100.0);
-        s.lon = Some((lon * 100.0).round() / 100.0);
-        s.place = place.clone();
-    }
-    app.save_settings();
-    Ok(json!({ "lat": lat, "lon": lon, "place": place }))
-}
-
-#[tauri::command]
-async fn net_info(app: A<'_>) -> R<Value> {
-    Ok(app.net.info())
-}
-
-#[tauri::command]
-async fn net_public_ip(app: A<'_>) -> R<Option<String>> {
-    Ok(app.net.fetch_public_ip())
-}
-
-#[tauri::command]
-async fn net_ping(hosts: Vec<String>) -> R<Vec<Value>> {
-    Ok(net::ping_many(&hosts))
-}
-
-#[tauri::command]
-fn net_speed(app: A) {
-    app.net.speed_test(app.inner().clone());
-}
-
-#[tauri::command]
-fn net_speed_cancel(app: A) {
-    app.net.cancel_speed_test();
-}
-
-#[tauri::command]
-async fn game_ping_games() -> R<Vec<Value>> {
-    tauri::async_runtime::spawn_blocking(gameping::games).await.map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-async fn game_ping(game: String) -> R<Vec<Value>> {
-    tauri::async_runtime::spawn_blocking(move || gameping::ping(&game)).await.map_err(|e| e.to_string())?
-}
-
-// ---- game boost
-
-#[tauri::command]
-async fn boost_state(app: A<'_>) -> R<Value> {
-    let app = app.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || app.boost.state()).await.map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-async fn boost_apps(app: A<'_>) -> R<Vec<Value>> {
-    let app = app.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || boost::apps(&app)).await.map_err(|e| e.to_string())
-}
-
-/// "on" | "off" | "clean"
-#[tauri::command]
-async fn boost_run(app: A<'_>, what: String) -> R<Value> {
-    let app = app.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || match what.as_str() {
-        "on" => boost::start(&app),
-        "off" => boost::stop(&app, ""),
-        _ => boost::clean(&app),
-    })
-    .await
-    .map_err(|e| e.to_string())?
-}
-
-/// Tick or untick an app in the "close for gaming" list.
-#[tauri::command]
-fn boost_pick(app: A, key: String, on: bool) {
-    app.settings.lock().boost_close.insert(key, on);
-    app.save_settings();
 }
 
 #[tauri::command]
@@ -1194,99 +934,6 @@ async fn screen_tool(handle: AppHandle, app: A<'_>, mode: String) -> R<Value> {
 
 // ---- phone
 
-#[tauri::command]
-fn remote_info(app: A, remote: State<Arc<Remote>>) -> Value {
-    remote::info(&app, &remote)
-}
-
-#[tauri::command]
-async fn rdesk_status() -> Value {
-    tauri::async_runtime::spawn_blocking(rdesk::status).await.unwrap_or(Value::Null)
-}
-
-/// RustDesk actions from the Phone page: install, on, password, direct, tray, open, tailscale.
-#[tauri::command]
-async fn rdesk_do(what: String, on: Option<bool>, text: Option<String>) -> R<Value> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let on = on.unwrap_or(true);
-        match what.as_str() {
-            "install" => rdesk::install(),
-            "on" => rdesk::set_on(on),
-            "password" => rdesk::set_password(&text.unwrap_or_default()),
-            "direct" => rdesk::set_direct(on),
-            "tray" => rdesk::set_tray_hidden(on),
-            "open" => rdesk::open_rustdesk(),
-            "tailscale" => {
-                rdesk::open_tailscale();
-                Ok(())
-            }
-            _ => Err("Unknown action".into()),
-        }?;
-        Ok(rdesk::status())
-    })
-    .await
-    .map_err(|e| e.to_string())?
-}
-
-/// One-time share links (PC to PC → Share link).
-#[tauri::command]
-fn share_state() -> Value {
-    share::state()
-}
-
-#[tauri::command]
-async fn share_create(path: String, hours: u64, max: u32, internet: bool) -> R<Value> {
-    tauri::async_runtime::spawn_blocking(move || share::create(&path, hours, max, internet)).await.map_err(|e| e.to_string())?
-}
-
-#[tauri::command]
-async fn share_stop(token: String) -> R<Value> {
-    tauri::async_runtime::spawn_blocking(move || share::stop(&token)).await.map_err(|e| e.to_string())
-}
-
-/// Transfer page: everything it shows.
-#[tauri::command]
-fn transfer_state() -> Value {
-    beam::state()
-}
-
-/// Transfer page actions (send, answer, browse, request, apps, setup, received items, settings).
-#[tauri::command]
-async fn transfer_do(app: A<'_>, what: String, args: Option<Value>) -> R<Value> {
-    let app = app.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || beam::act(&app, &what, &args.unwrap_or(Value::Null))).await.map_err(|e| e.to_string())?
-}
-
-#[tauri::command]
-fn transfer_apps() -> Value {
-    beam::apps_state()
-}
-
-#[tauri::command]
-async fn transfer_setup_preview() -> Value {
-    tauri::async_runtime::spawn_blocking(beam::setup_preview).await.unwrap_or(Value::Null)
-}
-
-/// Claude Sync page: everything it shows.
-#[tauri::command]
-async fn claude_sync_state(app: A<'_>) -> R<Value> {
-    let app = app.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || ccsync::state(&app)).await.map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-async fn claude_sync_do(app: A<'_>, what: String, args: Option<Value>) -> R<Value> {
-    let app = app.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || ccsync::act(&app, &what, &args.unwrap_or(Value::Null))).await.map_err(|e| e.to_string())?
-}
-
-#[tauri::command]
-fn remote_reset_token(app: A, remote: State<Arc<Remote>>) -> Value {
-    app.settings.lock().remote_token = util::random_token(22);
-    app.save_settings();
-    remote::info(&app, &remote)
-}
-
 fn shared_file(p: std::path::PathBuf) -> Shared {
     let size = std::fs::metadata(&p).map(|m| m.len()).unwrap_or(0);
     Shared {
@@ -1331,12 +978,6 @@ async fn share_to_phone(handle: AppHandle, app: A<'_>, kind: String, text: Optio
     Ok(())
 }
 
-#[tauri::command]
-fn shared_remove(app: A, id: u64) {
-    app.shared.lock().retain(|x| x.id != id);
-    app.changed("shared");
-}
-
 // ------------------------------------------------------------------ tray
 
 /// "Start with Windows" = the elevated logon task on or off. Unelevated (no task yet) there is
@@ -1344,7 +985,7 @@ fn shared_remove(app: A, id: u64) {
 fn sync_autostart(_handle: &AppHandle, on: bool) {
     if elevation::is_admin() {
         if let Err(e) = elevation::set_task_enabled(on) {
-            eprintln!("autostart: {e}");
+            log::warn(format!("autostart: {e}"));
         }
     }
 }
@@ -1368,13 +1009,13 @@ fn tray_menu(handle: &AppHandle, app: &App) -> tauri::Result<Menu<tauri::Wry>> {
     let cpu_menu = sub("CPU profile", "cpu", &cpu, &act_c)?;
     let gpu_menu = sub("GPU profile", "gpu", &gpu, &act_g)?;
     let engine = app.hw_engine();
-    let lights = engine.as_ref().filter(|sh| sh.status.lock().unwrap().rgb.1).map(|sh| sh.lights_off.load(Ordering::Relaxed));
+    let lights = engine.as_ref().filter(|sh| sh.status.lock_anyway().rgb.1).map(|sh| sh.lights_off.load(Ordering::Relaxed));
     let lights_item = match lights {
         Some(off) => Some(CheckMenuItem::with_id(handle, "lights", "Lights off", true, off, None::<&str>)?),
         None => None,
     };
     // MoboCtl's tray had these too: every fan to one mode, the cooler display, Clear RAM
-    let fans_menu = match engine.as_ref().filter(|sh| sh.fan_control_allowed() && !sh.hw.lock().unwrap().fan_names.is_empty()) {
+    let fans_menu = match engine.as_ref().filter(|sh| sh.fan_control_allowed() && !sh.hw.lock_anyway().fan_names.is_empty()) {
         Some(sh) => {
             let (common, modes) = hw::cfg::fan_modes(sh);
             let items: Vec<CheckMenuItem<tauri::Wry>> = modes
@@ -1386,8 +1027,8 @@ fn tray_menu(handle: &AppHandle, app: &App) -> tauri::Result<Menu<tauri::Wry>> {
         }
         None => None,
     };
-    let disp_item = match engine.as_ref().filter(|sh| sh.status.lock().unwrap().disp.1) {
-        Some(sh) => Some(CheckMenuItem::with_id(handle, "display", "Cooler display off", true, sh.dp.lock().unwrap().off, None::<&str>)?),
+    let disp_item = match engine.as_ref().filter(|sh| sh.status.lock_anyway().disp.1) {
+        Some(sh) => Some(CheckMenuItem::with_id(handle, "display", "Cooler display off", true, sh.dp.lock_anyway().off, None::<&str>)?),
         None => None,
     };
     let ram_item = if elevation::is_admin() { Some(MenuItem::with_id(handle, "clearram", "Clear RAM", true, None::<&str>)?) } else { None };
@@ -1669,6 +1310,13 @@ fn percent_decode(s: &str) -> String {
 }
 
 fn main() {
+    // before anything is loaded or any window made: an elevated Deck takes nothing that steers
+    // WebView2 from the environment, which the user's own programs can set
+    webview_guard::scrub_env(elevation::is_admin());
+    // no libraries from the current folder (vendor DLLs load by full path, see util::load_trusted_dll)
+    unsafe {
+        windows_sys::Win32::System::LibraryLoader::SetDllDirectoryW([0u16].as_ptr());
+    }
     // Claude Code's hook (Claude Sync): answers in milliseconds, never starts Deck
     if std::env::args().any(|a| a == "--claude-sync-hook") {
         std::process::exit(ccsync::hook_main());
@@ -1683,6 +1331,13 @@ fn main() {
         let args: Vec<String> = std::env::args().collect();
         if beam::cli::wanted(&args) {
             std::process::exit(beam::cli::main(&args));
+        }
+    }
+    // Transfer: a received installer, started as the user (see beam::setup::run_installer)
+    {
+        let args: Vec<String> = std::env::args().collect();
+        if let Some(job) = args.iter().position(|a| a == "--run-installer").and_then(|i| args.get(i + 1)) {
+            std::process::exit(beam::setup::run_job(std::path::Path::new(job)));
         }
     }
     // Transfer: applying a received Windhawk setup needs admin when Deck runs without it
@@ -1785,14 +1440,16 @@ fn main() {
     }
     // also in release builds (uninstall.ps1 uses it): fans back to the BIOS after a crash
     if std::env::args().any(|a| a == "--release-fans") {
-        let msg = if elevation::is_admin() { hw::release_fans_direct() } else { "Needs admin rights.".into() };
-        // the GPU fan back to the driver and Game Mode back to the user's setting too
-        gpu::FAN_MANUAL.store(true, Ordering::SeqCst);
-        gpu::CLOCK_LOCKED.store(true, Ordering::SeqCst);
-        gpu::release();
-        let s = settings::Settings::load();
-        profiles::cpu::restore_game_mode(s.game_mode_orig);
-        println!("{msg}");
+        println!("{}", release_everything());
+        return;
+    }
+    // the hardware fail-safe: waits for Deck to end, releases the hardware if it was ended from outside
+    let args: Vec<String> = std::env::args().collect();
+    if let Some(pid) = args.iter().position(|a| a == "--watchdog").and_then(|i| args.get(i + 1)).and_then(|p| p.parse::<u32>().ok()) {
+        if watchdog::wait_for(pid) {
+            let msg = release_everything();
+            log::warn(format!("Deck (process {pid}) was ended from outside; watchdog released the hardware: {msg}"));
+        }
         return;
     }
     let minimized = std::env::args().any(|a| a == "--minimized" || a == "--switch" || a == "--quit");
@@ -1804,6 +1461,7 @@ fn main() {
         // the main thread ends the app; a hardware worker leaves its hardware unattended. Other
         // threads (a command, a background task) fail on their own and Deck carries on.
         let name = std::thread::current().name().map(str::to_string);
+        log::warn(format!("panic on thread {}: {info}", name.as_deref().unwrap_or("?")));
         let main = name.as_deref() == Some("main");
         if main || hw::on_worker_thread() {
             hw::on_panic();
@@ -1930,7 +1588,7 @@ fn main() {
                         }
                         "display" => {
                             if let Some(sh) = app.hw_engine() {
-                                let off = !sh.dp.lock().unwrap().off;
+                                let off = !sh.dp.lock_anyway().off;
                                 hw::cfg::set_display_off(&sh, off);
                                 app.changed("hw");
                             }
@@ -2013,7 +1671,14 @@ fn main() {
                 std::process::exit(0);
             }
             app.start();
-            std::thread::spawn(elevation::ensure_quit_task);
+            {
+                let app = app.clone();
+                std::thread::spawn(move || {
+                    if let Some(why) = elevation::ensure_quit_task() {
+                        app.toast(app::Toast { id: "unsafe-install".into(), kind: "warn".into(), title: "Deck's admin start was turned off".into(), body: why, actions: vec![("ok".into(), "OK".into())], sticky: true, sound: false });
+                    }
+                });
+            }
             handle_args(&handle, &std::env::args().collect::<Vec<_>>());
             if app.settings.lock().remote_on {
                 remote::start(app.clone(), remote_state.clone());
@@ -2073,16 +1738,16 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             webview_guard::ui_heartbeat, get_state, live, hide, set_pinned, quit, set_setting,
             search, apps_list, launch_app, open_path, reveal, open_url, open_system, games_list,
-            fonts_list, audio_state, set_output, set_master, set_app_volume, media_control,
+            fonts_list, audiocmd::audio_state, audiocmd::set_output, audiocmd::set_master, audiocmd::set_app_volume, audiocmd::media_control,
             clip_list, clip_copy, set_clipboard, clip_pin, clip_remove, clip_clear,
             set_awake, set_plan, cancel_plan, run_power, timer_add, timer_cmd, stopwatch, toast_action, toast_resize,
             windows_list, window_action, snap_window, ws_capture, ws_recapture, ws_open,
-            disk_scan, disk_status, disk_cancel, disk_treemap, disk_types, disk_path, support_report, disk_children, disk_big, recycle, cleanup_scan, cleanup_state, cleanup_run,
-            processes, kill, kill_pid, startup_list, startup_set, who_uses, pick,
-            display_state, set_refresh, set_brightness, set_hdr, set_dark, locate,
-            net_info, net_public_ip, net_ping, net_speed, net_speed_cancel, game_ping_games, game_ping, index_rebuild, index_info,
-            boost_state, boost_apps, boost_run, boost_pick,
-            screen_tool, remote_info, remote_reset_token, rdesk_status, rdesk_do, transfer_state, transfer_do, pick_many, share_state, share_create, share_stop, transfer_apps, transfer_setup_preview, claude_sync_state, claude_sync_do, share_to_phone, shared_remove,
+            diskcmd::disk_scan, diskcmd::disk_status, diskcmd::disk_cancel, diskcmd::disk_treemap, diskcmd::disk_types, diskcmd::disk_path, syscmd::support_report, diskcmd::disk_children, diskcmd::disk_big, diskcmd::recycle, diskcmd::cleanup_scan, diskcmd::cleanup_state, diskcmd::cleanup_run,
+            syscmd::processes, syscmd::kill, syscmd::kill_pid, syscmd::startup_list, syscmd::startup_set, syscmd::who_uses, pick,
+            displaycmd::display_state, displaycmd::set_refresh, displaycmd::set_brightness, displaycmd::set_hdr, displaycmd::set_dark, displaycmd::locate,
+            netcmd::net_info, netcmd::net_public_ip, netcmd::net_ping, netcmd::net_speed, netcmd::net_speed_cancel, netcmd::game_ping_games, netcmd::game_ping, index_rebuild, index_info,
+            boostcmd::boost_state, boostcmd::boost_apps, boostcmd::boost_run, boostcmd::boost_pick,
+            screen_tool, phonecmd::remote_info, phonecmd::remote_reset_token, phonecmd::rdesk_status, phonecmd::rdesk_do, phonecmd::transfer_state, phonecmd::transfer_do, pick_many, phonecmd::share_state, phonecmd::share_create, phonecmd::share_stop, phonecmd::transfer_apps, phonecmd::transfer_setup_preview, phonecmd::claude_sync_state, phonecmd::claude_sync_do, share_to_phone, phonecmd::shared_remove,
             elevate_setup,
             hwcmd::hw_state, hwcmd::drive_health, hwcmd::hw_live, hwcmd::hw_hist, hwcmd::hw_table, hwcmd::hw_table_reset, hwcmd::hw_apply, hwcmd::hw_lights_off,
             hwcmd::hw_display_off, hwcmd::hw_report, hwcmd::hw_test_lights, hwcmd::hw_clear_ram, hwcmd::hw_mem, hwcmd::hw_import_moboctl, hwcmd::hw_open_folder,

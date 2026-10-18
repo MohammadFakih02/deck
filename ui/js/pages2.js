@@ -1,4 +1,12 @@
 // Pages: Files (disk space, cleanup, search index), Power, System.
+import { I, Pages, S, ago, appIcon, confirmBox, fmtBytes, fmtDur, fmtRate, fmtWords, h, helpTip, invoke, mbpsParts, netBytes, note, parseDuration, run, seg, setSetting, slider, toggle, withLocalWrites } from "./core.js";
+import { debounce, planCond, planLabel, timerRow } from "./home.js";
+import { hover } from "./search.js";
+import { pageHead } from "./pages1.js";
+import { lineGraph } from "./curve.js";
+import { tx } from "./pcs.js";
+import { go, render } from "./app.js";
+
 
 // ------------------------------------------------------------------ files
 
@@ -6,11 +14,11 @@
 // nested treemap of everything (laid out by the backend, drawn here on a canvas).
 
 /** "#e07a1f" → [r, g, b] */
-const hexRgb = (hx) => [1, 3, 5].map((i) => parseInt(hx.slice(i, i + 2), 16));
-const mixRgb = (c, t, k) => `rgb(${c.map((v, i) => Math.round(v + (t[i] - v) * k)).join(",")})`;
+export const hexRgb = (hx) => [1, 3, 5].map((i) => parseInt(hx.slice(i, i + 2), 16));
+export const mixRgb = (c, t, k) => `rgb(${c.map((v, i) => Math.round(v + (t[i] - v) * k)).join(",")})`;
 
 /** The folder tree: the open folder's folders and files, folders open in place (WizTree's tree view). */
-function diskTree(v) {
+export function diskTree(v) {
   const open = (S.cache.diskOpen ||= new Map());
   const parentSize = v.size || 1;
   const rows = [];
@@ -39,7 +47,7 @@ function diskTree(v) {
     h("div", { class: "dt-body" }, rows.length ? rows : h("div", { class: "dim", style: { padding: "12px" } }, "Empty folder")));
 }
 
-async function diskToggle(id) {
+export async function diskToggle(id) {
   const open = (S.cache.diskOpen ||= new Map());
   if (open.has(id)) open.delete(id);
   else open.set(id, await invoke("disk_children", { id }));
@@ -47,7 +55,7 @@ async function diskToggle(id) {
 }
 
 /** The file types in the open folder, biggest first, in their treemap colours. */
-function diskTypes() {
+export function diskTypes() {
   const types = S.cache.diskTypes || [];
   const total = types.reduce((a, t) => a + t.bytes, 0) || 1;
   return h("div", { class: "card dtypes" },
@@ -60,7 +68,7 @@ function diskTypes() {
 }
 
 /** The nested treemap on a canvas. The layout comes from the backend for the canvas' size. */
-function diskTreemap(nodeId) {
+export function diskTreemap(nodeId) {
   const wrap = h("div", { class: "tmap" });
   const cv = h("canvas", null);
   const tip = h("div", { class: "tmap-tip" });
@@ -232,7 +240,7 @@ Pages.files = {
   },
 };
 
-function diskView() {
+export function diskView() {
   const st = S.cache.diskStatus || {};
   const el = h("div", null);
   const drives = (S.live?.sys?.disks || []).filter((d) => d.total > 0).sort((a, b) => a.mount.localeCompare(b.mount));
@@ -310,9 +318,9 @@ function diskView() {
   return el;
 }
 
-const sameRoot = (a, b) => a.replace(/[\\/]+$/, "").toLowerCase() === b.replace(/[\\/]+$/, "").toLowerCase();
+export const sameRoot = (a, b) => a.replace(/[\\/]+$/, "").toLowerCase() === b.replace(/[\\/]+$/, "").toLowerCase();
 
-async function startScan(root) {
+export async function startScan(root) {
   // forget the last scan's view (and the folder open in it) until this one is done
   S.cache.diskPicking = false;
   S.cache.diskWant = root;
@@ -331,7 +339,7 @@ document.addEventListener("keydown", (e) => {
   if (c && c.length > 1) { e.preventDefault(); openNode(c[c.length - 2].id); }
 });
 
-async function openNode(id) {
+export async function openNode(id) {
   S.cache.diskNode = id;
   S.cache.diskOpen = new Map();
   [S.cache.diskView, S.cache.diskTypes] = await Promise.all([invoke("disk_children", { id }), invoke("disk_types", { id })]);
@@ -339,7 +347,7 @@ async function openNode(id) {
   document.querySelector(".content").scrollTo({ top: 0 });
 }
 
-async function recycleItem(it) {
+export async function recycleItem(it) {
   const ok = await confirmBox(`Move "${it.name}" to the Recycle Bin?`, `${fmtBytes(it.size)}${it.dir ? ` · ${it.files.toLocaleString()} files` : ""}. You can restore it from the Recycle Bin. If it's too big for the bin, Windows asks before deleting it for good.`, "Move to Recycle Bin", true);
   if (!ok) return;
   await run("recycle", { paths: [it.path], sizes: [it.size] }, "Moved to the Recycle Bin");
@@ -349,7 +357,7 @@ async function recycleItem(it) {
 }
 
 /** Clear RAM (from MoboCtl): trims idle memory and drops the standby cache. Needs admin. */
-function clearRamCard() {
+export function clearRamCard() {
   const m = S.cache.ram;
   if (!m) invoke("hw_mem").then((r) => { S.cache.ram = r; if (S.page === "cpu") render(); }).catch(() => {});
   return h("div", { class: "card row", style: { marginBottom: "12px" } }, I("activity"),
@@ -362,7 +370,7 @@ function clearRamCard() {
     } }, I("broom"), "Clear RAM now"));
 }
 
-function cleanupView() {
+export function cleanupView() {
   const c = S.cache.cleanup || { targets: [], recycle: {} };
   if (!S.cache.cleanSel) S.cache.cleanSel = new Set(["temp", "shader", "crash", "chrome", "edge", "brave", "opera", "firefox", "discord", "thumbs"]);
   const sel = S.cache.cleanSel;
@@ -397,7 +405,7 @@ function cleanupView() {
   return el;
 }
 
-function indexView() {
+export function indexView() {
   const s = S.state.settings;
   const info = S.cache.indexInfo || {};
   return h("div", null,
@@ -440,9 +448,9 @@ Pages.power = {
 
 // ------------------------------------------------------------------ keep awake
 
-const AWAKE_TIMES = [[30, "30 min"], [60, "1 hour"], [120, "2 hours"], [240, "4 hours"]];
+export const AWAKE_TIMES = [[30, "30 min"], [60, "1 hour"], [120, "2 hours"], [240, "4 hours"]];
 
-function awakeMain(p) {
+export function awakeMain(p) {
   const a = p.awake || { mode: "off", display: true };
   const on = !!p.awake_active;
   const now = Date.now() / 1000;
@@ -505,13 +513,13 @@ function awakeMain(p) {
   return h("div", { class: "col pw-main" }, hero, how);
 }
 
-function winTimeoutText(s) {
+export function winTimeoutText(s) {
   if (s == null) return "unknown";
   if (s === 0) return "never";
   return fmtWords(s);
 }
 
-function awakeSide(p) {
+export function awakeSide(p) {
   const t = p.win_timeouts;
   return h("div", { class: "col pw-side" },
     h("div", { class: "card col pw-info" },
@@ -528,17 +536,17 @@ function awakeSide(p) {
       sideLink("timer", "Timers & breaks", "A reminder when it's time to stop", () => go("power", "timers"))));
 }
 
-function sideLink(ic, title, sub, fn) {
+export function sideLink(ic, title, sub, fn) {
   return h("button", { class: "pw-link", onclick: fn }, h("span", { class: "pw-opt-ic" }, I(ic, "sm")),
     h("span", { class: "grow" }, h("span", { class: "pw-opt-t" }, title), h("span", { class: "pw-opt-s" }, sub)), I("chevron", "sm"));
 }
 
 // ------------------------------------------------------------------ shut down when…
 
-const PLAN_ACTIONS = [["shutdown", "power", "Shut down"], ["sleep", "moon", "Sleep"], ["restart", "refresh", "Restart"], ["hibernate", "moon", "Hibernate"], ["lock", "lock", "Lock"], ["signout", "log-out", "Sign out"], ["screen_off", "monitor", "Screen off"], ["notify", "bell", "Just tell me"]];
+export const PLAN_ACTIONS = [["shutdown", "power", "Shut down"], ["sleep", "moon", "Sleep"], ["restart", "refresh", "Restart"], ["hibernate", "moon", "Hibernate"], ["lock", "lock", "Lock"], ["signout", "log-out", "Sign out"], ["screen_off", "monitor", "Screen off"], ["notify", "bell", "Just tell me"]];
 
 /** The conditions, each with what it measures right now. */
-function planConds() {
+export function planConds() {
   const L = S.live || {};
   const sys = L.sys || {};
   const cur = [L.media?.current, ...(L.media?.others || [])].find((m) => m && m.status === "playing");
@@ -555,7 +563,7 @@ function planConds() {
   ];
 }
 
-function planBuilder() {
+export function planBuilder() {
   const f = S.cache.planForm || (S.cache.planForm = { action: "shutdown", cond: "downloads", minutes: 5, at: "", inMin: 30, app: "" });
   const card = h("div", { class: "card col pw-build" });
   card.append(h("div", { class: "boost-sub" }, "Do this"),
@@ -588,7 +596,7 @@ function planBuilder() {
 }
 
 /** The plan that is set: what it waits for, how far along, and Cancel. */
-function planNow(plan) {
+export function planNow(plan) {
   const now = Date.now() / 1000;
   const counting = plan.state === "countdown";
   let big = null, bar = null;
@@ -615,7 +623,7 @@ function planNow(plan) {
       h("div", { class: "faint pw-hint" }, plan.action === "notify" ? "You get a notification; nothing else happens." : "You get 60 seconds to cancel before anything happens.")));
 }
 
-function planSide(p) {
+export function planSide(p) {
   const at = (min) => Math.floor(Date.now() / 1000) + min * 60;
   const go1 = (plan) => run("set_plan", { plan: { at: 0, app: "", minutes: 2, ...plan() } }, "Set. Deck will warn you first.");
   const pick = (ic, label, sub, plan) => h("button", { class: "pw-link", onclick: () => go1(plan) },
@@ -636,7 +644,7 @@ function planSide(p) {
 }
 
 /** "Shut down when downloads finish", "Sleep in 30 min", "Lock at 23:00"... for the form. */
-function planSentence(f, label) {
+export function planSentence(f, label) {
   const m = Math.max(1, f.minutes || 5);
   const tail = {
     downloads: "when downloads finish",
@@ -651,17 +659,17 @@ function planSentence(f, label) {
   return f.action === "notify" ? `Tell me ${tail}` : `${label} ${tail}`;
 }
 
-function refreshSum() {
+export function refreshSum() {
   const f = S.cache.planForm, el = document.querySelector(".pw-sum");
   if (f && el) el.textContent = planSentence(f, (PLAN_ACTIONS.find(([k]) => k === f.action) || PLAN_ACTIONS[0])[2]);
 }
 
-function defaultTime() {
+export function defaultTime() {
   const d = new Date(Date.now() + 60 * 60 * 1000);
   return `${String(d.getHours()).padStart(2, "0")}:00`;
 }
 
-async function startPlan() {
+export async function startPlan() {
   const f = S.cache.planForm;
   const plan = { action: f.action, cond: f.cond, at: 0, app: f.app || "", minutes: Math.max(1, f.minutes || 5) };
   if (f.cond === "in") { plan.cond = "time"; plan.at = Math.floor(Date.now() / 1000) + Math.max(1, f.inMin || 30) * 60; }
@@ -675,7 +683,7 @@ async function startPlan() {
   await run("set_plan", { plan }, "Set. Deck will warn you first.");
 }
 
-function timersCard(p) {
+export function timersCard(p) {
   const input = h("input", { type: "text", placeholder: "e.g. 25m, 1h30, 90s", style: { width: "150px" } });
   const label = h("input", { type: "text", placeholder: "Label (optional)", class: "grow" });
   const start = () => { const secs = parseDuration(input.value); if (!secs) return note("Type a time like 10m or 1:30", true); invoke("timer_add", { secs, label: label.value }); input.value = ""; label.value = ""; };
@@ -689,7 +697,7 @@ function timersCard(p) {
     running.length ? null : h("div", { class: "faint" }, "When a timer ends you get a sound and a notification, even with Deck closed."));
 }
 
-function stopwatchCard(p) {
+export function stopwatchCard(p) {
   const sw = p.stopwatch || { running: false, acc_ms: 0, start_ms: 0, laps: [] };
   const total = sw.acc_ms + (sw.running ? p.now - sw.start_ms : 0);
   const fmt = (ms) => { const s = ms / 1000; const m = Math.floor(s / 60); return `${String(m).padStart(2, "0")}:${(s % 60).toFixed(1).padStart(4, "0")}`; };
@@ -703,7 +711,7 @@ function stopwatchCard(p) {
     sw.laps.length ? h("div", { class: "col", style: { gap: "2px", maxHeight: "120px", overflow: "auto" } }, sw.laps.map((l, i) => h("div", { class: "row dim num" }, h("span", { class: "grow" }, `Lap ${i + 1}`), h("span", null, fmt(l - (sw.laps[i - 1] || 0))), h("span", { class: "faint" }, fmt(l)))).reverse()) : null);
 }
 
-function breaksCard() {
+export function breaksCard() {
   const s = S.state.settings;
   return h("div", { class: "settings-card", style: { marginTop: "14px" } },
     h("div", { class: "setting" },
@@ -748,7 +756,7 @@ Pages.system = {
   },
 };
 
-function procView() {
+export function procView() {
   const all = S.cache.procs || [];
   const sort = S.cache.procSort || "mem";
   const appsOnly = S.cache.procApps !== false;
@@ -776,7 +784,7 @@ function procView() {
           h("button", { class: "btn sm" + (p.hung ? " danger" : " ghost"), onclick: async () => { if (await confirmBox(`End ${p.name}?`, `${p.count} process${p.count > 1 ? "es" : ""}. Unsaved work in it will be lost.`, "End it", true)) { await run("kill", { name: p.name }, `Ended ${p.name}`); S.cache.procs = await invoke("processes"); render(); } } }, "End")))))));
 }
 
-function startupView() {
+export function startupView() {
   const list = [...(S.cache.startup || [])].sort((a, b) => (b.enabled - a.enabled) || a.name.localeCompare(b.name));
   const on = list.filter((e) => e.enabled).length;
   return h("div", null,
@@ -791,13 +799,13 @@ function startupView() {
           : h("span", { class: "chip", title: "Needs administrator rights" }, I("lock"), e.enabled ? "On" : "Off")))) : h("div", { class: "empty" }, "Nothing starts with Windows."));
 }
 
-const NET_HIST = 60;   // seconds of download / upload kept for the graph
-const PING_KEEP = 60;  // rounds per host in the latency strip
-const NET_UP = "#bf5af2";
+export const NET_HIST = 60;   // seconds of download / upload kept for the graph
+export const PING_KEEP = 60;  // rounds per host in the latency strip
+export const NET_UP = "#bf5af2";
 
 /** The graph's history: starts from the backend's recent samples, so it isn't empty when the
  * page opens, and never joins points from an earlier visit to new ones. */
-function netHist() {
+export function netHist() {
   if (!S.cache.netHist || Date.now() - (S.cache.netHistAt || 0) > 3000) {
     const s = S.live?.sys || {};
     const d = s.down_hist || [], u = s.up_hist || [];
@@ -808,7 +816,7 @@ function netHist() {
 }
 
 /** Called once a second while the Network page is open: graph history, and a ping round while live pinging is on. */
-function netTick() {
+export function netTick() {
   const s = S.live?.sys || {};
   const hist = netHist();
   hist.push({ down: s.down || 0, up: s.up || 0 });
@@ -817,7 +825,7 @@ function netTick() {
   if (S.cache.pingLive) pingNow();
 }
 
-async function pingNow() {
+export async function pingNow() {
   const hosts = S.state.settings.ping_hosts || [];
   if (S.cache.pinging || !hosts.length) return;
   S.cache.pinging = true;
@@ -834,15 +842,15 @@ async function pingNow() {
   S.cache.pinging = false;
 }
 
-const pingTone = (ms) => (ms == null ? "bad" : ms < 40 ? "good" : ms < 90 ? "warn" : "bad");
-const gameTone = (ms) => (ms == null ? "bad" : ms < 60 ? "good" : ms < 110 ? "warn" : "bad");
+export const pingTone = (ms) => (ms == null ? "bad" : ms < 40 ? "good" : ms < 90 ? "warn" : "bad");
+export const gameTone = (ms) => (ms == null ? "bad" : ms < 60 ? "good" : ms < 110 ? "warn" : "bad");
 
-function copyChip(label, value) {
+export function copyChip(label, value) {
   return h("button", { class: "net-addr", title: value ? "Copy" : "", disabled: !value, onclick: async () => { await navigator.clipboard.writeText(value); note(`Copied ${value}`); } },
     h("span", { class: "faint" }, label), h("span", { class: "num" }, value || "…"), value ? I("copy", "sm") : null);
 }
 
-function networkView() {
+export function networkView() {
   const n = S.cache.net || {};
   return h("div", { class: "net" },
     connectionCard(n),
@@ -851,7 +859,7 @@ function networkView() {
       gamePingView()));
 }
 
-function connectionCard(n) {
+export function connectionCard(n) {
   const s = S.live?.sys || {};
   const g = h("canvas", { class: "net-graph" });
   requestAnimationFrame(() => {
@@ -874,7 +882,7 @@ function connectionCard(n) {
       n.host ? h("span", { class: "faint net-host" }, n.host) : null));
 }
 
-function speedCard(sp) {
+export function speedCard(sp) {
   const phase = sp.phase || "idle";
   const running = ["latency", "download", "upload"].includes(phase);
   const metric = (key, label, val, unit, extra) => h("div", { class: "net-m" + (running && phase === key ? " live" : "") },
@@ -894,7 +902,7 @@ function speedCard(sp) {
     sp.error ? h("div", { class: "chip bad", style: { alignSelf: "start" } }, sp.error) : null);
 }
 
-function pingCard() {
+export function pingCard() {
   const hosts = S.state.settings.ping_hosts || [];
   const res = S.cache.ping || [];
   const hist = S.cache.pingHist || {};
@@ -941,12 +949,12 @@ function pingCard() {
     add);
 }
 
-const GP_NOTE = {
+export const GP_NOTE = {
   valve: "Valve's relay servers per city; matchmaking connects you through these.",
   aws: "UDP to Amazon's game ping servers, the way the game measures it.",
 };
 
-async function gpTest(g) {
+export async function gpTest(g) {
   S.cache.gp = S.cache.gp || {};
   const res = S.cache.gp[g.id] || {};
   if (res.running) return;
@@ -957,7 +965,7 @@ async function gpTest(g) {
   if (S.page === "system" && S.sub === "network") render();
 }
 
-function gamePingView() {
+export function gamePingView() {
   const games = S.cache.gpGames || [];
   if (!games.length) return h("div");
   const sel = games.find((g) => g.id === S.cache.gpSel) || games[0];
@@ -985,7 +993,7 @@ function gamePingView() {
     rows.length > 9 ? h("button", { class: "btn sm ghost", style: { alignSelf: "start" }, onclick: () => { S.cache.gpAll = !S.cache.gpAll; render(); } }, S.cache.gpAll ? "Show fewer" : `Show all ${rows.length}`) : null);
 }
 
-function displayView() {
+export function displayView() {
   const d = S.cache.display || { monitors: [] };
   const s = S.state.settings;
   const el = h("div", null);

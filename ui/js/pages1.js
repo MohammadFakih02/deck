@@ -1,13 +1,15 @@
 // Pages: Clipboard, Sound, Windows.
+import { I, Pages, S, ago, appIcon, confirmBox, h, iconSrc, invoke, modal, note, promptBox, run, seg, setSetting, slider, toggle, withLocalWrites } from "./core.js";
+import { debounce, deviceIcon, media, pasteClip, setOutput, shortDevice } from "./home.js";
+import { go, render } from "./app.js";
 
-const Pages = {};
 
-function head(title, sub, ...right) {
+export function head(title, sub, ...right) {
   return h("div", { class: "page-head" }, h("div", { class: "grow" }, h("h1", null, title), sub ? h("p", null, sub) : null), right);
 }
 
 /** Title and one-line explanation of each sidebar page. */
-const HEADS = {
+export const HEADS = {
   "windows/open": ["Windows", "Every open window: pin it on top, make it see-through, snap it to a zone or close it."],
   "windows/layouts": ["Snap zones", "Drag a window and tap the right mouse button to drop it into a zone. Pick or make a layout here."],
   "windows/workspaces": ["Workspaces", "Save where your windows are, then put everything back in one click."],
@@ -20,23 +22,30 @@ const HEADS = {
   "power/awake": ["Keep awake", "Stop the PC and the screen from going to sleep."],
   "power/plan": ["Shut down when…", "Shut down, sleep or restart when a download finishes, an app closes, music stops or at a set time."],
   "power/timers": ["Timers & breaks", "Timers, a stopwatch and reminders to take a break."],
-  "tools/screen": ["Screen tools", "Pick a colour, copy text off the screen, or measure something."],
-  "tools/locks": ["Locked files", "Find which program is holding a file you can't delete or move."],
-  "tools/panels": ["Windows panels", "Straight to the Windows settings and tools you actually need."],
 };
-function pageHead(page, sub, ...right) {
+export function pageHead(page, sub, ...right) {
   const [t, d] = HEADS[`${page}/${sub}`] || [page, ""];
   return head(t, d, ...right);
 }
+/** A part of a one-page sidebar item (Windows, Tools): icon, title, a line under it, buttons on the right.
+ *  Its id is "<page>-<part>", so go(page, part) can scroll to it (see showPart). */
+export function partHead(page, id, ic, title, sub, ...right) {
+  return h("div", { class: "tl-head", id: page + "-" + id },
+    h("span", { class: "tl-head-ic" }, I(ic)), h("div", { class: "grow" }, h("h2", null, title), h("div", { class: "tl-sub" }, sub)), right);
+}
+/** Scrolls a one-page sidebar item to the part its old sub-page named (search results and links still use them). */
+export function showPart(page, parts) {
+  if (parts.includes(S.sub)) requestAnimationFrame(() => document.getElementById(page + "-" + S.sub)?.scrollIntoView({ block: "start" }));
+}
 /** One sidebar item holding several parts: one title, the open tab's own explanation, and the tabs. */
-function tabsHead(page, title, tabs, sub, ...right) {
+export function tabsHead(page, title, tabs, sub, ...right) {
   const [, d] = HEADS[`${page}/${sub}`] || [];
   return head(title, d, ...right, seg(tabs, sub, (v) => go(page, v)));
 }
 
 // -------------------------------------------------------------- clipboard
 
-const TRANSFORMS = [
+export const TRANSFORMS = [
   ["Plain text", (t) => t],
   ["UPPERCASE", (t) => t.toUpperCase()],
   ["lowercase", (t) => t.toLowerCase()],
@@ -53,16 +62,16 @@ const TRANSFORMS = [
   ["Pretty JSON", (t) => { try { return JSON.stringify(JSON.parse(t), null, 2); } catch { throw new Error("That isn't JSON"); } }],
 ];
 
-const CLIP_ICON = { text: "type", link: "link", image: "image", files: "file" };
-const clipKind = (c) => (c.kind === "text" && /^https?:\/\/\S+$/i.test(c.text.trim()) ? "link" : c.kind);
-const CLIP_GROUPS = ["Pinned", "Today", "Yesterday", "Earlier"];
-function clipGroup(c) {
+export const CLIP_ICON = { text: "type", link: "link", image: "image", files: "file" };
+export const clipKind = (c) => (c.kind === "text" && /^https?:\/\/\S+$/i.test(c.text.trim()) ? "link" : c.kind);
+export const CLIP_GROUPS = ["Pinned", "Today", "Yesterday", "Earlier"];
+export function clipGroup(c) {
   if (c.pinned) return "Pinned";
   const d = new Date();
   d.setHours(0, 0, 0, 0);
   return c.ts >= d.getTime() ? "Today" : c.ts >= d.getTime() - 86400e3 ? "Yesterday" : "Earlier";
 }
-const plural = (n, one, many) => `${n} ${n === 1 ? one : many || one + "s"}`;
+export const plural = (n, one, many) => `${n} ${n === 1 ? one : many || one + "s"}`;
 
 Pages.clipboard = {
   async load() {
@@ -130,12 +139,16 @@ document.addEventListener("keydown", async (e) => {
   render();
 });
 
-function clipCard(c, sel) {
+/** Only the start of a long item goes on the page (a copied log can be megabytes); copy and paste use it all. */
+const CARD_CHARS = 600, PREVIEW_CHARS = 20000;
+const clipStart = (t, n) => (t.length > n ? t.slice(0, n) : t);
+
+export function clipCard(c, sel) {
   const body = c.kind === "image"
     ? h("img", { class: "thumb", src: iconSrc("clip", c.image), alt: "" })
     : c.kind === "files"
       ? h("div", { class: "txt" }, c.files.map((f) => f.split("\\").pop()).join("\n"))
-      : h("div", { class: "txt" }, c.text);
+      : h("div", { class: "txt" }, clipStart(c.text, CARD_CHARS));
   const k = clipKind(c);
   return h("button", { class: "clip" + (sel ? " sel" : ""), onclick: () => { S.cache.clipSel = c.id; render(); }, ondblclick: () => pasteClip(c.id) },
     h("span", { class: "clip-ic" }, I(CLIP_ICON[k] || "copy", "sm")),
@@ -148,7 +161,7 @@ function clipCard(c, sel) {
         c.kind === "text" ? h("span", null, plural(c.text.length, "char")) : c.kind === "image" ? h("span", null, `${c.w}×${c.h}`) : null)));
 }
 
-function clipDetail(c) {
+export function clipDetail(c) {
   const el = h("div", { class: "card col", style: { position: "sticky", top: "0", gap: "12px" } });
   // with "paste on click" off the main button already copies, so the second Copy would be a twin
   const pasting = S.state.settings.clip_paste;
@@ -165,7 +178,8 @@ function clipDetail(c) {
   } else if (c.kind === "files") {
     el.append(h("div", { class: "list" }, c.files.map((f) => h("button", { class: "item", onclick: () => invoke("reveal", { path: f }) }, appIcon("file", f, f.split("\\").pop()), h("div", { class: "grow" }, h("div", { class: "t ell" }, f.split("\\").pop()), h("div", { class: "s ell" }, f))))));
   } else {
-    el.append(h("pre", { style: { margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-word", maxHeight: "240px", overflow: "auto", background: "var(--bg2)", border: "1px solid var(--line)", borderRadius: "10px", padding: "10px 12px", fontFamily: "Consolas, monospace", fontSize: "12.5px", userSelect: "text" } }, c.text));
+    el.append(h("pre", { style: { margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-word", maxHeight: "240px", overflow: "auto", background: "var(--bg2)", border: "1px solid var(--line)", borderRadius: "10px", padding: "10px 12px", fontFamily: "Consolas, monospace", fontSize: "12.5px", userSelect: "text" } }, clipStart(c.text, PREVIEW_CHARS)));
+    if (c.text.length > PREVIEW_CHARS) el.append(h("div", { class: "faint", style: { fontSize: "12px" } }, `Showing the first ${PREVIEW_CHARS.toLocaleString()} characters. Copy and Paste use all of it.`));
     el.append(h("div", { class: "label" }, "Paste as"));
     el.append(h("div", { class: "row wrap", style: { gap: "6px" } }, TRANSFORMS.map(([name, fn]) =>
       h("button", { class: "chip", onclick: async () => {
@@ -223,7 +237,7 @@ Pages.audio = {
 };
 
 /** The volume of everything: big, because it is the one you reach for. */
-function masterCard(m) {
+export function masterCard(m) {
   const val = h("b", { class: "num mix-big" }, Math.round(m.vol * 100) + "%");
   const s = slider(Math.round(m.vol * 100), 0, 100, 1, (v) => { val.textContent = v + "%"; invoke("set_master", { vol: v / 100 }); });
   return h("div", { class: "card mix-master" + (m.muted ? " muted" : "") },
@@ -235,7 +249,7 @@ function masterCard(m) {
 }
 
 /** One app's volume: name and mute on top, the slider under it. */
-function appMixCard(a) {
+export function appMixCard(a) {
   const val = h("span", { class: "num dim mix-pct" }, Math.round(a.vol * 100));
   const s = slider(Math.round(a.vol * 100), 0, 100, 1, (v) => { val.textContent = v; invoke("set_app_volume", { key: a.key, vol: v / 100 }); });
   return h("div", { class: "mix-app" + (a.muted ? " muted" : "") },
@@ -265,12 +279,12 @@ Pages.windows = {
   },
 };
 
-function currentLayout() {
+export function currentLayout() {
   const s = S.state.settings;
   return s.layouts.find((l) => l.id === s.layout) || s.layouts[0];
 }
 
-function zoneMap(layout, onpick, w = 150, hh = 64) {
+export function zoneMap(layout, onpick, w = 150, hh = 64) {
   const map = h("div", { class: "zmap", style: { width: w + "px", height: hh + "px" } });
   layout.zones.forEach((z, i) => {
     map.append(h("button", {
@@ -282,7 +296,7 @@ function zoneMap(layout, onpick, w = 150, hh = 64) {
   return map;
 }
 
-function windowsView() {
+export function windowsView() {
   const wins = S.cache.windows || [];
   if (!wins.length) return h("div", { class: "empty" }, "No app windows open.");
   const lay = currentLayout();
@@ -308,7 +322,7 @@ function windowsView() {
   }));
 }
 
-function layoutsView() {
+export function layoutsView() {
   const s = S.state.settings;
   const el = h("div", null);
   el.append(h("div", { class: "settings-card" },
@@ -330,13 +344,13 @@ function layoutsView() {
 }
 
 /** What opening a workspace does besides placing windows. */
-function wsChips(ws) {
+export function wsChips(ws) {
   return [ws.close.length ? ["x", `Closes ${ws.close.map((c) => c.replace(/\.exe$/i, "")).join(", ")}`] : null,
     ws.audio_out ? ["volume", `Sound to ${shortDevice(ws.audio_out)}`] : null,
     ws.awake ? ["coffee", "Keeps the PC awake"] : null].filter(Boolean);
 }
 
-function workspacesView() {
+export function workspacesView() {
   const s = S.state.settings;
   const el = h("div", null);
   el.append(h("div", { class: "row", style: { marginBottom: "14px" } },
@@ -369,7 +383,7 @@ function workspacesView() {
   return el;
 }
 
-function editWorkspace(ws) {
+export function editWorkspace(ws) {
   const name = h("input", { type: "text", value: ws.name });
   const close = h("input", { type: "text", value: ws.close.join(", "), placeholder: "e.g. EpicGamesLauncher.exe, Steam.exe" });
   const audio = h("select", null, h("option", { value: "" }, "Leave it"), (S.cache.outputs || []).map((o) => h("option", { value: o.name, selected: o.name === ws.audio_out }, o.name)));

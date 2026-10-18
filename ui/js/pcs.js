@@ -1,15 +1,20 @@
 // Your other PCs: Transfer (files, folders, installers, apps and setups between your PCs) and
 // Claude Code sync (Claude Code's sessions, memory and settings kept the same on your PCs).
+import { I, Pages, S, ago, confirmBox, fmtBytes, h, invoke, note, run, seg, toggle } from "./core.js";
+import { copyAnswer } from "./search.js";
+import { head, plural } from "./pages1.js";
+import { curSub, go, render } from "./app.js";
 
-const dur = (s) => { s = Math.max(0, Math.round(s)); return s >= 3600 ? `${Math.floor(s / 3600)} h ${Math.floor(s % 3600 / 60)} min` : s >= 60 ? `${Math.floor(s / 60)} min ${s % 60} s` : `${s} s`; };
+
+export const dur = (s) => { s = Math.max(0, Math.round(s)); return s >= 3600 ? `${Math.floor(s / 3600)} h ${Math.floor(s % 3600 / 60)} min` : s >= 60 ? `${Math.floor(s / 60)} min ${s % 60} s` : `${s} s`; };
 /** append() writes "null" for an empty slot: this leaves empty slots out (and flattens lists). */
-const addTo = (el, ...kids) => el.append(...kids.flat(Infinity).filter((k) => k != null && k !== false && k !== ""));
-const agoMs = (ms) => (ms < 0 ? "never" : ago(Date.now() - ms));
-const row = (label, ...rest) => h("div", { class: "rd-row" }, h("span", { class: "dim" }, label), ...rest);
-const swRow = (label, on, fn, tip) => h("label", { class: "rd-row", title: tip || "" }, h("span", { class: "grow" }, label), toggle(on, fn));
+export const addTo = (el, ...kids) => el.append(...kids.flat(Infinity).filter((k) => k != null && k !== false && k !== ""));
+export const agoMs = (ms) => (ms < 0 ? "never" : ago(Date.now() - ms));
+export const row = (label, ...rest) => h("div", { class: "rd-row" }, h("span", { class: "dim" }, label), ...rest);
+export const swRow = (label, on, fn, tip) => h("label", { class: "rd-row", title: tip || "" }, h("span", { class: "grow" }, label), toggle(on, fn));
 
 /** A text box that saves when it loses focus or Enter is pressed. */
-function saveBox(value, save, attrs = {}) {
+export function saveBox(value, save, attrs = {}) {
   const el = h("input", { type: "text", value: value ?? "", ...attrs });
   const done = () => { if (el.value !== (value ?? "")) save(el.value.trim()); };
   el.addEventListener("change", done);
@@ -20,23 +25,23 @@ function saveBox(value, save, attrs = {}) {
 // ------------------------------------------------------------------------------------------- Transfer
 
 /** How long a PC may send without asking. */
-const TX_TRUST = [["7", "for a week"], ["30", "for a month"], ["182", "for 6 months"], ["always", "always"]];
-const txUntil = (u) => (u === 0 ? "always" : `until ${new Date(u).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}`);
+export const TX_TRUST = [["7", "for a week"], ["30", "for a month"], ["182", "for 6 months"], ["always", "always"]];
+export const txUntil = (u) => (u === 0 ? "always" : `until ${new Date(u).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}`);
 
-const TX_TABS = [["send", "Send"], ["share", "Share link"], ["apps", "Apps"], ["setup", "Setup"], ["received", "Received"], ["settings", "Settings"], ["log", "Log"]];
+export const TX_TABS = [["send", "Send"], ["share", "Share link"], ["apps", "Apps"], ["setup", "Setup"], ["received", "Received"], ["settings", "Settings"], ["log", "Log"]];
 
-async function tx(what, args = {}, ok) {
+export async function tx(what, args = {}, ok) {
   try { S.cache.tx = await run("transfer_do", { what, args }, ok); } catch { /* run() showed it */ }
   render();
 }
 
-function txPeer(t) {
+export function txPeer(t) {
   const peers = t.peers || [];
   return peers.find((p) => p.id === S.cache.txPeer) || peers[0] || null;
 }
 
 /** Offers and requests waiting for an answer (also shown as notifications). */
-function txPrompts(t) {
+export function txPrompts(t) {
   return [
     ...(t.reqs || []).map((r) => h("div", { class: "card col tx-ask" },
       h("b", null, `${r.peer} wants to ${r.what}`),
@@ -59,7 +64,7 @@ function txPrompts(t) {
   ];
 }
 
-function txPeers(t) {
+export function txPeers(t) {
   const peers = t.peers || [];
   if (!peers.length) return h("div", { class: "card col" },
     h("div", { class: "row" }, h("span", { class: "chip warn" }, I("search", "sm"), "Looking for your other PC…")),
@@ -73,7 +78,7 @@ function txPeers(t) {
     h("span", { class: "btn sm", role: "button", title: "See this PC's shared folders and copy from them", onclick: (e) => { e.stopPropagation(); S.cache.txPeer = p.id; tx("browse", { peer: p.id, path: "" }); } }, I("folder", "sm"), "Browse"))));
 }
 
-function txProgress(x) {
+export function txProgress(x) {
   const pct = x.total ? Math.min(100, (x.done / x.total) * 100) : 0;
   const dir = x.send ? `to ${x.peer}` : `from ${x.peer}`;
   let line, cls = "dim";
@@ -96,7 +101,7 @@ function txProgress(x) {
 }
 
 /** A folder waiting for Send: what goes, and the options. */
-function txStaged(t, sc) {
+export function txStaged(t, sc) {
   const cur = txPeer(t);
   const o = (S.cache.txOpts ||= {})[sc.path] ||= { skip: t.skip_build, sync: false, del: false, ok: false };
   const paths = sc.path.split("|");
@@ -118,7 +123,7 @@ function txStaged(t, sc) {
       h("button", { class: "btn ghost", onclick: () => tx("unstage", { path: sc.path }) }, "Cancel")));
 }
 
-function txBrowse(t) {
+export function txBrowse(t) {
   const b = t.browse;
   if (!b) return null;
   const peer = (t.peers || []).find((p) => p.id === b.peer);
@@ -158,12 +163,12 @@ function txBrowse(t) {
       } }, I("download"), sel.size ? `Copy ${sel.size} to this PC` : "Copy to this PC")));
 }
 
-function txSendTab(t) {
+export function txSendTab(t) {
   const cur = txPeer(t);
   const ready = !!cur;
   const pickFiles = async () => { const ps = await invoke("pick_many", { title: "Files or installers to send" }); if (ps?.length) tx("send", { peer: cur.id, paths: ps, install: !!S.cache.txInstall }, `Sending to ${cur.name}`); };
   const pickFolder = async () => { const p = await invoke("pick", { folder: true, title: "A folder to send" }); if (p) tx("send", { peer: cur.id, paths: [p] }); };
-  const ta = h("textarea", { rows: 2, placeholder: "Text or a link to send…", style: { width: "100%" } });
+  const ta = h("textarea", { rows: 2, "aria-label": "Text or a link to send", placeholder: "Text or a link to send…", style: { width: "100%" } });
   const xfers = t.xfers || [];
   return [
     txPeers(t),
@@ -185,7 +190,7 @@ function txSendTab(t) {
   ];
 }
 
-function txAppsTab(t) {
+export function txAppsTab(t) {
   const a = S.cache.txApps;
   const cur = txPeer(t);
   const el = h("div", { class: "card col" },
@@ -215,7 +220,7 @@ function txAppsTab(t) {
   return el;
 }
 
-function txSetupTab(t) {
+export function txSetupTab(t) {
   const p = S.cache.txSetup;
   const cur = txPeer(t);
   const o = (S.cache.txSetupOpts ||= { look: true, wallpaper: true, windhawk: true });
@@ -241,7 +246,7 @@ function txSetupTab(t) {
   return el;
 }
 
-function txApplyPanel(it) {
+export function txApplyPanel(it) {
   const e = it.extra || {};
   const o = (S.cache.txApply ||= {})[it.dir] ||= { look: true, wallpaper: true, windhawk: true, restart: true };
   const chk = (key, label, on = true) => h("label", { class: "row", style: { opacity: on ? 1 : 0.5 } }, h("input", { type: "checkbox", disabled: !on, checked: on && o[key], onchange: (ev) => { o[key] = ev.target.checked; } }), label);
@@ -256,7 +261,7 @@ function txApplyPanel(it) {
       h("button", { class: "btn ghost", onclick: () => { S.cache.txApplyOpen = null; render(); } }, "Cancel")));
 }
 
-function txReceivedTab(t) {
+export function txReceivedTab(t) {
   const items = t.inbox || [];
   const el = h("div", { class: "card col" },
     h("div", { class: "tile-head" }, I("download"), h("span", { class: "grow" }, "Received"),
@@ -299,14 +304,14 @@ function txReceivedTab(t) {
 }
 
 /** Trusted PCs: what they send comes in without asking, until a date or always. */
-function txTrustCard(t, set) {
+export function txTrustCard(t, set) {
   const known = new Map();
   (t.policies || []).forEach((p) => known.set(p.id, { id: p.id, name: p.name, until: null }));
   (t.trusted || []).forEach((x) => known.set(x.id, x));
   const list = [...known.values()];
   return h("div", { class: "card col" },
     h("div", { class: "tile-head" }, I("shield"), h("span", null, "Trusted PCs")),
-    h("div", { class: "dim" }, "What a trusted PC sends comes in without asking, installers included. Deleting files here is always asked. Trust a PC from its Accept prompt, or here."),
+    h("div", { class: "dim" }, "What a trusted PC sends comes in without asking. Installers and deleting files here are always asked. Trust a PC from its Accept prompt, or here."),
     list.map((x) => row(x.name, h("span", { class: (x.until == null ? "faint" : "good-t") + " grow" }, x.until == null ? "asks first" : "trusted " + txUntil(x.until)),
       h("select", { "aria-label": `Trust ${x.name}`, onchange: (e) => set("trust", { id: x.id, name: x.name, days: e.target.value }, e.target.value ? `${x.name} is trusted` : `${x.name} asks first again`) },
         h("option", { value: "", selected: x.until == null }, "Ask first"),
@@ -315,12 +320,12 @@ function txTrustCard(t, set) {
 }
 
 /** One-time share links: a file or folder for someone who isn't one of your PCs (any browser). */
-async function shareDo(cmd, args, ok) {
+export async function shareDo(cmd, args, ok) {
   try { S.cache.share = await run(cmd, args, ok); } catch { /* run() showed it */ }
   render();
 }
 
-function txShareTab() {
+export function txShareTab() {
   const sh = S.cache.share || { shares: [] };
   const o = (S.cache.shareOpts ||= { hours: 24, max: 1, internet: false });
   const make = async (folder) => {
@@ -359,7 +364,7 @@ function txShareTab() {
   ];
 }
 
-function txSettingsTab(t) {
+export function txSettingsTab(t) {
   const set = (key, value, ok) => tx("set", { key, value }, ok);
   const policy = (p) => h("select", { onchange: (e) => set("policy", { id: p.id, name: p.name, mode: e.target.value }) },
     [["ask", "Ask me each time"], ["always", "Always (trusted)"], ["off", "Never"]].map(([v, l]) => h("option", { value: v, selected: p.mode === v }, l)));
@@ -369,8 +374,8 @@ function txSettingsTab(t) {
       row("Name the other PC sees", saveBox(t.name, (v) => set("name", v, "Saved"))),
       row("Save received files in", h("code", { class: "grow ell", title: t.inbox_dir }, t.inbox_dir),
         h("button", { class: "btn sm", onclick: async () => { const p = await invoke("pick", { folder: true, title: "Where should received files go?" }); if (p) set("inbox_dir", p, "Saved"); } }, "Change…")),
-      swRow("Ask me before anything comes in", t.ask_before_receive, (v) => set("ask_before_receive", v), "On by default: every file, folder or installer waits for your Accept, unless it comes from a PC you trust"),
-      !t.ask_before_receive ? swRow("Let any paired PC start installers here without asking", t.trust_install, (v) => set("trust_install", v), "Off by default: you always confirm before an installer runs") : null),
+      swRow("Ask me before anything comes in", t.ask_before_receive, (v) => set("ask_before_receive", v), "On by default: every file or folder waits for your Accept, unless it comes from a PC you trust"),
+      h("div", { class: "faint" }, "Installers from another PC always wait for your Accept here, trusted or not, and start through Windows' own admin prompt.")),
     txTrustCard(t, set),
     h("div", { class: "card col" },
       h("div", { class: "tile-head" }, I("lock"), h("span", null, "Pairing")),
@@ -456,16 +461,16 @@ Pages.transfer = {
 
 // ---------------------------------------------------------------------------------------- Claude Code sync
 
-const CS_TABS = [["status", "Status"], ["sessions", "Sessions"], ["projects", "Projects"], ["settings", "Settings"], ["log", "Log"]];
+export const CS_TABS = [["status", "Status"], ["sessions", "Sessions"], ["projects", "Projects"], ["settings", "Settings"], ["log", "Log"]];
 
-async function cs(what, args = {}, ok) {
+export async function cs(what, args = {}, ok) {
   try { S.cache.cs = await run("claude_sync_do", { what, args }, ok); } catch { /* run() showed it */ }
   render();
 }
 
-const csWhere = (alias) => (alias === "~" ? "~ (home folder)" : alias);
+export const csWhere = (alias) => (alias === "~" ? "~ (home folder)" : alias);
 
-function csStatusTab(c) {
+export function csStatusTab(c) {
   const cfg = c.cfg;
   let txt, cls;
   if (cfg.paused) { txt = "Paused"; cls = "warn"; }
@@ -481,6 +486,11 @@ function csStatusTab(c) {
         h("button", { class: "btn sm", onclick: () => cs("sync_now", {}, "Syncing") }, I("refresh", "sm"), "Sync now"),
         h("button", { class: "btn sm ghost", onclick: () => cs("pause", { paused: !cfg.paused }) }, I(cfg.paused ? "play" : "pause", "sm"), cfg.paused ? "Resume" : "Pause")),
       versions,
+      (c.held || []).length ? h("div", { class: "col", role: "alert" },
+        h("div", { class: "warn-t" }, `Waiting for your OK: ${c.held.map((x) => x.path).join(", ")} from ${c.held[0].from}. These would change what Claude Code runs or may do on this PC (hooks, permissions, plugins). Apply only if you made this change.`),
+        h("div", { class: "row" },
+          h("button", { class: "btn sm", onclick: () => cs("held", { apply: true }, "Applied") }, I("check", "sm"), "Apply"),
+          h("button", { class: "btn sm ghost", onclick: () => cs("held", { apply: false }, "Kept this PC's") }, "Keep this PC's"))) : null,
       c.last_error ? h("div", { class: "bad-t" }, c.last_error) : null,
       h("div", { class: "cs-grid" },
         [["Sessions", cfg.sessions ? c.local_files[0] : "not synced"], ["Memory files", cfg.memory ? c.local_files[1] : "not synced"], ["Settings, skills, plugins", cfg.config ? c.local_files[2] : "not synced"],
@@ -507,7 +517,7 @@ function csStatusTab(c) {
   ];
 }
 
-function csSessionsTab(c) {
+export function csSessionsTab(c) {
   const q = (S.cache.csQ || "").trim().toLowerCase();
   const rows = c.sessions.filter((r) => !q || [r.title, r.first, r.last, r.alias, r.sid, ...r.elsewhere].some((s) => (s || "").toLowerCase().includes(q)));
   const shown = rows.slice(0, S.cache.csMore || 60);
@@ -545,7 +555,7 @@ function csSessionsTab(c) {
   ];
 }
 
-function csProjectsTab(c) {
+export function csProjectsTab(c) {
   return [
     h("div", { class: "dim" }, "Each project has a name shared by all your PCs and its own folder on each one. Paths inside synced sessions are rewritten to this PC's folder, so /resume works here. Moving a project moves its sessions: close Claude Code in that project first."),
     ...c.projects.map((p) => h("div", { class: "card col" },
@@ -562,7 +572,7 @@ function csProjectsTab(c) {
   ];
 }
 
-function csSettingsTab(c) {
+export function csSettingsTab(c) {
   const cfg = c.cfg;
   const set = (key, value, ok) => cs("set", { key, value }, ok);
   return [

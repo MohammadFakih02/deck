@@ -112,7 +112,7 @@ pub struct ProjDirs {
 
 impl ProjDirs {
     pub fn dir_for_path(&self, path: &str) -> String {
-        for (_, actual) in &self.actual {
+        for actual in self.actual.values() {
             if enc_matches(path, actual) {
                 return actual.clone();
             }
@@ -211,10 +211,9 @@ pub fn to_local_rel(canon_rel: &str, cfg: &Config, dirs: &ProjDirs) -> Option<St
     let (head, rest) = r.split_once('/')?;
     let dir = if let Some(a) = head.strip_prefix('@') {
         dirs.dir_for_path(&cfg.projects.get(a)?.path)
-    } else if let Some(e) = head.strip_prefix('=') {
-        dirs.actual.get(&e.to_lowercase()).cloned().unwrap_or_else(|| e.to_string())
     } else {
-        return None;
+        let e = head.strip_prefix('=')?;
+        dirs.actual.get(&e.to_lowercase()).cloned().unwrap_or_else(|| e.to_string())
     };
     Some(format!("projects/{dir}/{rest}"))
 }
@@ -271,10 +270,7 @@ impl HashCache {
     }
 
     pub fn save(&self, p: &Path) {
-        let tmp = p.with_extension("tmp");
-        if std::fs::write(&tmp, serde_json::to_vec(self).unwrap_or_default()).is_ok() {
-            let _ = std::fs::rename(&tmp, p);
-        }
+        let _ = crate::util::write_atomic(p, &serde_json::to_vec(self).unwrap_or_default());
     }
 }
 

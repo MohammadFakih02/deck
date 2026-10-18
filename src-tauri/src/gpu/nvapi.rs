@@ -4,7 +4,8 @@
 
 use std::ffi::c_void;
 use windows::core::PCSTR;
-use windows::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
+use windows::Win32::Foundation::HMODULE;
+use windows::Win32::System::LibraryLoader::GetProcAddress;
 
 pub const OK: i32 = 0;
 
@@ -44,7 +45,11 @@ pub fn ver(size: usize, v: u32) -> u32 {
 impl NvApi {
     pub fn load() -> Option<NvApi> {
         unsafe {
-            let m = LoadLibraryW(windows::core::w!("nvapi64.dll")).ok()?;
+            // from System32 only: Deck runs with admin rights (see util::trusted_dll_paths)
+            let m = HMODULE(crate::util::load_trusted_dll("nvapi64.dll"));
+            if m.is_invalid() {
+                return None;
+            }
             let q: QueryFn = std::mem::transmute(GetProcAddress(m, PCSTR(c"nvapi_QueryInterface".as_ptr() as *const u8))?);
             let init: unsafe extern "C" fn() -> i32 = std::mem::transmute(non_null(q(INITIALIZE))?);
             if init() != OK {

@@ -1,9 +1,12 @@
 // Shared helpers and state for Deck's pages.
-const T = window.__TAURI__;
-const invoke = (cmd, args) => T.core.invoke(cmd, args || {});
-const listen = (ev, fn) => T.event.listen(ev, fn);
+import { icon } from "./icons.js";
+import { HELP } from "./help.js";
 
-const S = {
+export const T = window.__TAURI__;
+export const invoke = (cmd, args) => T.core.invoke(cmd, args || {});
+export const listen = (ev, fn) => T.event.listen(ev, fn);
+
+export const S = {
   state: null,      // settings + static info
   live: null,       // vitals, media, volumes, power (refreshed every second while open)
   page: "home",
@@ -15,10 +18,13 @@ const S = {
   interacting: 0,   // > 0 while a slider is being dragged
 };
 
-const ICON_BASE = window.ICON_BASE || "http://icon.localhost/";
-const iconSrc = (kind, key) => (window.__iconSrc ? window.__iconSrc(kind, key) : ICON_BASE + kind + "/" + encodeURIComponent(key));
+/** Every page: Pages[name] = { load, render, … }; each page file adds its own. */
+export const Pages = {};
 
-function h(tag, props, ...kids) {
+export const ICON_BASE = window.ICON_BASE || "http://icon.localhost/";
+export const iconSrc = (kind, key) => (window.__iconSrc ? window.__iconSrc(kind, key) : ICON_BASE + kind + "/" + encodeURIComponent(key));
+
+export function h(tag, props, ...kids) {
   const el = document.createElement(tag);
   if (props) {
     for (const [k, v] of Object.entries(props)) {
@@ -38,14 +44,14 @@ function h(tag, props, ...kids) {
   return el;
 }
 
-function I(name, cls) {
+export function I(name, cls) {
   const t = document.createElement("template");
   t.innerHTML = icon(name, cls);
   return t.content.firstChild;
 }
 
 /** App/file icon with a letter placeholder if Windows has none. */
-function appIcon(kind, key, name, cls) {
+export function appIcon(kind, key, name, cls) {
   const letter = (name || "?").replace(/[^\p{L}\p{N}]/gu, "").slice(0, 1).toUpperCase() || "?";
   const ph = () => h("div", { class: "ph " + (cls || "") }, letter);
   if (!key) return ph();
@@ -54,7 +60,7 @@ function appIcon(kind, key, name, cls) {
   return img;
 }
 
-function fmtBytes(b) {
+export function fmtBytes(b) {
   if (b == null) return "–";
   const u = ["B", "KB", "MB", "GB", "TB"];
   let i = 0;
@@ -65,27 +71,27 @@ function fmtBytes(b) {
 
 // ---- units chosen in Settings > General > Units. Only shown readings convert; sliders,
 // curves and offsets you set stay in MHz and °C (what the hardware and other tools use).
-const units = () => S.state?.settings || {};
-const useGhz = () => units().unit_clock === "GHz";
-const useF = () => units().unit_temp === "F";
-const netBytes = () => units().unit_net === "MB/s";
+export const units = () => S.state?.settings || {};
+export const useGhz = () => units().unit_clock === "GHz";
+export const useF = () => units().unit_temp === "F";
+export const netBytes = () => units().unit_net === "MB/s";
 
 /** A clock speed given in MHz, in the chosen unit. */
-function fmtClock(mhz) {
+export function fmtClock(mhz) {
   if (mhz == null || !Number.isFinite(+mhz)) return "–";
   return useGhz() ? (mhz / 1000).toFixed(2) + " GHz" : Math.round(mhz).toLocaleString() + " MHz";
 }
 /** A temperature given in °C, as a number in the chosen unit. */
-const tempNum = (c) => (c == null ? null : useF() ? c * 9 / 5 + 32 : c);
-const tempUnit = () => (useF() ? "°F" : "°C");
+export const tempNum = (c) => (c == null ? null : useF() ? c * 9 / 5 + 32 : c);
+export const tempUnit = () => (useF() ? "°F" : "°C");
 /** A temperature given in °C, in the chosen unit ("64 °C"; `short` gives "64°"). */
-function fmtTemp(c, short) {
+export function fmtTemp(c, short) {
   if (c == null || !Number.isFinite(+c)) return "–";
   return Math.round(tempNum(c)) + (short ? "°" : " " + tempUnit());
 }
 
 /** A network speed given in bytes per second: bits (Mb/s) or bytes (MB/s), as chosen. */
-function fmtRate(bps) {
+export function fmtRate(bps) {
   if (netBytes()) {
     const b = bps || 0;
     if (b >= 1024 ** 3) return (b / 1024 ** 3).toFixed(1) + " GB/s";
@@ -100,16 +106,16 @@ function fmtRate(bps) {
   return bits.toFixed(0) + " b/s";
 }
 /** A speed already in megabits per second (speed tests), in the chosen unit: [number text, unit]. */
-const mbpsParts = (mbps) => (mbps == null ? ["–", netBytes() ? "MB/s" : "Mb/s"] : netBytes() ? [(mbps / 8).toFixed(1), "MB/s"] : [(+mbps).toFixed(mbps >= 100 ? 0 : 1), "Mb/s"]);
+export const mbpsParts = (mbps) => (mbps == null ? ["–", netBytes() ? "MB/s" : "Mb/s"] : netBytes() ? [(mbps / 8).toFixed(1), "MB/s"] : [(+mbps).toFixed(mbps >= 100 ? 0 : 1), "Mb/s"]);
 
-function fmtDur(s) {
+export function fmtDur(s) {
   s = Math.max(0, Math.round(s));
   const hh = Math.floor(s / 3600), mm = Math.floor((s % 3600) / 60), ss = s % 60;
   if (hh) return `${hh}:${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
   return `${mm}:${String(ss).padStart(2, "0")}`;
 }
 
-function fmtWords(s) {
+export function fmtWords(s) {
   s = Math.round(s);
   if (s < 60) return `${s} s`;
   const m = Math.round(s / 60);
@@ -118,7 +124,7 @@ function fmtWords(s) {
   return mm ? `${hh} h ${mm} min` : `${hh} h`;
 }
 
-function ago(ms) {
+export function ago(ms) {
   const s = (Date.now() - ms) / 1000;
   if (s < 60) return "just now";
   if (s < 3600) return `${Math.floor(s / 60)} min ago`;
@@ -127,8 +133,8 @@ function ago(ms) {
   return d === 1 ? "yesterday" : `${d} days ago`;
 }
 
-let toastTimer;
-function note(msg, err) {
+export let toastTimer;
+export function note(msg, err) {
   const t = document.getElementById("toast");
   t.textContent = msg;
   t.className = "toast-in show" + (err ? " err" : "");
@@ -137,7 +143,7 @@ function note(msg, err) {
 }
 
 /** invoke with the error shown to the user. */
-async function run(cmd, args, okMsg) {
+export async function run(cmd, args, okMsg) {
   try {
     const r = await invoke(cmd, args);
     if (okMsg) note(okMsg);
@@ -151,9 +157,9 @@ async function run(cmd, args, okMsg) {
 /** Settings this page wrote itself recently: { key: [value, when done (0 = still being written)] }.
  *  A "settings changed" reload can answer from before the write landed (two writes in a row: the
  *  reload of the first can miss the second); these values win over such a stale answer. */
-const localWrites = new Map();
+export const localWrites = new Map();
 
-async function setSetting(key, value) {
+export async function setSetting(key, value) {
   const before = S.state.settings[key];
   S.state.settings[key] = value;
   localWrites.set(key, [value, 0]);
@@ -173,7 +179,7 @@ async function setSetting(key, value) {
 }
 
 /** A reloaded state, with this page's own recent writes kept over what the reload says. */
-function withLocalWrites(state) {
+export function withLocalWrites(state) {
   for (const [k, [v, done]] of localWrites) {
     if (done && Date.now() - done > 3000) localWrites.delete(k);
     else if (state?.settings) state.settings[k] = v;
@@ -181,14 +187,14 @@ function withLocalWrites(state) {
   return state;
 }
 
-function toggle(checked, onchange) {
+export function toggle(checked, onchange) {
   return h("label", { class: "switch" },
     h("input", { type: "checkbox", checked, onchange: (e) => onchange(e.target.checked) }),
     h("i"));
 }
 
 /** Range input with the filled part coloured. `oninput` fires live. */
-function slider(value, min, max, step, oninput, onchange) {
+export function slider(value, min, max, step, oninput, onchange) {
   const el = h("input", { type: "range", min, max, step, value });
   const paint = () => el.style.setProperty("--p", ((el.value - min) / (max - min)) * 100 + "%");
   paint();
@@ -201,14 +207,14 @@ function slider(value, min, max, step, oninput, onchange) {
   return el;
 }
 
-function seg(options, current, onpick) {
+export function seg(options, current, onpick) {
   return h("div", { class: "seg", role: "group" }, options.map(([v, label]) =>
     h("button", { class: v === current ? "on" : "", "aria-pressed": v === current ? "true" : "false", onclick: () => onpick(v) }, label)));
 }
 
 /** A "?" that explains a setting: hover or focus shows the card, a click keeps it open.
  *  `key` names an entry in HELP: { t: title, what, why, change, warn }. */
-function helpTip(key) {
+export function helpTip(key) {
   const x = typeof HELP !== "undefined" && HELP[key];
   if (!x) return null;
   const btn = h("button", { type: "button", class: "help-q", "aria-label": "About " + x.t, "aria-expanded": "false" }, "?");
@@ -245,14 +251,14 @@ function helpTip(key) {
 new MutationObserver(() => document.querySelectorAll(".help-card").forEach((c) => c.__btn && !c.__btn.isConnected && c.__hide()))
   .observe(document.documentElement, { childList: true, subtree: true });
 
-const FOCUSABLE = "button:not([disabled]), [href], input:not([disabled]):not([type=hidden]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])";
-let modalSeq = 0;
+export const FOCUSABLE = "button:not([disabled]), [href], input:not([disabled]):not([type=hidden]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])";
+export let modalSeq = 0;
 
 /** A dialog. `opts.wide`: the large scrolling editor layout; `opts.onDismiss`: runs when it is
  *  closed without a button (click outside, Escape, Deck hiding). `opts.keep`: stays open while
  *  Deck is hidden (an editor you alt-tab away from, e.g. to try a profile in a game). Returns close().
  *  Focus moves into the dialog, Tab stays inside it, and focus goes back to the opener on close. */
-function modal(title, body, actions, opts = {}) {
+export function modal(title, body, actions, opts = {}) {
   const opener = document.activeElement;
   const back = h("div", { class: "modal-back", onclick: (e) => { if (e.target === back) back.__close(); } });
   const close = () => {
@@ -285,7 +291,7 @@ function modal(title, body, actions, opts = {}) {
 
 /** Gives switches, sliders and icon-only buttons a name screen readers can say, from the text next
  *  to them, when the page didn't give one. Runs after every redraw (see app.js). */
-function nameControls(root) {
+export function nameControls(root) {
   for (const i of root.querySelectorAll(".switch input")) {
     if (!i.hasAttribute("role")) i.setAttribute("role", "switch");
     if (!i.hasAttribute("aria-label") && !hasLabelText(i)) { const t = nearText(i.closest(".switch")); if (t) i.setAttribute("aria-label", t); }
@@ -300,9 +306,9 @@ function nameControls(root) {
     if (!b.textContent.trim() && b.title) b.setAttribute("aria-label", b.title);
   }
 }
-const hasLabelText = (i) => i.labels && [...i.labels].some((l) => l.textContent.trim());
+export const hasLabelText = (i) => i.labels && [...i.labels].some((l) => l.textContent.trim());
 /** The first words near `el` that aren't a number or a unit, looking a few levels up. */
-function nearText(el) {
+export function nearText(el) {
   const skip = /^[\d\s.,:%°+\-–/×x]*(°C|%|MHz|GHz|W|RPM|ms|s|GB|MB|KB|mV|V|dB|Hz)?[\d\s.,:%°+\-–/]*$/i;
   for (let n = el.parentElement, depth = 0; n && depth < 4; n = n.parentElement, depth++) {
     const walk = document.createTreeWalker(n, NodeFilter.SHOW_TEXT, { acceptNode: (t) => (t.parentElement.closest("button, select, option, input, .switch, svg") ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT) });
@@ -315,14 +321,14 @@ function nearText(el) {
 }
 
 /** Text that follows live readings: `list` collects the updaters the page's tick runs. */
-function liveSpan(fn, list, cls) {
+export function liveSpan(fn, list, cls) {
   const el = h("span", { class: cls ?? "num" }, fn() ?? "–");
   list.push(() => { el.textContent = fn() ?? "–"; });
   return el;
 }
 
 /** Title + description on the left, a control on the right (settings-style row). */
-function settingRow(title, desc, control) {
+export function settingRow(title, desc, control) {
   // the row's title names its switch or slider for screen readers
   const field = control instanceof Element ? (control.matches("input, select") ? control : control.querySelector("input, select")) : null;
   const name = typeof title === "string" ? title : title instanceof Element ? title.firstChild?.textContent : null; // a title can carry a "?"
@@ -330,7 +336,7 @@ function settingRow(title, desc, control) {
   return h("div", { class: "setting" }, h("div", { class: "grow" }, h("div", { class: "t" }, title), desc ? h("div", { class: "d" }, desc) : null), control);
 }
 
-function confirmBox(title, text, okLabel, danger) {
+export function confirmBox(title, text, okLabel, danger) {
   return new Promise((resolve) => {
     modal(title, h("div", { class: "dim" }, text), (close) => [
       h("button", { class: "btn ghost", onclick: () => { close(); resolve(false); } }, "Cancel"),
@@ -339,7 +345,7 @@ function confirmBox(title, text, okLabel, danger) {
   });
 }
 
-function promptBox(title, label, value, okLabel) {
+export function promptBox(title, label, value, okLabel) {
   return new Promise((resolve) => {
     const input = h("input", { type: "text", value: value || "" });
     modal(title, h("label", { class: "field" }, h("span", null, label), input), (close) => {
@@ -354,7 +360,7 @@ function promptBox(title, label, value, okLabel) {
 }
 
 /** Sparkline on a canvas. */
-function spark(canvas, values, max, color) {
+export function spark(canvas, values, max, color) {
   const dpr = window.devicePixelRatio || 1;
   const w = canvas.clientWidth || 120, hgt = canvas.clientHeight || 26;
   canvas.width = w * dpr; canvas.height = hgt * dpr;
@@ -377,11 +383,11 @@ function spark(canvas, values, max, color) {
   c.fillStyle = g; c.fill();
 }
 
-function accent() {
+export function accent() {
   return getComputedStyle(document.documentElement).getPropertyValue("--acc").trim() || "#4f8cff";
 }
 
-function parseDuration(s) {
+export function parseDuration(s) {
   // "10m", "1h30", "90s", "25", "1:30"
   s = (s || "").trim().toLowerCase();
   if (!s) return 0;

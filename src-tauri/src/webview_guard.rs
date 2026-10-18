@@ -29,9 +29,47 @@ fn now_ms() -> u64 {
 /// over the WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS variable, so the flags go on each window builder;
 /// anything that variable holds (a debugging port, say) is added on top.
 pub fn browser_args() -> String {
-    match std::env::var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS") {
-        Ok(v) if !v.trim().is_empty() => format!("{BROWSER_ARGS} {}", v.trim()),
-        _ => BROWSER_ARGS.to_string(),
+    let args: Vec<String> = std::env::args().collect();
+    browser_args_for(std::env::var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS").ok().as_deref(), crate::elevation::is_admin(), cdp_port(&args))
+}
+
+/// `browser_args` without the process around it (for tests).
+/// An elevated Deck takes nothing from the environment: any program running as the user can set
+/// that variable, and a debugging port there would hand it every command Deck has. The port for
+/// live testing comes from Deck's own command line instead (`--cdp-port`), which only whoever
+/// started this process could pass.
+pub fn browser_args_for(env_extra: Option<&str>, elevated: bool, cli_port: Option<u16>) -> String {
+    let mut a = BROWSER_ARGS.to_string();
+    if let Some(v) = env_extra.map(str::trim).filter(|v| !v.is_empty() && !elevated) {
+        a.push(' ');
+        a.push_str(v);
+    }
+    if let Some(p) = cli_port {
+        a.push_str(&format!(" --remote-debugging-port={p}"));
+    }
+    a
+}
+
+/// `--cdp-port=N` (or `--cdp-port N`) on Deck's own command line.
+pub fn cdp_port(args: &[String]) -> Option<u16> {
+    let i = args.iter().position(|a| a == "--cdp-port" || a.starts_with("--cdp-port="))?;
+    let v = match args[i].strip_prefix("--cdp-port=") {
+        Some(v) => v,
+        None => args.get(i + 1)?,
+    };
+    v.parse::<u16>().ok().filter(|p| *p != 0)
+}
+
+/// Removes the WEBVIEW2_* variables from this process when it runs elevated, before any window
+/// exists: WebView2 reads several of them itself (extra browser flags, which browser to run, where
+/// its profile lives), and the user can set all of them without admin rights.
+pub fn scrub_env(elevated: bool) {
+    if !elevated {
+        return;
+    }
+    let names: Vec<std::ffi::OsString> = std::env::vars_os().map(|(k, _)| k).filter(|k| k.to_string_lossy().to_ascii_uppercase().starts_with("WEBVIEW2_")).collect();
+    for k in names {
+        std::env::remove_var(k);
     }
 }
 
@@ -108,4 +146,41 @@ pub fn spawn_watchdog(app: AppHandle, label: &'static str) {
             }
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_elevated_deck_ignores_debug_flags_from_the_environment() {
+        let a = browser_args_for(Some("--remote-debugging-port=9222 --load-extension=C:/x"), true, None);
+        assert!(!a.contains("remote-debugging") && !a.contains("load-extension"), "{a}");
+        assert!(a.starts_with(BROWSER_ARGS));
+    }
+
+    #[test]
+    fn an_unelevated_deck_still_takes_them() {
+        assert!(browser_args_for(Some("--remote-debugging-port=9222"), false, None).contains("--remote-debugging-port=9222"));
+    }
+
+    #[test]
+    fn the_debug_port_comes_from_decks_own_command_line() {
+        let args = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(cdp_port(&args(&["deck.exe", "--cdp-port=9222"])), Some(9222));
+        assert_eq!(cdp_port(&args(&["deck.exe", "--minimized", "--cdp-port", "9333"])), Some(9333));
+        assert_eq!(cdp_port(&args(&["deck.exe", "--cdp-port=0"])), None);
+        assert_eq!(cdp_port(&args(&["deck.exe", "--cdp-port=x"])), None);
+        assert_eq!(cdp_port(&args(&["deck.exe"])), None);
+        assert!(browser_args_for(None, true, Some(9222)).contains("--remote-debugging-port=9222"));
+    }
+
+    #[test]
+    fn elevated_start_drops_every_webview2_variable() {
+        std::env::set_var("WEBVIEW2_DECK_TEST_SCRUB", "1");
+        scrub_env(false);
+        assert!(std::env::var("WEBVIEW2_DECK_TEST_SCRUB").is_ok(), "unelevated: left alone");
+        scrub_env(true);
+        assert!(std::env::var("WEBVIEW2_DECK_TEST_SCRUB").is_err(), "elevated: removed");
+    }
 }

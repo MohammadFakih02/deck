@@ -383,6 +383,7 @@ fn hash(b: &[u8]) -> u64 {
     h
 }
 
+#[cfg(test)]
 fn jpeg(s: &Shot, quality: u8) -> Option<Vec<u8>> {
     jpeg_with(s, quality, false)
 }
@@ -1778,10 +1779,9 @@ fn vk(name: &str) -> Option<(u16, bool)> {
             let b = n.as_bytes();
             if b.len() == 1 && (b[0].is_ascii_lowercase() || b[0].is_ascii_digit()) {
                 (b[0].to_ascii_uppercase() as u16, false)
-            } else if let Some(f) = n.strip_prefix('f').and_then(|f| f.parse::<u16>().ok()).filter(|f| (1..=12).contains(f)) {
-                (0x70 + f - 1, false)
             } else {
-                return None;
+                let f = n.strip_prefix('f').and_then(|f| f.parse::<u16>().ok()).filter(|f| (1..=12).contains(f))?;
+                (0x70 + f - 1, false)
             }
         }
     })

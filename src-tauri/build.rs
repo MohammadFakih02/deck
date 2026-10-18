@@ -25,8 +25,9 @@ fn rtss32() {
     let built = Command::new(cargo)
         .args(["build", "--release", "--quiet", "--target", "i686-pc-windows-msvc", "--manifest-path", "rtss32/Cargo.toml", "--target-dir"])
         .arg(&target_dir)
-        // the outer build's flags are for 64-bit Deck, not this helper
-        .env_remove("CARGO_ENCODED_RUSTFLAGS")
+        // the outer build's flags are for 64-bit Deck, not this helper. It links the C runtime in, as
+        // Deck does, so it starts on PCs without the Visual C++ runtime.
+        .env("CARGO_ENCODED_RUSTFLAGS", "-Ctarget-feature=+crt-static")
         .env_remove("RUSTFLAGS")
         .env_remove("CARGO_TARGET_DIR")
         .env_remove("CARGO_BUILD_TARGET")
@@ -34,8 +35,12 @@ fn rtss32() {
         .map(|s| s.success())
         .unwrap_or(false);
     let exe = target_dir.join("i686-pc-windows-msvc").join("release").join("rtss-osd32.exe");
+    println!("cargo:rerun-if-env-changed=DECK_REQUIRE_RTSS32");
     if built && exe.exists() {
         std::fs::copy(&exe, &dest).unwrap();
+    } else if std::env::var("DECK_REQUIRE_RTSS32").is_ok_and(|v| v == "1") {
+        // release builds (CI) must not ship without it
+        panic!("DECK_REQUIRE_RTSS32=1 but the 32-bit RivaTuner helper didn't build (rustup target add i686-pc-windows-msvc)");
     } else {
         println!("cargo:warning=32-bit RivaTuner helper not built (rustup target add i686-pc-windows-msvc): the overlay key won't flip RivaTuner's own switch");
         std::fs::write(&dest, b"").unwrap();

@@ -10,6 +10,7 @@ target/
 # generated test pages (absolute local paths)
 /tools/testing/ui-preview/harness*.html
 /tools/testing/ui-preview/out/
+/tools/testing/ui-preview/phone-shots/
 *.log
 
 # editors / OS

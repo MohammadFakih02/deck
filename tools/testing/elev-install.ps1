@@ -20,8 +20,8 @@ try {
         for ($i = 0; $i -lt 30 -and (Get-Process Deck -ErrorAction SilentlyContinue); $i++) { Start-Sleep -Milliseconds 500 }
         Get-Process Deck -ErrorAction SilentlyContinue | Stop-Process -Force
     }
-    $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = '--remote-debugging-port=9222'
-    Start-Process $exe
+    # the debug port goes on Deck's command line: an elevated Deck ignores WEBVIEW2_* variables
+    Start-Process $exe -ArgumentList "--cdp-port=9222"
     Write-Host "STARTED debug"
 } catch { Write-Host "ERROR $_" }
 Stop-Transcript | Out-Null

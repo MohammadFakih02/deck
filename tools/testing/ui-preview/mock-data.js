@@ -122,6 +122,7 @@
   R.claude_sync_state = () => ({
     on: true, standalone: false, phase: "Idle", last_cycle: 12000, last_result: "Up to date", last_error: "", lan_port: 47836, local_files: [214, 18, 63], local_bytes: 381000000,
     received: 42, conflicts: 0, hook_note: "", pending: 0, version: "2.5.0",
+    held: R.__csHeld === false ? [] : [{ path: "settings.json", from: "LAPTOP" }],
     machines: [{ id: "m1", name: "LAPTOP", via: "network", ago: 30000, files: 290, online: true, version: "2.5.0", cmp: 0 }],
     projects: [{ alias: "~", home: true, path: "C:\\Users\\you", auto: false, origin: "local", sync: true, exists: true, sessions: 31, elsewhere: [{ machine: "LAPTOP", path: "C:\\Users\\me" }] },
       { alias: "website", home: false, path: "D:\\code\\website", auto: true, origin: "LAPTOP", sync: true, exists: false, sessions: 4, elsewhere: [{ machine: "LAPTOP", path: "C:\\dev\\website" }] }],
@@ -133,7 +134,7 @@
     cfg: { name: "DESKTOP", key: "Q3VX-8MNA-2KPL-7WRT-4HZE-9CBD", lan: true, manual_peers: "", hub: false, hub_dir: "", sessions: true, memory: true, config: true, interval: 20, paused: false, session_lock: true, machine_note: true },
     onedrive: "C:\\Users\\you\\OneDrive", claude_dir: "C:\\Users\\you\\.claude", data: "C:\\Users\\you\\AppData\\Roaming\\Deck\\claude-sync", logs: ["10:00:01 Claude Sync started"],
   });
-  R.claude_sync_do = () => R.claude_sync_state();
+  R.claude_sync_do = ({ what, args } = {}) => { if (what === "held") { R.__csHeld = false; R.__csHeldApply = args.apply; } return R.claude_sync_state(); };
   R.pick_many = () => [];
   R.share_state = () => ({ tailscale: true, funnel: "https://desktop.tailnet.ts.net", funnel_error: "", shares: [
     { token: "a1", name: "holiday-photos.zip", size: 812000000, expires: Date.now() + 20 * 3600e3, max: 1, done: 0, internet: true, preparing: false, error: "", home: "http://192.168.1.42:47837/s/k3Jd9aQ2xLm8", web: "https://desktop.tailnet.ts.net/deck-share/k3Jd9aQ2xLm8" },
@@ -142,7 +143,7 @@
   R.share_stop = () => R.share_state();
   R.remote_info = () => ({ enabled: true, away: "http://100.64.12.34:47830/#k=preview", away_qr: "", away_get_qr: "", away_peers: [], away_account: "someone@example.com", qr: '<svg xmlns="http://www.w3.org/2000/svg" width="180" height="180" viewBox="0 0 9 9"><rect width="9" height="9" fill="#fff"/><path d="M1 1h3v3H1zM5 1h3v3H5zM1 5h3v3H1zM5 5h1v1H5zM7 6h1v2H6V7h1z" fill="#000"/></svg>', clients: 1, origin: "http://192.168.1.42:47830", shared: [{ id: 1, kind: "text", text: "https://youtu.be/dQw4w9WgXcQ", from: "phone", ts: Date.now() - 600e3 }, { id: 2, kind: "file", name: "IMG_2041.jpg", from: "phone", ts: Date.now() - 3600e3, size: 2.4e6, path: "x" }, { id: 3, kind: "text", text: "Meet at 9", from: "pc", ts: Date.now() - 86400e3 }] });
   R.apps_list = () => applist;
-  Object.assign(st, { boost_power: true, boost_cpu: "", boost_gpu: "", boost_priority: true, boost_trim: true, boost_auto_end: true,
+  Object.assign(st, { boost_power: true, boost_cpu: "", boost_gpu: "", cpu_battery_profile: "", cpu_plugged_profile: "", cpu_battery_same: true, boost_priority: true, boost_trim: true, boost_auto_end: true,
     cpu_profiles: [{ id: "c1", name: "Eco" }, { id: "c2", name: "Mid" }, { id: "c3", name: "Max" }], gpu_profiles: [{ id: "g1", name: "AB Profile 5" }, { id: "g2", name: "Quiet" }] });
   window.__boost = { on: false, busy: false, active: null, last_clean: { at: Math.floor(now / 1000) - 7200, closed: ["Discord", "Spotify"], freed: 1.4e9, kept: [] }, ram: { total: 32e9, free: 13.5e9 }, plan: { kind: "scheme", from: "Balanced", name: "Ultimate Performance" } };
   window.__boostApps = [

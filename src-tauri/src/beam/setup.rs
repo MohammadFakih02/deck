@@ -1,6 +1,7 @@
 //! Running what arrived: finds the installer in a received folder, recognises common installer
 //! frameworks (so they can be run silently), starts them and reports how it went.
 //! Scripts (.bat, .ps1, .cmd, ...) are never run automatically.
+use crate::util::LockAnyway;
 use crate::beam::config::Shared;
 use crate::beam::winutil::wide;
 use std::io::Read;
@@ -70,7 +71,7 @@ pub fn can_silent(kind: &str) -> bool {
 }
 
 pub fn set_note(sh: &Shared, dir: &str, note: String) {
-    if let Some(i) = sh.inbox.lock().unwrap().iter_mut().find(|i| i.dir == dir) {
+    if let Some(i) = sh.inbox.lock_anyway().iter_mut().find(|i| i.dir == dir) {
         i.note = note;
     }
     sh.repaint();
@@ -78,6 +79,10 @@ pub fn set_note(sh: &Shared, dir: &str, note: String) {
 
 /// starts a file and waits for it; Ok(exit code), or Ok(0) when it was only opened (no process to wait for)
 pub fn shell_run(verb: Option<&str>, file: &str, params: &str, cwd: &str) -> Result<u32, String> {
+    shell_run_as(verb, file, params, cwd, SW_SHOWNORMAL)
+}
+
+fn shell_run_as(verb: Option<&str>, file: &str, params: &str, cwd: &str, show: i32) -> Result<u32, String> {
     unsafe {
         let (v, f, p, d) = (verb.map(wide), wide(file), wide(params), wide(cwd));
         let mut info: SHELLEXECUTEINFOW = std::mem::zeroed();
@@ -87,7 +92,7 @@ pub fn shell_run(verb: Option<&str>, file: &str, params: &str, cwd: &str) -> Res
         info.lpFile = f.as_ptr();
         info.lpParameters = p.as_ptr();
         info.lpDirectory = d.as_ptr();
-        info.nShow = SW_SHOWNORMAL;
+        info.nShow = show;
         if ShellExecuteExW(&mut info) == 0 {
             let e = std::io::Error::last_os_error();
             return Err(if e.raw_os_error() == Some(1223) { "permission was declined".into() } else { e.to_string() });
@@ -103,10 +108,75 @@ pub fn shell_run(verb: Option<&str>, file: &str, params: &str, cwd: &str) -> Res
     }
 }
 
+/// Starts a received installer the way the user would start it: as the signed-in user, so
+/// Windows shows its own admin prompt (with the publisher) when the installer wants admin rights.
+/// Deck's admin rights are never handed to something another PC sent. When Deck runs as admin, a
+/// copy of Deck started as the user through Explorer (`--run-installer`) runs it and reports back.
+fn run_installer(verb: Option<&str>, file: &str, params: &str, cwd: &str) -> Result<u32, String> {
+    if !crate::elevation::is_admin() {
+        return shell_run(verb, file, params, cwd);
+    }
+    let base = std::env::temp_dir().join(format!("deck-install-{}", crate::util::random_token(12)));
+    let (job, result) = (base.with_extension("job"), base.with_extension("result"));
+    write_job(&job, verb, file, params, cwd, &result).map_err(|e| e.to_string())?;
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    if let Err(e) = crate::util::launch_as_user(&exe.to_string_lossy(), &format!("--run-installer \"{}\"", job.display()), cwd) {
+        let _ = std::fs::remove_file(&job);
+        return Err(e);
+    }
+    // an installer can take a long time (and its admin prompt waits for the user)
+    let t0 = std::time::Instant::now();
+    while t0.elapsed() < std::time::Duration::from_secs(6 * 3600) {
+        if let Some(r) = read_result(&result) {
+            let _ = std::fs::remove_file(&result);
+            return r;
+        }
+        // the helper never picked the job up
+        if t0.elapsed() > std::time::Duration::from_secs(60) && job.exists() {
+            let _ = std::fs::remove_file(&job);
+            return Err("the installer didn't start".into());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
+    Err("the installer is still running after 6 hours".into())
+}
+
+/// What the helper runs, in a file of its own (paths with spaces or quotes need no escaping).
+fn write_job(job: &Path, verb: Option<&str>, file: &str, params: &str, cwd: &str, result: &Path) -> std::io::Result<()> {
+    let j = serde_json::json!({ "verb": verb, "file": file, "params": params, "cwd": cwd, "result": result.display().to_string() });
+    crate::util::write_atomic(job, j.to_string().as_bytes())
+}
+
+/// `deck.exe --run-installer <job>` (as the user): runs the job once, leaves "code" or "error: …"
+/// in its result file, and exits with the code.
+pub fn run_job(job: &Path) -> i32 {
+    let Some(j) = std::fs::read(job).ok().and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok()) else { return 1 };
+    let _ = std::fs::remove_file(job);
+    let s = |k: &str| j[k].as_str().unwrap_or("").to_string();
+    // (tests run their stand-in installer without a window)
+    let show = if j["hidden"] == true { windows_sys::Win32::UI::WindowsAndMessaging::SW_HIDE } else { SW_SHOWNORMAL };
+    let r = shell_run_as(j["verb"].as_str(), &s("file"), &s("params"), &s("cwd"), show);
+    let text = match &r {
+        Ok(c) => c.to_string(),
+        Err(e) => format!("error: {e}"),
+    };
+    let _ = crate::util::write_atomic(Path::new(&s("result")), text.as_bytes());
+    r.map(|c| c as i32).unwrap_or(1)
+}
+
+fn read_result(result: &Path) -> Option<Result<u32, String>> {
+    let t = std::fs::read_to_string(result).ok()?;
+    let t = t.trim();
+    Some(match t.strip_prefix("error: ") {
+        Some(e) => Err(e.to_string()),
+        None => t.parse().map_err(|_| "the installer's result couldn't be read".to_string()),
+    })
+}
+
 /// installs (or opens) the entry of an inbox item on a background thread; `silent` is used when the kind supports it
 pub fn install_async(sh: Arc<Shared>, dir: String, silent: bool) {
     std::thread::spawn(move || {
-        let item = sh.inbox.lock().unwrap().iter().find(|i| i.dir == dir).cloned();
+        let item = sh.inbox.lock_anyway().iter().find(|i| i.dir == dir).cloned();
         let Some(item) = item else { return };
         let Some(entry) = item.entry.clone() else {
             set_note(&sh, &dir, "No installer found in this folder".into());
@@ -134,15 +204,15 @@ pub fn install_async(sh: Arc<Shared>, dir: String, silent: bool) {
             }
             "msi" => {
                 let args = if silent { format!("/i \"{file}\" /qn /norestart") } else { format!("/i \"{file}\"") };
-                shell_run(silent.then_some("runas"), "msiexec.exe", &args, &dir).map(|c| code_note(c, silent))
+                run_installer(silent.then_some("runas"), "msiexec.exe", &args, &dir).map(|c| code_note(c, silent))
             }
-            "inno" if silent => shell_run(Some("runas"), &file, "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-", &dir).map(|c| code_note(c, true)),
-            "nsis" if silent => shell_run(Some("runas"), &file, "/S", &dir).map(|c| code_note(c, true)),
-            "burn" if silent => shell_run(Some("runas"), &file, "/quiet /norestart", &dir).map(|c| code_note(c, true)),
-            "msix" => shell_run(None, &file, "", &dir).map(|_| "Opened in App Installer - confirm there".to_string()),
+            "inno" if silent => run_installer(Some("runas"), &file, "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-", &dir).map(|c| code_note(c, true)),
+            "nsis" if silent => run_installer(Some("runas"), &file, "/S", &dir).map(|c| code_note(c, true)),
+            "burn" if silent => run_installer(Some("runas"), &file, "/quiet /norestart", &dir).map(|c| code_note(c, true)),
+            "msix" => run_installer(None, &file, "", &dir).map(|_| "Opened in App Installer - confirm there".to_string()),
             _ => {
                 let cwd = Path::new(&file).parent().map(|p| p.display().to_string()).unwrap_or(dir.clone());
-                shell_run(None, &file, "", &cwd).map(|c| code_note(c, false))
+                run_installer(None, &file, "", &cwd).map(|c| code_note(c, false))
             }
         };
         match result {
@@ -234,5 +304,28 @@ fn elevated_windhawk(dir: &Path, undo: bool) -> Result<String, String> {
         Ok(msg)
     } else {
         Err(if msg.is_empty() { format!("Windhawk step failed (code {code})") } else { msg })
+    }
+}
+
+#[cfg(test)]
+mod as_user_tests {
+    /// The copy of Deck that runs an installer as the user: reads its job, runs it, and leaves the
+    /// exit code where the elevated Deck waits for it (the job file is gone afterwards).
+    #[test]
+    fn the_helper_runs_the_job_and_reports_its_code() {
+        let dir = std::env::temp_dir().join(format!("deck-runinst-{}", crate::util::now_ms()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (job, result) = (dir.join("job.json"), dir.join("result.txt"));
+        let cmd = crate::util::system_dir().join("cmd.exe").display().to_string();
+        super::write_job(&job, None, &cmd, "/c exit 7", &dir.display().to_string(), &result).unwrap();
+        // no console window popping up while the tests run
+        let mut j: serde_json::Value = serde_json::from_slice(&std::fs::read(&job).unwrap()).unwrap();
+        j["hidden"] = true.into();
+        std::fs::write(&job, j.to_string()).unwrap();
+        assert_eq!(super::run_job(&job), 7);
+        assert_eq!(std::fs::read_to_string(&result).unwrap().trim(), "7");
+        assert!(!job.exists(), "the job file is used once");
+        assert_eq!(super::read_result(&result), Some(Ok(7)));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

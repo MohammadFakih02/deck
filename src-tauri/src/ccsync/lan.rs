@@ -5,6 +5,7 @@
 //! Transfer: TCP. Both sides prove they know the sync key (challenge/response), then every frame is
 //! ChaCha20-Poly1305 encrypted with per-connection keys. A peer can ask for our manifest, for a chunk
 //! by hash, or "poke" us to sync right away.
+use crate::util::LockAnyway;
 use crate::ccsync::canon::Canon;
 use crate::ccsync::config::Shared;
 use crate::ccsync::crypto::{deflate, inflate, random, Key};
@@ -58,7 +59,7 @@ impl Lan {
     }
 
     pub fn live_peers(&self) -> Vec<Peer> {
-        let mut p = self.peers.lock().unwrap();
+        let mut p = self.peers.lock_anyway();
         p.retain(|_, v| v.seen.elapsed() < Duration::from_secs(60));
         p.values().cloned().collect()
     }
@@ -99,7 +100,7 @@ impl Chan {
         let mut l = [0u8; 4];
         self.s.read_exact(&mut l)?;
         let n = u32::from_le_bytes(l) as usize;
-        if n < 17 || n > MAX_FRAME {
+        if !(17..=MAX_FRAME).contains(&n) {
             return Err(bad("frame size"));
         }
         let mut ct = vec![0u8; n];
@@ -255,7 +256,7 @@ fn serve_conn(mut s: TcpStream, sh: Arc<Shared>, lan: Arc<Lan>) -> io::Result<()
                 // a session waiting to be closed here would otherwise log this every few seconds
                 static LAST: std::sync::Mutex<Option<std::collections::HashMap<String, std::time::Instant>>> = std::sync::Mutex::new(None);
                 let quiet = {
-                    let mut g = LAST.lock().unwrap();
+                    let mut g = LAST.lock_anyway();
                     let m = g.get_or_insert_with(Default::default);
                     let recent = m.get(&peer_name).map(|t| t.elapsed().as_secs() < 300).unwrap_or(false);
                     if !recent {
@@ -291,7 +292,7 @@ fn log_once(who: &str, msg: &str) -> bool {
     if !msg.contains("different") {
         return true;
     }
-    let mut g = SEEN.lock().unwrap();
+    let mut g = SEEN.lock_anyway();
     let m = g.get_or_insert_with(std::collections::HashMap::new);
     let fresh = m.get(who).map(|t| t.elapsed() > Duration::from_secs(600)).unwrap_or(true);
     if fresh {
@@ -311,7 +312,7 @@ pub fn start(sh: Arc<Shared>, lan: Arc<Lan>, port_override: Option<u16>) {
         }
     };
     let port = listener.local_addr().map(|a| a.port()).unwrap_or(0);
-    *lan.port.lock().unwrap() = port;
+    *lan.port.lock_anyway() = port;
     sh.status(|s| s.lan_port = port);
     {
         let (sh, lan) = (sh.clone(), lan.clone());
@@ -380,7 +381,7 @@ pub fn start(sh: Arc<Shared>, lan: Arc<Lan>, port_override: Option<u16>) {
             }
             let addr = SocketAddr::new(from.ip(), b.port);
             let new = {
-                let mut p = lan.peers.lock().unwrap();
+                let mut p = lan.peers.lock_anyway();
                 let new = p.get(&b.id).map(|o| o.addr != addr || o.seen.elapsed() > Duration::from_secs(60)).unwrap_or(true);
                 p.insert(b.id.clone(), Peer { id: b.id.clone(), name: b.name.clone(), addr, seen: Instant::now() });
                 new

@@ -103,7 +103,7 @@ pub fn sync(w: &Want) -> Result<(), String> {
         crate::elevation::delete_task(&task);
     }
     let vbs = runner()?;
-    let wscript = format!("{}\\System32\\wscript.exe", std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".into()));
+    let wscript = crate::util::system_dir().join("wscript.exe").to_string_lossy().to_string();
     let args = format!("\"{}\" \"{}\"", vbs.display(), task);
     let icon = super::icons::location(w.icon, fallback);
     let mut err = None;

@@ -128,7 +128,7 @@ impl ThreadLoad {
         let f = unsafe {
             let lib: Vec<u16> = "ntdll.dll".encode_utf16().chain(Some(0)).collect();
             let h = windows_sys::Win32::System::LibraryLoader::LoadLibraryW(lib.as_ptr());
-            windows_sys::Win32::System::LibraryLoader::GetProcAddress(h, b"NtQuerySystemInformation\0".as_ptr()).map(|p| std::mem::transmute(p))
+            windows_sys::Win32::System::LibraryLoader::GetProcAddress(h, c"NtQuerySystemInformation".as_ptr() as *const u8).map(|p| std::mem::transmute(p))
         };
         ThreadLoad { prev: vec![], query: f }
     }

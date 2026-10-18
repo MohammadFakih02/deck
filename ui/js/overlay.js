@@ -2,8 +2,13 @@
 // out and coloured, how RivaTuner draws it, and a preview built from the same lines the overlay gets.
 // Layout: a strip with the switch and the in-game keys, then the preview (pinned while the page
 // scrolls) beside a tabbed editor, so every change shows next to the control that made it.
+import { I, Pages, S, confirmBox, h, helpTip, invoke, note, promptBox, run, seg, setSetting, toggle } from "./core.js";
+import { head } from "./pages1.js";
+import { HW, hotkeyField, sliderRow } from "./hw.js";
+import { render } from "./app.js";
 
-const OV_DEF = {
+
+export const OV_DEF = {
   layout: "grouped", labels: true, units: "small", align: true,
   label_color: "FF9A40", value_color: "FFFFFF", warn_color: "FF5A5A", warm_color: "FFC85A", heat: false, group_colors: false, group_values: false,
   fps_lines: false, columns: false, clock_12h: false, clock_secs: false,
@@ -13,10 +18,10 @@ const OV_DEF = {
   graph: false, graph_w: 32, graph_h: 4, graph_style: 0, graph_max: 0, graph_fit: true, graph_secs: 10, graph_smooth: true, color_bar: false, fit: false, int_fps: true, all_games: true,
 };
 
-const OV_FONTS = ["Unispace", "Consolas", "Lucida Console", "Courier New", "Cascadia Mono", "Segoe UI", "Tahoma", "Arial", "Verdana", "Calibri"];
-const OV_CSS_FONT = { Unispace: 'Consolas, "Cascadia Mono", monospace', Consolas: "Consolas, monospace", "Lucida Console": '"Lucida Console", monospace', "Courier New": '"Courier New", monospace' };
+export const OV_FONTS = ["Unispace", "Consolas", "Lucida Console", "Courier New", "Cascadia Mono", "Segoe UI", "Tahoma", "Arial", "Verdana", "Calibri"];
+export const OV_CSS_FONT = { Unispace: 'Consolas, "Cascadia Mono", monospace', Consolas: "Consolas, monospace", "Lucida Console": '"Lucida Console", monospace', "Courier New": '"Courier New", monospace' };
 
-const OV_THEMES = [
+export const OV_THEMES = [
   ["Classic", { label_color: "FF9A40", value_color: "FFFFFF", warn_color: "FF5A5A", warm_color: "FFC85A", group_colors: false }],
   ["By part", { label_color: "FF9A40", value_color: "FFFFFF", warn_color: "FF5A5A", warm_color: "FFC85A", group_colors: true, gpu_color: "76B900", cpu_color: "4FA3FF", ram_color: "C77DFF", fps_color: "FFD60A", info_color: "9AA3B5" }],
   ["Ice", { label_color: "7FD4FF", value_color: "FFFFFF", warn_color: "FF6B8A", warm_color: "FFD479", group_colors: false }],
@@ -26,7 +31,7 @@ const OV_THEMES = [
   ["Mono", { label_color: "9AA3B5", value_color: "FFFFFF", warn_color: "FF5A5A", warm_color: "FFC85A", group_colors: false }],
 ];
 
-const OV_PRESETS = [
+export const OV_PRESETS = [
   ["Just FPS", ["fps"]],
   ["FPS and lows", ["fps", "frametime", "fps_1low", "fps_01low"]],
   ["Gaming", ["gpu_temp", "gpu_usage", "gpu_mem", "cpu_temp", "cpu_usage", "ram", "fps", "frametime", "fps_1low"]],
@@ -36,7 +41,7 @@ const OV_PRESETS = [
 ];
 
 /** One click: the items and the style together. */
-const OV_LOOKS = [
+export const OV_LOOKS = [
   ["Like MSI Afterburner", "Clock, a line per thread, framerate stats, graph",
     ["time", "cpu_temp", "cpu_usage", "cpu_clock", "cpu_power", "thread_table", "ram", "proc_ram", "commit", "fps", "fps_min", "fps_avg", "fps_max", "fps_1low", "fps_01low", "gpu_temp", "gpu_usage", "gpu_power_pct", "gpu_clock", "gpu_power", "gpu_fan", "gpu_mem", "gpu_memclock", "frametime"],
     { layout: "grouped", labels: true, align: true, units: "small", columns: true, fps_lines: true, group_colors: true, group_values: false, heat: false,
@@ -50,23 +55,23 @@ const OV_LOOKS = [
     ["cpu_usage", "cpu_temp", "core_table", "gpu_temp", "gpu_usage", "fps"], { layout: "grouped", labels: true, columns: true, fps_lines: false, group_colors: true, group_values: false, heat: true, zoom: 2, corner: "tr", margin_x: 8, margin_y: 8 }],
 ];
 
-const OV_CORNERS = [["tl", "Top left"], ["tr", "Top right"], ["bl", "Bottom left"], ["br", "Bottom right"]];
-const OV_SLOT_COLOR = { 4: "gpu_color", 5: "cpu_color", 6: "ram_color", 7: "fps_color", 8: "info_color" };
+export const OV_CORNERS = [["tl", "Top left"], ["tr", "Top right"], ["bl", "Bottom left"], ["br", "Bottom right"]];
+export const OV_SLOT_COLOR = { 4: "gpu_color", 5: "cpu_color", 6: "ram_color", 7: "fps_color", 8: "info_color" };
 
-const ovStyleNow = () => ({ ...OV_DEF, ...(S.state.settings.osd_style || {}) });
+export const ovStyleNow = () => ({ ...OV_DEF, ...(S.state.settings.osd_style || {}) });
 
-async function ovRefresh() {
+export async function ovRefresh() {
   S.cache.rtss = await invoke("rtss_state").catch(() => S.cache.rtss);
 }
 
 /** Changes some style fields, tells the backend and redraws the page. */
-async function ovStyle(patch) {
+export async function ovStyle(patch) {
   await setSetting("osd_style", { ...ovStyleNow(), ...patch });
   await ovRefresh();
   render();
 }
 
-async function ovItemsSet(list) {
+export async function ovItemsSet(list) {
   await setSetting("osd_items", list);
   await ovRefresh();
   render();
@@ -74,35 +79,35 @@ async function ovItemsSet(list) {
 
 /** A setting: its name (and a line about it) on the left, the control on the right. The control
  *  drops under the name only when the row is too narrow for both. */
-function ovRow(title, control, desc, help) {
+export function ovRow(title, control, desc, help) {
   return h("div", { class: "ov-row2" }, h("div", { class: "ov-lbl" }, h("div", { class: "t" }, title, help ? helpTip(help) : null), desc ? h("div", { class: "s" }, desc) : null), h("div", { class: "ov-ctl" }, control));
 }
 
 /** A switch row (the switch on the right, like every other control in the editor). */
-function ovSwitch(title, desc, on, onset, help) {
+export function ovSwitch(title, desc, on, onset, help) {
   return ovRow(title, toggle(on, onset), desc, help);
 }
 
 /** A small heading inside a tab, for the groups of settings in it. */
-function ovSub(title, ...right) {
+export function ovSub(title, ...right) {
   return h("div", { class: "ov-sub" }, h("span", null, title), right.length ? h("span", { class: "grow" }) : null, ...right);
 }
 
-function ovColor(value, fallback, onset, label) {
+export function ovColor(value, fallback, onset, label) {
   const input = h("input", { type: "color", value: "#" + String(value || fallback).replace("#", "").toLowerCase(), "aria-label": label || "Colour" });
   input.addEventListener("change", () => onset(input.value.slice(1).toUpperCase()));
   const changed = String(value || fallback).toUpperCase() !== fallback;
   return h("div", { class: "ov-color" }, input, changed ? h("button", { class: "icon-btn sm", title: "Back to the default colour", "aria-label": "Default " + (label || "colour").toLowerCase(), onclick: () => onset(fallback) }, I("undo", "sm")) : null);
 }
 
-function ovColorField(title, key, st) {
+export function ovColorField(title, key, st) {
   return h("div", { class: "ov-cf" }, h("span", { class: "dim small" }, title), ovColor(st[key], OV_DEF[key], (c) => ovStyle({ [key]: c }), title + " colour"));
 }
 
 // ------------------------------------------------------------------- the preview
 
 /** The frametime graph in the preview: the game's last frames when one is running, else a made-up trace. */
-function ovGraphSvg(st, ms) {
+export function ovGraphSvg(st, ms) {
   const r0 = S.cache.rtss || {};
   const real = (r0.graph || []).length >= 20 ? r0.graph : (r0.ft_recent || []).slice(-120);
   const n = real.length >= 20 ? real.length : 60, base = Math.max(1, ms || 7);
@@ -118,7 +123,7 @@ function ovGraphSvg(st, ms) {
 }
 
 /** Downloads and installs RivaTuner through winget (from Guru3D), then refreshes the page. */
-async function ovInstallRtss() {
+export async function ovInstallRtss() {
   S.cache.rtssInstalling = true;
   render();
   note("Installing RivaTuner: this takes about a minute");
@@ -130,7 +135,7 @@ async function ovInstallRtss() {
   render();
 }
 
-function ovScreen(st) {
+export function ovScreen(st) {
   const body = h("div", { class: "ov-osd" + (st.group_values ? " gv" : "") + (st.shadow ? " shadow" : "") + (st.box_on ? " box" : "") + (st.bold ? " bold" : "") });
   const bar = st.color_bar ? h("div", { class: "ov-bar " + (st.corner[1] === "r" ? "r" : "l") }) : null;
   const screen = h("div", { class: "ov-screen", "data-c": st.corner },
@@ -177,7 +182,7 @@ function ovScreen(st) {
 }
 
 /** The left column: the preview, then the one-click looks. Pinned while the editor scrolls. */
-function ovStage(st, s, r) {
+export function ovStage(st, s, r) {
   const known = new Set((r.items || []).map((i) => i.id));
   const live = r.fps != null
     ? h("span", { class: "chip on num" }, `${Math.round(r.fps)} FPS${r.app ? " · " + r.app : ""}`)
@@ -198,7 +203,7 @@ function ovStage(st, s, r) {
 // ------------------------------------------------------------------- Items tab
 
 /** Moves the items in `pick` (keeping their order) so the block starts where `at` was. */
-function ovMoveBlock(list, pick, at) {
+export function ovMoveBlock(list, pick, at) {
   const sel = list.filter((x) => pick.has(x));
   const rest = list.filter((x) => !pick.has(x));
   const anchor = list.slice(at).find((x) => !pick.has(x)); // the first unpicked item at or after the drop
@@ -206,7 +211,7 @@ function ovMoveBlock(list, pick, at) {
   return [...rest.slice(0, k), ...sel, ...rest.slice(k)];
 }
 
-function ovItemsTab(s, r) {
+export function ovItemsTab(s, r) {
   const defs = new Map((r.items || []).map((i) => [i.id, i]));
   const catName = Object.fromEntries((r.cats || []).map(([k, l]) => [k, l]));
   const on = (s.osd_items || []).filter((id) => defs.has(id));
@@ -268,8 +273,8 @@ function ovItemsTab(s, r) {
   const rows = on.map((id, k) => {
     const d = defs.get(id);
     const picked = sel.has(id);
-    const box = h("input", { type: "checkbox", class: "ov-check", checked: picked, "aria-label": "Select " + d.short });
-    box.addEventListener("click", (e) => { e.preventDefault(); pick(id, e); });
+    const box = h("label", { class: "ov-checkwrap", onclick: (e) => { e.preventDefault(); pick(id, e); } },
+      h("input", { type: "checkbox", class: "ov-check", checked: picked, "aria-label": "Select " + d.short }));
     const g = groups[id];
     const el = h("div", { class: "ov-item" + (d.have ? "" : " none") + (picked ? " picked" : ""), draggable: "true", "data-k": k },
       h("span", { class: "ov-grip", "aria-hidden": "true" }),
@@ -345,7 +350,7 @@ function ovItemsTab(s, r) {
 
 // ------------------------------------------------------------------- Layout tab
 
-function ovLayoutTab(st, s) {
+export function ovLayoutTab(st, s) {
   const items = s.osd_items || [];
   const hasCores = items.some((i) => ["cpu_cores", "core_clock", "core_temp", "core_table", "thread_table"].includes(i));
   const hasMem = items.some((i) => ["gpu_mem", "ram", "commit", "proc_ram"].includes(i));
@@ -374,7 +379,7 @@ function ovLayoutTab(st, s) {
 
 // ------------------------------------------------------------------- Look tab
 
-function ovLookTab(st, r) {
+export function ovLookTab(st, r) {
   const put = (patch) => ovStyle(patch);
   // a real list: the suggested overlay fonts first, then every font installed on this PC
   if (!S.cache.fonts) invoke("fonts_list").then((f) => { S.cache.fonts = f || []; if (S.page === "overlay") render(); }).catch(() => (S.cache.fonts = []));
@@ -403,7 +408,7 @@ function ovLookTab(st, r) {
 
 // ------------------------------------------------------------------- Colours tab
 
-function ovColorsTab(st) {
+export function ovColorsTab(st) {
   const same = (t) => Object.entries(t).every(([k, v]) => st[k] === v);
   return [
     h("div", { class: "ov-themes" }, OV_THEMES.map(([name, t]) => h("button", { class: "ov-theme" + (same(t) ? " on" : ""), onclick: () => ovStyle(t), "aria-pressed": same(t) },
@@ -419,7 +424,7 @@ function ovColorsTab(st) {
 
 // ------------------------------------------------------------------- Graph tab
 
-function ovGraphTab(st) {
+export function ovGraphTab(st) {
   const put = (patch) => ovStyle(patch);
   return [
     ovSwitch("Frametime graph", "How long the game's frames take, drawn under the text", st.graph, (v) => put({ graph: v }), "ov.graph"),
@@ -439,7 +444,7 @@ function ovGraphTab(st) {
 
 // ------------------------------------------------------------------- Warnings tab
 
-function ovWarnTab(st) {
+export function ovWarnTab(st) {
   return [
     ovSwitch("Turn a number red when it gets too high", "Temperatures at or above the limit, and the framerate under its limit", st.warn, (v) => ovStyle({ warn: v }), "ov.warn"),
     st.warn || st.heat ? [
@@ -453,7 +458,7 @@ function ovWarnTab(st) {
 
 // ------------------------------------------------------------------- Behaviour tab
 
-function ovBehaviourTab(st, s) {
+export function ovBehaviourTab(st, s) {
   return [
     ovSub("Readings"),
     ovRow("Update every", seg([[250, "¼ s"], [500, "½ s"], [1000, "1 s"], [2000, "2 s"]], s.osd_ms, async (v) => { await setSetting("osd_ms", v); render(); }), null, "ov.update"),
@@ -480,7 +485,7 @@ function ovBehaviourTab(st, s) {
 
 // ------------------------------------------------------------------- the editor
 
-const OV_TABS = [
+export const OV_TABS = [
   ["items", "Items"],
   ["layout", "Layout"],
   ["look", "Look"],
@@ -491,18 +496,18 @@ const OV_TABS = [
 ];
 
 /** The open tab, kept per viewer across visits. */
-function ovTab() {
+export function ovTab() {
   if (!S.cache.ovTab) { try { S.cache.ovTab = localStorage.getItem("deck.ovTab"); } catch {} }
   return OV_TABS.some(([k]) => k === S.cache.ovTab) ? S.cache.ovTab : "items";
 }
-function ovSetTab(k) {
+export function ovSetTab(k) {
   S.cache.ovTab = k;
   try { localStorage.setItem("deck.ovTab", k); } catch {}
   render();
   document.getElementById("ov-tab-" + k)?.focus();
 }
 
-function ovEditor(st, s, r) {
+export function ovEditor(st, s, r) {
   const tab = ovTab();
   const count = (s.osd_items || []).length;
   const lit = { graph: st.graph || st.color_bar, warn: st.warn };
@@ -531,7 +536,7 @@ function ovEditor(st, s, r) {
 // ------------------------------------------------------------------- the strip
 
 /** RivaTuner's framerate limiter, compact: the limit, on/off now, and its key (like Afterburner's). */
-function ovLimiter(s) {
+export function ovLimiter(s) {
   const l = S.cache.limiter;
   if (l === undefined) {
     S.cache.limiter = null;
@@ -547,7 +552,7 @@ function ovLimiter(s) {
     hotkeyField(s.limiter_hotkey, "limiter", (k) => setSetting("limiter_hotkey", k).then(render)));
 }
 
-function ovStrip(s, r) {
+export function ovStrip(s, r) {
   const on = !!s.osd_on;
   const rate = { 250: "¼ s", 500: "½ s", 1000: "1 s", 2000: "2 s" }[s.osd_ms] || s.osd_ms + " ms";
   const line = !r.installed
@@ -585,7 +590,7 @@ Pages.overlay = {
   },
 };
 
-function overlayPage() {
+export function overlayPage() {
   const s = S.state.settings;
   const st = ovStyleNow();
   const r = S.cache.rtss || {};

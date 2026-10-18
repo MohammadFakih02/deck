@@ -1,4 +1,14 @@
 // Pages: Tools, Phone, Settings.
+import { icon } from "./icons.js";
+import { I, Pages, S, ago, appIcon, confirmBox, fmtBytes, h, helpTip, invoke, modal, note, promptBox, run, seg, setSetting, settingRow, slider, toggle } from "./core.js";
+import { TILE_INFO, tool } from "./home.js";
+import { copyAnswer } from "./search.js";
+import { head, partHead, showPart } from "./pages1.js";
+import { indexView } from "./pages2.js";
+import { hotkeyField } from "./hw.js";
+import { row } from "./pcs.js";
+import { render, resetSide } from "./app.js";
+
 
 // ------------------------------------------------------------------ tools
 
@@ -6,58 +16,65 @@ Pages.tools = {
   async load() {},
   render() {
     const s = S.state.settings;
-    const sub = S.sub || "screen";
-    const el = h("div", null, tabsHead("tools", "Tools", [["screen", "Screen tools"], ["locks", "Locked files"], ["panels", "Windows panels"]], sub));
-    if (sub === "locks") return el.append(locksView()), el;
-    if (sub === "panels") return el.append(panelsView()), el;
-    const big = (ic, title, text, fn) => h("button", { class: "dcard", onclick: fn },
-      h("div", { class: "row" }, h("div", { class: "ic", style: { width: "40px", height: "40px", borderRadius: "11px", background: "var(--acc-soft)", color: "var(--acc)", display: "grid", placeItems: "center" } }, I(ic, "lg"))),
-      h("div", { class: "big", style: { fontSize: "15px" } }, title), h("div", { class: "dim", style: { fontSize: "12.5px" } }, text));
-    el.append(h("div", { class: "three" },
+    // one page: screen tools, then locked files, then Windows panels ("tools/locks" scrolls to its part)
+    const el = h("div", { class: "tl-page" }, head("Tools", "Screen tools, the program holding a file open, and Windows' own panels."));
+    const part = (id, ic, title, sub) => partHead("tools", id, ic, title, sub);
+    showPart("tools", ["locks", "panels"]);
+
+    el.append(part("screen", "target", "Screen tools", "Pick one, then use it anywhere on your screen."));
+    const big = (ic, title, text, fn) => h("button", { class: "tl-tool", onclick: fn },
+      h("span", { class: "tl-tool-ic" }, I(ic, "lg")),
+      h("span", { class: "tl-tool-t" }, title), h("span", { class: "tl-tool-d" }, text),
+      h("span", { class: "tl-tool-go" }, "Start", I("chevron")));
+    el.append(h("div", { class: "tl-tools" },
       big("droplet", "Pick a colour", "Click anywhere on screen; the colour code is copied.", () => tool("color")),
       big("type", "Copy text from the screen", "Drag over text in a picture, video or game and it's copied as text.", () => tool("text")),
       big("ruler", "Measure", "Drag a box to measure it in pixels.", () => tool("measure"))));
 
     // colours
     if ((s.colors || []).length) {
-      el.append(h("div", { class: "section" }, h("h2", null, "Colours you picked"), h("span", { class: "grow" }),
-        h("button", { class: "btn sm ghost", onclick: () => setSetting("colors", []).then(render) }, "Clear")));
-      el.append(h("div", { class: "swatches" }, s.colors.map((c) => {
-        const r = parseInt(c.slice(1, 3), 16), g = parseInt(c.slice(3, 5), 16), b = parseInt(c.slice(5, 7), 16);
-        return h("button", { class: "swatch", title: `${c}  ·  rgb(${r}, ${g}, ${b})\nClick: copy hex · Right-click: copy rgb`,
-          onclick: () => copyAnswer(c), oncontextmenu: (e) => { e.preventDefault(); copyAnswer(`rgb(${r}, ${g}, ${b})`); } },
-          h("i", { style: { background: c } }), h("span", null, c));
-      })));
+      el.append(h("div", { class: "card tl-colors" },
+        h("div", { class: "row" }, h("b", null, "Colours you picked"), h("span", { class: "tl-sub grow" }, "Click to copy the hex code, right-click for rgb()."),
+          h("button", { class: "btn sm ghost", onclick: () => setSetting("colors", []).then(render) }, I("trash"), "Clear")),
+        h("div", { class: "swatches" }, s.colors.map((c) => {
+          const r = parseInt(c.slice(1, 3), 16), g = parseInt(c.slice(3, 5), 16), b = parseInt(c.slice(5, 7), 16);
+          return h("button", { class: "swatch", title: `${c}  ·  rgb(${r}, ${g}, ${b})\nClick: copy hex · Right-click: copy rgb`,
+            onclick: () => copyAnswer(c), oncontextmenu: (e) => { e.preventDefault(); copyAnswer(`rgb(${r}, ${g}, ${b})`); } },
+            h("i", { style: { background: c } }), h("span", null, c));
+        }))));
     }
+    el.append(part("locks", "lock", "Locked files", "\"The file is open in another program\"? See which one."), locksView());
+    el.append(part("panels", "windows", "Windows panels", "Windows' own settings and tools, one click away."), panelsView());
     return el;
   },
 };
 
-function locksView() {
-  const el = h("div", null);
-  el.append(h("div", { class: "row", style: { marginBottom: "12px" } },
-    h("button", { class: "btn primary", onclick: () => lockCheck(false) }, I("file"), "Pick a file"),
-    h("button", { class: "btn", onclick: () => lockCheck(true) }, I("folder"), "Pick a folder")));
+export function locksView() {
   const lk = S.cache.lock;
-  el.append(h("div", { class: "card" }, !lk ? h("div", { class: "dim" }, "\"Can't delete, the file is open in another program\"? Pick the file or folder and Deck shows which program is holding it.")
-    : lk.holders.length === 0 ? h("div", null, h("b", null, lk.path), h("div", { class: "dim" }, "Nothing is using it right now. You can move or delete it."))
-      : h("div", { class: "col" }, h("div", null, h("b", null, lk.path), h("div", { class: "dim" }, `In use by ${lk.holders.length} program${lk.holders.length > 1 ? "s" : ""}:`)),
-        h("div", { class: "list" }, lk.holders.map((x) => h("div", { class: "item" }, appIcon("file", x.exe, x.name), h("div", { class: "grow" }, h("div", { class: "t" }, x.name), h("div", { class: "s" }, `${x.exe || ""} · PID ${x.pid}`)),
-          h("button", { class: "btn sm danger", onclick: async () => { if (await confirmBox(`End ${x.name}?`, "Unsaved work in it will be lost.", "End it", true)) { await invoke("kill_pid", { pid: x.pid }); lockCheck(null, lk.path); } } }, "End it")))))));
-  return el;
+  const pickers = h("div", { class: "row" },
+    h("button", { class: "btn primary", onclick: () => lockCheck(false) }, I("file"), "Pick a file"),
+    h("button", { class: "btn", onclick: () => lockCheck(true) }, I("folder"), "Pick a folder"));
+  const state = (ic, cls, title, text) => h("div", { class: "tl-lock-state" }, h("span", { class: "tl-lock-ic " + cls }, I(ic, "lg")),
+    h("div", { class: "grow" }, h("div", { class: "tl-lock-t" }, title), h("div", { class: "tl-sub" }, text)), pickers);
+  if (!lk) return h("div", { class: "card tl-lock" }, state("lock", "", "Can't move or delete something?", "Pick the file or folder and Deck shows which program is holding it open."));
+  const name = lk.path.split(/[\\/]/).filter(Boolean).pop() || lk.path;
+  if (lk.holders.length === 0) return h("div", { class: "card tl-lock" }, state("check", "ok", `${name} is free`, `Nothing is using ${lk.path} right now. You can move or delete it.`));
+  return h("div", { class: "card tl-lock" },
+    state("alert", "busy", `${name} is in use by ${lk.holders.length} program${lk.holders.length > 1 ? "s" : ""}`, lk.path),
+    h("div", { class: "list tl-lock-list" }, lk.holders.map((x) => h("div", { class: "item" }, appIcon("file", x.exe, x.name), h("div", { class: "grow" }, h("div", { class: "t" }, x.name), h("div", { class: "s" }, `${x.exe || ""} · PID ${x.pid}`)),
+      h("button", { class: "btn sm danger", onclick: async () => { if (await confirmBox(`End ${x.name}?`, "Unsaved work in it will be lost.", "End it", true)) { await invoke("kill_pid", { pid: x.pid }); lockCheck(null, lk.path); } } }, "End it")))));
 }
 
-function panelsView() {
-  const el = h("div", null);
-  const sys = (ic, label, what, url) => h("button", { class: "qa", onclick: () => url ? invoke("open_url", { url }) : invoke("open_system", { what }) }, I(ic), h("span", null, label));
-  el.append(h("div", { class: "quick", style: { gridTemplateColumns: "repeat(5, 1fr)" } },
+export function panelsView() {
+  const sys = (ic, label, what, url) => h("button", { class: "tl-panel", onclick: () => url ? invoke("open_url", { url }) : invoke("open_system", { what }) },
+    h("span", { class: "tl-panel-ic" }, I(ic)), h("span", { class: "tl-panel-t" }, label), h("span", { class: "tl-panel-go" }, I("external")));
+  return h("div", { class: "tl-panels" },
     sys("activity", "Task Manager", "taskmgr"), sys("volume", "Sound devices", "sound"), sys("wifi", "Network adapters", "network"),
-    sys("power", "Power options", "power"), sys("trash", "Uninstall programs", "programs"), sys("terminal", "Environment variables", "envvars"),
-    sys("terminal", "Terminal", "terminal"), sys("download", "Downloads", "downloads"), sys("image", "Snipping Tool", null, "ms-screenclip:"), sys("gear", "Windows Settings", null, "ms-settings:")));
-  return el;
+    sys("power", "Power options", "power"), sys("trash", "Uninstall programs", "programs"), sys("list", "Environment variables", "envvars"),
+    sys("terminal", "Terminal", "terminal"), sys("download", "Downloads", "downloads"), sys("image", "Snipping Tool", null, "ms-screenclip:"), sys("gear", "Windows Settings", null, "ms-settings:"));
 }
 
-async function lockCheck(folder, path) {
+export async function lockCheck(folder, path) {
   const p = path || await invoke("pick", { folder, title: folder ? "Which folder?" : "Which file?" });
   if (!p) return;
   try {
@@ -72,7 +89,7 @@ async function lockCheck(folder, path) {
 /** The "Away" tab. The phone reaches the PC only once it's on the user's Tailscale network (else
  *  the code loads forever), so until a phone is there it first shows how to put it there: a code
  *  that opens the Tailscale app in the phone's store, and the account to sign in with. */
-function awayView(r) {
+export function awayView(r) {
   const phones = (r.away_peers || []).filter((p) => /android|ios/i.test(p.os || ""));
   const account = r.away_account ? h("b", { style: { userSelect: "text", wordBreak: "break-all" } }, r.away_account) : "the same account as this PC";
   if (!phones.length && !S.cache.awaySkipSetup) return [
@@ -90,7 +107,7 @@ function awayView(r) {
 }
 
 /** The Screen view's bitrate: Auto (measures the connection), a fixed limit, or one typed in. */
-function bitrateSelect(k) {
+export function bitrateSelect(k) {
   const opts = [[0, "Auto"], [30000, "30 Mb/s"], [15000, "15 Mb/s"], [8000, "8 Mb/s"], [4000, "4 Mb/s"], [2000, "2 Mb/s"], [1000, "1 Mb/s"], [500, "0.5 Mb/s"]];
   if (!opts.some(([v]) => v === k)) opts.push([k, `${+(k / 1000).toFixed(2)} Mb/s`]);
   return h("select", { "aria-label": "Bitrate", onchange: async (e) => {
@@ -108,7 +125,7 @@ function bitrateSelect(k) {
 }
 
 /** Phone page: phones connected now, at home and away (a phone counts once, whatever it has open). */
-function phonesConnected(r) {
+export function phonesConnected(r) {
   const home = r.local || 0, away = r.online || 0;
   const n = (k) => `${k} phone${k > 1 ? "s" : ""}`;
   if (!home && !away) return h("div", { class: "row" }, h("span", { class: "chip" }, I("smartphone"), "No phone connected"));
@@ -118,7 +135,7 @@ function phonesConnected(r) {
 }
 
 /** Phone page: how many phones may connect at home and away, and whether one side shuts the other out. */
-function connLimitsCard(s) {
+export function connLimitsCard(s) {
   const pick = (key) => {
     const cur = s[key] || 0, opts = [[0, "No limit"], [1, "1"], [2, "2"], [3, "3"], [5, "5"]];
     if (!opts.some(([v]) => v === cur)) opts.push([cur, String(cur)]); // a value set elsewhere (settings file)
@@ -137,7 +154,7 @@ function connLimitsCard(s) {
 }
 
 /** Phone page: the PC's screen in the phone remote (view, or view and control). */
-function screenCard(r) {
+export function screenCard(r) {
   const s = S.state.settings;
   const mode = s.remote_screen || "off", q = s.remote_screen_quality || "sharp";
   const seg = (val, opts, key) => h("div", { class: "seg" }, opts.map(([v, l]) => h("button", { class: val === v ? "on" : "", onclick: () => setSetting(key, v).then(render) }, l)));
@@ -156,7 +173,7 @@ function screenCard(r) {
 }
 
 /** Phone page: remote desktop through RustDesk, with Tailscale for away from home. */
-function rdeskCard() {
+export function rdeskCard() {
   const d = S.cache.rdesk;
   const busy = S.cache.rdeskBusy;
   const act = async (what, args = {}, ok) => {
@@ -230,7 +247,7 @@ Pages.phone = {
         h("li", null, "Scan the code, then ", h("b", null, "⋮ → Install app"))),
       h("div", { class: "faint", style: { fontSize: "12px" } }, "Chrome only offers Install for secure pages, and this page is plain HTTP on your home network; that is what the flag is for."));
     // send box
-    const ta = h("textarea", { rows: 3, placeholder: "Text or a link to send to your phone…", style: { width: "100%" } });
+    const ta = h("textarea", { rows: 3, "aria-label": "Text or a link to send to your phone", placeholder: "Text or a link to send to your phone…", style: { width: "100%" } });
     const send = h("div", { class: "card col" },
       h("div", { class: "tile-head" }, I("send"), h("span", null, "Send to your phone")),
       ta,
@@ -268,8 +285,8 @@ Pages.phone = {
 
 // --------------------------------------------------------------- settings
 
-const ACCENTS = ["#4f8cff", "#7b61ff", "#b35cff", "#ff4f9a", "#ff6b4f", "#ffb020", "#2fbf71", "#1fb5c9"];
-const ENGINES = [["https://www.google.com/search?q=", "Google"], ["https://duckduckgo.com/?q=", "DuckDuckGo"], ["https://www.bing.com/search?q=", "Bing"], ["https://search.brave.com/search?q=", "Brave"], ["https://www.youtube.com/results?search_query=", "YouTube"]];
+export const ACCENTS = ["#4f8cff", "#7b61ff", "#b35cff", "#ff4f9a", "#ff6b4f", "#ffb020", "#2fbf71", "#1fb5c9"];
+export const ENGINES = [["https://www.google.com/search?q=", "Google"], ["https://duckduckgo.com/?q=", "DuckDuckGo"], ["https://www.bing.com/search?q=", "Bing"], ["https://search.brave.com/search?q=", "Brave"], ["https://www.youtube.com/results?search_query=", "YouTube"]];
 
 Pages.settings = {
   async load() {
@@ -322,9 +339,9 @@ Pages.settings = {
     add(h("div", { class: "section" }, h("h2", null, "Sidebar")));
     add(h("div", { class: "settings-card" },
       row("Order", "Drag a group's name, or a page inside its group, up or down in the sidebar. Folded groups stay folded after a restart.",
-        h("button", { class: "btn sm", disabled: s.nav_order ? null : "", onclick: async () => { await set("nav_order")(null); sideSig = ""; renderSide(); } }, I("undo", "sm"), "Reset the order")),
+        h("button", { class: "btn sm", disabled: s.nav_order ? null : "", onclick: async () => { await set("nav_order")(null); resetSide(); } }, I("undo", "sm"), "Reset the order")),
       row("Show Claude Code sync", "For people who use Claude Code on more than one PC. It sits under Desktop, and stays there while it's switched on.",
-        toggle(!!s.claude_sync_nav || !!s.claude_sync_on, async (v) => { await set("claude_sync_nav")(v); sideSig = ""; renderSide(); }))));
+        toggle(!!s.claude_sync_nav || !!s.claude_sync_on, async (v) => { await set("claude_sync_nav")(v); resetSide(); }))));
 
     cur = "general";
     add(h("div", { class: "section" }, h("h2", null, "Colour")));
@@ -391,18 +408,18 @@ Pages.settings = {
 };
 
 /** The theme cards; `pick` gets the theme id. */
-function themeCards(cur, pick) {
+export function themeCards(cur, pick) {
   return h("div", { class: "themes" }, THEMES.map(([id, name, bg, panel, card]) => h("button", { class: "theme" + (cur === id ? " on" : ""), "aria-pressed": cur === id ? "true" : "false", onclick: () => pick(id) },
     h("div", { class: "pv", style: { background: bg, boxShadow: "inset 0 0 0 1px #ffffff14" } }, h("i", { style: { background: panel } }), h("b", null, h("i", { style: { background: card, boxShadow: "inset 0 0 0 1px #ffffff14" } }), h("i", { style: { background: card, boxShadow: "inset 0 0 0 1px #ffffff14" } }))),
     name + (id === "midnight" ? " (default)" : ""))));
 }
 
-function accentDots(cur, pick) {
+export function accentDots(cur, pick) {
   return h("div", { class: "row accents", style: { gap: "8px" } }, ACCENTS.map((c) => h("button", { title: c, "aria-label": "Accent " + c, onclick: () => pick(c), style: { width: "26px", height: "26px", borderRadius: "50%", background: c, border: cur === c ? "2px solid #fff" : "2px solid transparent", boxShadow: cur === c ? `0 0 0 3px ${c}55` : "none" } })));
 }
 
 /** First start (or the first start after this update): pick a look and how see-through Deck is. Clicks preview at once; any way out counts as done. */
-async function themeWelcome() {
+export async function themeWelcome() {
   const st = S.state?.settings;
   if (!st || st.setup_picked || document.querySelector(".theme-welcome")) return;
   const body = h("div", { class: "theme-welcome" });
@@ -434,10 +451,10 @@ async function themeWelcome() {
 }
 
 /** Opening animations (app.css, :root[data-anim]). */
-const OPEN_ANIMS = [["zoom", "Zoom (default)"], ["fade", "Fade"], ["pop", "Pop"], ["rise", "Rise"], ["drop", "Drop"], ["flip", "Flip"], ["swirl", "Swirl"], ["blur", "Blur in"], ["none", "None"]];
+export const OPEN_ANIMS = [["zoom", "Zoom (default)"], ["fade", "Fade"], ["pop", "Pop"], ["rise", "Rise"], ["drop", "Drop"], ["flip", "Flip"], ["swirl", "Swirl"], ["blur", "Blur in"], ["none", "None"]];
 
 /** Plays the opening animation again, to see the one picked. */
-function replayOpen() {
+export function replayOpen() {
   const b = document.body;
   b.classList.remove("shown");
   void b.offsetWidth;
@@ -445,7 +462,7 @@ function replayOpen() {
 }
 
 /** The app's themes: [id, name, background, panel, card] (the card colours are app.css's). */
-const THEMES = [
+export const THEMES = [
   ["midnight", "Midnight", "#0c0e14", "#10131b", "#141823"],
   ["graphite", "Graphite", "#111214", "#16171a", "#1b1c20"],
   ["oled", "OLED black", "#000000", "#060607", "#0d0d10"],
@@ -456,7 +473,7 @@ const THEMES = [
   ["ember", "Ember", "#120e0c", "#171210", "#1d1714"],
 ];
 
-function applyAccent() {
+export function applyAccent() {
   const c = S.state?.settings?.accent || "#4f8cff";
   document.documentElement.style.setProperty("--acc", c);
   // opacity: its own setting with the pin on and off (30-100 %)

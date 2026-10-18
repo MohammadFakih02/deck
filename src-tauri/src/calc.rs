@@ -180,7 +180,7 @@ impl P {
     fn postfix(&mut self) -> Option<f64> {
         let mut v = self.primary()?;
         while self.eat('!') {
-            if v < 0.0 || v > 170.0 || v.fract() != 0.0 {
+            if !(0.0..=170.0).contains(&v) || v.fract() != 0.0 {
                 return None;
             }
             v = (1..=v as u64).fold(1.0, |a, b| a * b as f64);

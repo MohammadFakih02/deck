@@ -1,6 +1,9 @@
 // The home dashboard: a grid of tiles, refreshed live while Deck is open.
+import { I, S, accent, ago, appIcon, confirmBox, fmtBytes, fmtDur, fmtRate, fmtTemp, fmtWords, h, invoke, modal, nameControls, note, run, setSetting, slider, spark, toggle } from "./core.js";
+import { HOME_STORE, layoutButton, panelGrid, pgEditing, pgKeep } from "./layout.js";
+import { focusSpot, go, mouseHeld, refocus, render, renderSide, tick } from "./app.js";
 
-const TILE_INFO = {
+export const TILE_INFO = {
   clock: { name: "Clock", w: "" },
   media: { name: "Now playing", w: "" },
   system: { name: "PC", w: "" },
@@ -13,25 +16,25 @@ const TILE_INFO = {
   network: { name: "Network", w: "" },
 };
 
-function tileHead(ic, title, link, onlink, onset) {
+export function tileHead(ic, title, link, onlink, onset) {
   return h("div", { class: "tile-head" }, I(ic), h("span", null, title), h("span", { class: "grow" }),
     link ? h("button", { class: "link", onclick: onlink }, link) : null,
     onset ? h("button", { class: "link tile-set", title: "Choose what this shows", "aria-label": "Choose what this shows", onclick: onset }, I("sliders")) : null);
 }
 
-const ghz = (mhz) => (mhz ? (mhz / 1000).toFixed(1) + " GHz" : null);
-const watts = (w) => (w != null ? Math.round(w) + " W" : null);
+export const ghz = (mhz) => (mhz ? (mhz / 1000).toFixed(1) + " GHz" : null);
+export const watts = (w) => (w != null ? Math.round(w) + " W" : null);
 /** "0.9 / 10.0 GB": both numbers in the unit of the total, so they read together. */
-const ofBytes = (a, b) => {
+export const ofBytes = (a, b) => {
   const y = fmtBytes(b), u = y.split(" ")[1], k = ["B", "KB", "MB", "GB", "TB"].indexOf(u);
   if (k <= 0) return `${fmtBytes(a)} / ${y}`;
   const v = a / 1024 ** k;
   return `${v >= 100 ? v.toFixed(0) : v.toFixed(1)} / ${y}`;
 };
-const pctOf = (v) => (v != null ? Math.round(v) + "%" : "–");
+export const pctOf = (v) => (v != null ? Math.round(v) + "%" : "–");
 
 /** The PC tile's cards: label, big value (usage), details (clock, power), temperature, graph. */
-const PC_CARDS = {
+export const PC_CARDS = {
   cpu: (s) => {
     const c = S.live?.cpu_now || {};
     // the CPU's clock, power and temperature come from Deck's hardware engine, which needs admin
@@ -53,14 +56,14 @@ const PC_CARDS = {
   net: (s) => ({ k: "Network", v: fmtRate(s.down), small: true, l1: ["down"], l2: `up ${fmtRate(s.up)}`, hist: s.down_hist, max: 0, color: "#4fd1ff" }),
 };
 /** Sets Deck up to run as admin (the same step as the CPU and GPU pages' Set up button). */
-function pcAdminSetup() {
+export function pcAdminSetup() {
   invoke("elevate_setup").catch((e) => note(String(e), true));
 }
 
-const PC_NAMES = { cpu: "CPU", ram: "Memory", gpu: "Graphics card", vram: "Graphics memory", net: "Network" };
+export const PC_NAMES = { cpu: "CPU", ram: "Memory", gpu: "Graphics card", vram: "Graphics memory", net: "Network" };
 
 /** Which cards the PC tile shows and in what order, and whether the drives show. */
-function pcCustomize() {
+export function pcCustomize() {
   const st = S.state.settings;
   let on = [...(st.pc_cards || ["cpu", "ram", "gpu", "vram"])];
   let drives = st.pc_drives !== false;
@@ -87,12 +90,12 @@ function pcCustomize() {
 }
 
 
-function greeting() {
+export function greeting() {
   const hr = new Date().getHours();
   return hr < 5 ? "Up late" : hr < 12 ? "Good morning" : hr < 18 ? "Good afternoon" : "Good evening";
 }
 
-const Tiles = {
+export const Tiles = {
   clock() {
     const now = new Date();
     const p = S.live?.power;
@@ -309,7 +312,7 @@ const Tiles = {
   },
 };
 
-function calendar(now) {
+export function calendar(now) {
   const first = new Date(now.getFullYear(), now.getMonth(), 1);
   const start = (first.getDay() + 6) % 7; // Monday first
   const days = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
@@ -325,11 +328,11 @@ function calendar(now) {
   return h("div", { class: "cal" }, cells);
 }
 
-function deviceIcon(n) {
+export function deviceIcon(n) {
   return /headset|headphone|earphone|hyperx|arctis|airpods|buds/i.test(n) ? "headphones" : /cable|voicemeeter|virtual audio/i.test(n) ? "sliders" : "speaker";
 }
 
-function shortDevice(n) {
+export function shortDevice(n) {
   const m = n.match(/^(.*?)\s*\((.*)\)$/);
   if (!m) return n;
   const [, a, b] = m;
@@ -337,7 +340,7 @@ function shortDevice(n) {
   return a;
 }
 
-function awakeText(a) {
+export function awakeText(a) {
   if (!a) return "";
   if (a.mode === "until") return `For ${fmtWords(Math.max(0, a.until - Date.now() / 1000))} more`;
   if (a.mode === "app") return `While ${a.app.replace(/\.exe$/i, "")} runs`;
@@ -346,12 +349,12 @@ function awakeText(a) {
 }
 
 /** Marks a part a short tile folds away at step `n` (layout.js pgFit). */
-function foldsAt(el, n) {
+export function foldsAt(el, n) {
   el.dataset.drop = n;
   return el;
 }
 
-function volRow(app, name, vol, muted, peak, onvol, onmute) {
+export function volRow(app, name, vol, muted, peak, onvol, onmute) {
   const val = h("span", { class: "val num" }, Math.round(vol * 100));
   const s = slider(Math.round(vol * 100), 0, 100, 1, (v) => { val.textContent = v; onvol(v / 100); });
   const meter = h("div", { class: "meter" }, h("i", { style: { width: Math.min(100, (peak || 0) * 100) + "%" } }));
@@ -362,7 +365,7 @@ function volRow(app, name, vol, muted, peak, onvol, onmute) {
     val);
 }
 
-function appButton(a, pinned) {
+export function appButton(a, pinned) {
   return h("button", {
     class: "app", title: a.name,
     onclick: () => run("launch_app", { id: a.id }),
@@ -370,7 +373,7 @@ function appButton(a, pinned) {
   }, appIcon("app", a.id, a.name), h("span", null, a.name));
 }
 
-function appMenu(a, pinned) {
+export function appMenu(a, pinned) {
   const pins = S.state.settings.pinned || [];
   const isPinned = pins.some((p) => p.kind === "app" && p.target === a.id);
   modal(a.name, h("div", { class: "dim" }, a.path || a.id), (close) => [
@@ -380,7 +383,7 @@ function appMenu(a, pinned) {
   ]);
 }
 
-function togglePin(a, on) {
+export function togglePin(a, on) {
   let pins = [...(S.state.settings.pinned || [])];
   if (on) pins.push({ id: "p" + Date.now(), kind: "app", target: a.id, name: a.name });
   else pins = pins.filter((p) => !(p.kind === "app" && p.target === a.id));
@@ -388,7 +391,7 @@ function togglePin(a, on) {
   render();
 }
 
-function timerRow(t, now) {
+export function timerRow(t, now) {
   const left = t.paused_left != null ? t.paused_left / 1000 : Math.max(0, (t.end_ms - now) / 1000);
   const total = (t.secs || 0) * 1000;
   const frac = t.done ? 1 : total ? Math.min(1, Math.max(0, 1 - (left * 1000) / total)) : 0;
@@ -401,12 +404,12 @@ function timerRow(t, now) {
     total ? h("div", { class: "tmr-bar" }, h("i", { style: { width: frac * 100 + "%" } })) : null);
 }
 
-const ACTION_LABEL = { shutdown: "Shut down", restart: "Restart", sleep: "Sleep", hibernate: "Hibernate", lock: "Lock", signout: "Sign out", screen_off: "Screen off", notify: "Notify me" };
-function planLabel(p) {
+export const ACTION_LABEL = { shutdown: "Shut down", restart: "Restart", sleep: "Sleep", hibernate: "Hibernate", lock: "Lock", signout: "Sign out", screen_off: "Screen off", notify: "Notify me" };
+export function planLabel(p) {
   if (p.state === "countdown") return `${ACTION_LABEL[p.action] || p.action} in ${Math.max(0, p.countdown_until - Math.floor(Date.now() / 1000))} s`;
   return `${ACTION_LABEL[p.action] || p.action} ${planCondShort(p)}`;
 }
-function planCondShort(p) {
+export function planCondShort(p) {
   switch (p.cond) {
     case "time": return "at " + new Date(p.at * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     case "app_closes": return `when ${p.app.replace(/\.exe$/i, "")} closes`;
@@ -418,7 +421,7 @@ function planCondShort(p) {
     default: return "";
   }
 }
-function planCond(p) {
+export function planCond(p) {
   switch (p.cond) {
     case "downloads": return "Waiting for browser/Steam downloads to finish";
     case "cpu_idle": return `Waiting for CPU under 12% for ${p.minutes} min`;
@@ -431,47 +434,47 @@ function planCond(p) {
   }
 }
 
-async function homeSwitch(kind, id) {
+export async function homeSwitch(kind, id) {
   try { await invoke("profile_switch", { kind, id }); } catch (e) { note(String(e), true); }
   try { S.cache[kind] = await invoke(kind + "_state"); S.live = { ...(S.live || {}), ...(await invoke("live")) }; } catch { /* the next tick catches up */ }
   refreshHome();
   renderSide();
 }
 
-async function media(action, id) {
+export async function media(action, id) {
   try { await invoke("media_control", { id: id || "", action }); } catch (e) { note(String(e), true); }
   setTimeout(tick, 250);
 }
 
-async function setOutput(id) {
+export async function setOutput(id) {
   await run("set_output", { id });
   S.cache.outputs = (await invoke("audio_state")).outputs;
   render();
 }
 
-async function toggleDark() {
+export async function toggleDark() {
   const dark = S.cache.dark;
   await run("set_dark", { dark: dark === false });
   S.cache.dark = dark === false;
   render();
 }
 
-async function tool(mode) {
+export async function tool(mode) {
   try { await invoke("screen_tool", { mode }); } catch (e) { note(String(e), true); }
 }
 
-async function pasteClip(id) {
+export async function pasteClip(id) {
   const paste = S.state.settings.clip_paste;
   await run("clip_copy", { id, paste });
   if (!paste) note("Copied");
 }
 
-function debounce(fn, ms) {
+export function debounce(fn, ms) {
   let t;
   return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); };
 }
 
-function renderHome() {
+export function renderHome() {
   let tiles = S.state.settings.tiles || [];
   // the Performance tile arrived later: add it once for people who already arranged their tiles
   try {
@@ -491,7 +494,7 @@ function renderHome() {
 }
 
 /** Refresh live tiles without rebuilding the ones being used. */
-function refreshHome() {
+export function refreshHome() {
   const grid = document.querySelector(".tiles");
   if (!grid) return;
   if (S.interacting || mouseHeld() || pgEditing("home")) return; // a held button would be swapped out and its click lost

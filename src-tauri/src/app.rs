@@ -46,6 +46,44 @@ pub struct Shared {
 
 type UiFn = Box<dyn Fn(&str, Value) + Send + Sync>;
 
+/// Who pressed a toast button: Deck's own windows, or a phone through the phone remote.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Caller {
+    Local,
+    Phone,
+}
+
+/// Whether `caller` may press `action` on toast `id`. `received(path)` says whether `path` is a file
+/// that really came from the phone (a "File from your phone" toast carries its path in its id).
+pub fn toast_allowed(caller: Caller, id: &str, action: &str, received: &dyn Fn(&str) -> bool) -> bool {
+    // a received file: the path in the id must be a file that really arrived from the phone
+    if let Some(path) = id.strip_prefix("recv:") {
+        // closing the notification doesn't touch the file
+        if action == "dismiss" {
+            return true;
+        }
+        return received(path) && matches!((caller, action), (Caller::Local, "open" | "show" | "dismiss") | (Caller::Phone, "show" | "dismiss"));
+    }
+    match caller {
+        Caller::Local => true,
+        // the phone: its everyday notifications only; transfers and held overclocks stay on the PC
+        Caller::Phone => {
+            if id.starts_with("xfer:") || id == "gpu-held" || id == "ccsync-held" || id == "hw-changed" {
+                return false;
+            }
+            action == "dismiss" || matches!(id, "plan" | "break" | "phone-text") || id.starts_with("timer:") || id.starts_with("drive:") || id.starts_with("drive-past:")
+        }
+    }
+}
+
+/// Hardware settings were changed outside Deck and wait for the user (see crate::seal).
+static HW_HELD: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Hardware settings changed outside Deck are waiting for the user: nothing switches by itself.
+pub fn hw_held() -> bool {
+    HW_HELD.load(Ordering::SeqCst)
+}
+
 /// The app itself, for work that must leave the calling thread.
 static APP_SELF: Mutex<Option<std::sync::Weak<App>>> = Mutex::new(None);
 
@@ -80,11 +118,13 @@ pub struct App {
     /// the hardware / GPU engines finished starting (found something or not)
     pub hw_done: AtomicBool,
     pub gpu_done: AtomicBool,
+    /// a message about settings that were damaged and recovered at load, shown once Deck can toast.
+    load_note: Mutex<Option<String>>,
 }
 
 impl App {
     pub fn new() -> Arc<Self> {
-        let settings = Settings::load();
+        let (settings, load_note) = Settings::load_from(&Settings::dir());
         let (tx, rx) = channel::<()>();
         let (changes, _) = tokio::sync::broadcast::channel(64);
         let clip = crate::clipboard::Clip::new();
@@ -116,6 +156,7 @@ impl App {
             gpu: Mutex::new(None),
             hw_done: AtomicBool::new(false),
             gpu_done: AtomicBool::new(false),
+            load_note: Mutex::new(load_note),
         });
         *APP_SELF.lock() = Some(Arc::downgrade(&app));
         // Debounced settings saver.
@@ -146,6 +187,9 @@ impl App {
 
     /// Starts the background work that runs whether or not the window is open.
     pub fn start(self: &Arc<Self>) {
+        if let Some(note) = self.load_note.lock().take() {
+            self.toast(Toast::simple("settings-recovered", "Settings recovered", &note));
+        }
         self.clip.start();
         crate::power::start(self.clone());
         let roots = {
@@ -156,7 +200,58 @@ impl App {
             self.files.rebuild(r);
         }
         crate::boost::start_watch(self.clone());
-        // hardware engine: finding the fan chip and loading the driver takes a moment
+        // hardware settings another program changed wait for the user (see crate::seal)
+        let changed = if crate::elevation::is_admin() { crate::seal::changed_outside(&self.settings.lock()) } else { vec![] };
+        if !changed.is_empty() {
+            HW_HELD.store(true, Ordering::SeqCst);
+            // the pages show the hardware as not running (not as still loading) until Apply
+            self.hw_done.store(true, Ordering::SeqCst);
+            self.toast(Toast {
+                actions: vec![("apply".into(), "Apply them".into())],
+                sticky: true,
+                ..Toast::simple(
+                    "hw-changed",
+                    "Hardware settings were changed outside Deck",
+                    "Another program changed Deck's fan, CPU or GPU settings. Fans stay on the BIOS and no overclock is applied until you check them; apply only if you made this change.",
+                )
+            });
+        } else {
+            self.start_hardware();
+        }
+        self.start_gpu();
+        crate::profiles::cpu::start_watch(self.clone());
+        crate::profiles::hotkeys::start(self.clone());
+        crate::rtss::start(self.clone());
+        crate::hw::smart::start(self.clone());
+        std::thread::spawn(|| {
+            crate::profiles::icons::ensure();
+        });
+        // Re-index files every 30 minutes, and warm the app list and icons.
+        let me = self.clone();
+        std::thread::Builder::new()
+            .name("housekeeping".into())
+            .spawn(move || {
+                let _ = me.apps.list(false);
+                loop {
+                    std::thread::sleep(Duration::from_secs(60));
+                    let roots = {
+                        let s = me.settings.lock();
+                        s.index_on.then(|| s.index_roots.clone())
+                    };
+                    if let (Some(r), Some(age)) = (roots, me.files.age_secs()) {
+                        // not while Full power is on (a game is running)
+                        if age > 1800 && !crate::boost::is_on() {
+                            me.files.rebuild(r);
+                        }
+                    }
+                    crate::display::theme_tick(&me);
+                }
+            })
+            .ok();
+    }
+
+    /// The hardware engine: finding the fan chip and loading the driver takes a moment.
+    fn start_hardware(self: &Arc<Self>) {
         if crate::elevation::is_admin() {
             let me = self.clone();
             std::thread::Builder::new()
@@ -192,7 +287,10 @@ impl App {
                 })
                 .ok();
         }
-        // GPU engine: the startup profile is applied unless the crash guard holds it back
+    }
+
+    /// The NVIDIA engine, and the startup profile unless the crash guard (or crate::seal) holds it back.
+    fn start_gpu(self: &Arc<Self>) {
         {
             let me = self.clone();
             std::thread::Builder::new()
@@ -210,6 +308,10 @@ impl App {
                         (s.gpu_profiles.iter().find(|p| p.id == s.gpu_startup).cloned(), s.active_gpu.clone())
                     };
                     match startup {
+                        // hardware settings changed outside Deck: nothing is applied until the user says so
+                        Some(_) if HW_HELD.load(Ordering::SeqCst) => {
+                            me.settings.lock().active_gpu.clear();
+                        }
                         Some(p) if crate::elevation::is_admin() => {
                             if crate::gpu::guard::hold_back(&p) {
                                 *crate::profcmd::HELD.lock() = Some(p.id.clone());
@@ -242,35 +344,6 @@ impl App {
                 })
                 .ok();
         }
-        crate::profiles::cpu::start_watch(self.clone());
-        crate::profiles::hotkeys::start(self.clone());
-        crate::rtss::start(self.clone());
-        crate::hw::smart::start(self.clone());
-        std::thread::spawn(|| {
-            crate::profiles::icons::ensure();
-        });
-        // Re-index files every 30 minutes, and warm the app list and icons.
-        let me = self.clone();
-        std::thread::Builder::new()
-            .name("housekeeping".into())
-            .spawn(move || {
-                let _ = me.apps.list(false);
-                loop {
-                    std::thread::sleep(Duration::from_secs(60));
-                    let roots = {
-                        let s = me.settings.lock();
-                        s.index_on.then(|| s.index_roots.clone())
-                    };
-                    if let (Some(r), Some(age)) = (roots, me.files.age_secs()) {
-                        // not while Full power is on (a game is running)
-                        if age > 1800 && !crate::boost::is_on() {
-                            me.files.rebuild(r);
-                        }
-                    }
-                    crate::display::theme_tick(&me);
-                }
-            })
-            .ok();
     }
 
     pub fn set_ui(&self, f: UiFn) {
@@ -375,6 +448,22 @@ impl App {
                 "show" => crate::util::reveal(path),
                 _ => {}
             }
+        } else if id == "ccsync-held" && matches!(action, "apply" | "keep") {
+            crate::ccsync::decide_held(action == "apply");
+        } else if id == "hw-changed" && action == "apply" {
+            if let Some(a) = APP_SELF.lock().as_ref().and_then(|w| w.upgrade()) {
+                crate::seal::accept_all(&a.settings.lock());
+                if HW_HELD.swap(false, Ordering::SeqCst) {
+                    a.start_hardware();
+                    let startup = {
+                        let s = a.settings.lock();
+                        s.gpu_profiles.iter().find(|p| p.id == s.gpu_startup).map(|p| p.id.clone())
+                    };
+                    if let Some(id) = startup {
+                        crate::profiles::switch(&a, "gpu", &id, "startup");
+                    }
+                }
+            }
         } else if id == "gpu-held" && action == "apply" {
             if let Some(a) = APP_SELF.lock().as_ref().and_then(|w| w.upgrade()) {
                 let _ = crate::profcmd::apply_held(&a);
@@ -385,6 +474,14 @@ impl App {
             if let Some(t) = self.shared.lock().iter().rev().find(|s| s.from == "phone" && s.kind != "file") {
                 let _ = crate::clipboard::set_text(&t.text);
             }
+        }
+    }
+
+    /// A toast button pressed by `caller`: only what `toast_allowed` lets that caller do.
+    pub fn toast_action_as(&self, caller: Caller, id: &str, action: &str) {
+        let received = |p: &str| self.shared.lock().iter().any(|s| s.from == "phone" && s.kind == "file" && s.path.as_deref() == Some(p));
+        if toast_allowed(caller, id, action, &received) {
+            self.toast_action(id, action);
         }
     }
 
@@ -401,7 +498,7 @@ impl App {
         if s.frecency.len() > 800 {
             // forget the least used
             let mut v: Vec<(String, (u32, u64))> = s.frecency.drain().collect();
-            v.sort_by(|a, b| b.1 .1.cmp(&a.1 .1));
+            v.sort_by_key(|b| std::cmp::Reverse(b.1 .1));
             v.truncate(600);
             s.frecency = v.into_iter().collect();
         }
@@ -424,5 +521,51 @@ impl App {
             0.2
         };
         ((*n as f32).ln_1p() * 60.0 * recency) as i32
+    }
+}
+
+#[cfg(test)]
+mod toast_rules_tests {
+    use super::{toast_allowed, Caller};
+
+    const GOT: &str = r"C:\Users\someone\Downloads\From phone\photo.jpg";
+    fn received(p: &str) -> bool {
+        p == GOT
+    }
+
+    #[test]
+    fn a_path_named_in_the_id_is_never_opened_unless_it_really_arrived() {
+        let fake = r"\\elsewhere\share\tool.exe";
+        assert!(!toast_allowed(Caller::Local, &format!("recv:{fake}"), "open", &received));
+        assert!(!toast_allowed(Caller::Phone, &format!("recv:{fake}"), "open", &received));
+        assert!(!toast_allowed(Caller::Phone, &format!("recv:{fake}"), "show", &received));
+    }
+
+    #[test]
+    fn a_received_file_opens_from_the_pc_and_only_shows_from_the_phone() {
+        assert!(toast_allowed(Caller::Local, &format!("recv:{GOT}"), "open", &received));
+        assert!(toast_allowed(Caller::Local, &format!("recv:{GOT}"), "show", &received));
+        assert!(toast_allowed(Caller::Phone, &format!("recv:{GOT}"), "show", &received));
+        assert!(!toast_allowed(Caller::Phone, &format!("recv:{GOT}"), "open", &received), "the phone must not start programs on the PC");
+    }
+
+    #[test]
+    fn transfers_and_held_overclocks_are_decided_on_the_pc_only() {
+        for a in ["accept", "trust_always", "decline", "dismiss"] {
+            assert!(!toast_allowed(Caller::Phone, "xfer:3", a, &received), "phone {a} on a transfer");
+            assert!(toast_allowed(Caller::Local, "xfer:3", a, &received));
+        }
+        assert!(!toast_allowed(Caller::Phone, "gpu-held", "apply", &received));
+        // letting synced settings change what Claude Code runs is decided on the PC only
+        assert!(!toast_allowed(Caller::Phone, "ccsync-held", "apply", &received));
+        assert!(toast_allowed(Caller::Local, "ccsync-held", "apply", &received));
+        assert!(toast_allowed(Caller::Local, "gpu-held", "apply", &received));
+    }
+
+    #[test]
+    fn the_phone_keeps_its_everyday_buttons() {
+        for (id, a) in [("plan", "cancel"), ("plan", "now"), ("timer:4", "snooze"), ("timer:4", "dismiss"), ("break", "snooze"), ("phone-text", "copy"), ("drive:C", "show"), ("screen-view", "dismiss")] {
+            assert!(toast_allowed(Caller::Phone, id, a, &received), "phone {id} {a}");
+        }
     }
 }

@@ -16,7 +16,7 @@ macro_rules! w {
 /// test writes (power limit, a −15 MHz curve point, fan 40%) — never while a game is open.
 pub fn probe(write: bool) -> String {
     let mut o = String::new();
-    let Some(n) = nvml::Nvml::load() else {
+    let Some(n) = nvml::Nvml::shared() else {
         w!(o, "NVML: not available");
         return o;
     };
@@ -51,7 +51,7 @@ pub fn probe(write: bool) -> String {
         }
     }
     if write {
-        write_tests(&mut o, &n, a.as_ref());
+        write_tests(&mut o, n, a.as_ref());
     }
     o
 }
@@ -136,7 +136,7 @@ pub fn release() {
     let fans = FAN_MANUAL.swap(false, std::sync::atomic::Ordering::SeqCst);
     let lock = CLOCK_LOCKED.swap(false, std::sync::atomic::Ordering::SeqCst);
     if fans || lock {
-        if let Some(n) = nvml::Nvml::load() {
+        if let Some(n) = nvml::Nvml::shared() {
             if fans {
                 for i in 0..n.fans() {
                     let _ = n.fan_auto(i);

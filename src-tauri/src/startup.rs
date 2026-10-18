@@ -176,9 +176,7 @@ pub fn list() -> Vec<Entry> {
         }
     }
     startup_folder(crate::util::appdata().join("Microsoft\\Windows\\Start Menu\\Programs\\Startup"), HKEY_CURRENT_USER, "You (Startup folder)", true, &mut out);
-    if let Ok(pd) = std::env::var("ProgramData") {
-        startup_folder(std::path::PathBuf::from(pd).join("Microsoft\\Windows\\Start Menu\\Programs\\StartUp"), HKEY_LOCAL_MACHINE, "All users (Startup folder)", admin, &mut out);
-    }
+    startup_folder(crate::util::program_data().join("Microsoft\\Windows\\Start Menu\\Programs\\StartUp"), HKEY_LOCAL_MACHINE, "All users (Startup folder)", admin, &mut out);
     out.sort_by(|a, b| b.enabled.cmp(&a.enabled).then(a.name.to_lowercase().cmp(&b.name.to_lowercase())));
     out
 }
@@ -208,7 +206,7 @@ pub fn set_enabled(id: &str, on: bool) -> Result<(), String> {
     } else {
         data[0] = 3;
         // FILETIME of when it was disabled (Task Manager shows it)
-        let ft = (crate::util::now_ms() as u64 * 10_000) + 116_444_736_000_000_000;
+        let ft = (crate::util::now_ms() * 10_000) + 116_444_736_000_000_000;
         data[4..].copy_from_slice(&ft.to_le_bytes());
     }
     unsafe {

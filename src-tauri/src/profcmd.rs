@@ -1,5 +1,6 @@
 //! Tauri commands for the CPU and GPU pages, profile shortcuts and the RTSS overlay.
 
+use crate::util::LockAnyway;
 use crate::app::App;
 use crate::profiles::{self, afterburner, cpu, hotkeys, icons, shortcuts, CpuProfile, GpuProfile};
 use serde_json::{json, Value};
@@ -51,22 +52,25 @@ fn cpu_state_now(app: &App) -> Value {
         "hybrid": cpu::hybrid(),
         "limits": { "base": lim.base, "turbo": lim.turbo, "min": lim.min, "oc": lim.oc_possible, "oc_checked": lim.oc_checked, "oc_max": lim.turbo + crate::hw::cpupower::OC_MAX_EXTRA },
         "rapl": hw.is_some(),
-        "power_msg": hw.as_ref().map(|h| h.power_msg.lock().unwrap().clone()),
+        "power_msg": hw.as_ref().map(|h| h.power_msg.lock_anyway().clone()),
         "admin": crate::elevation::is_admin(),
         "clock": cpu::clock_check(),
         "game_mode_off": s.game_mode_orig != -1,
         "boost_cpu": s.boost_cpu,
+        // a PC with a battery: the CPU page offers profiles for plugged in / on battery
+        "battery": cpu::plugged_in().is_some(),
+        "plugged": cpu::plugged_in(),
     })
 }
 
 #[tauri::command]
 pub fn cpu_live(app: A) -> Value {
     let hw = app.hw.lock().clone();
-    let l = hw.as_ref().map(|h| h.live.lock().unwrap().clone());
+    let l = hw.as_ref().map(|h| h.live.lock_anyway().clone());
     json!({
         "mhz": l.as_ref().and_then(|l| l.cpu_mhz), "temp": l.as_ref().and_then(|l| l.cpu_t), "load": l.as_ref().and_then(|l| l.cpu_l),
-        "power": hw.as_ref().and_then(|h| h.table.lock().unwrap().rows.iter().find(|r| r.group.starts_with("CPU") && r.name == "Package power").and_then(|r| r.cur)),
-        "power_short": hw.as_ref().map(|h| h.power_short.lock().unwrap().clone()),
+        "power": hw.as_ref().and_then(|h| h.table.lock_anyway().rows.iter().find(|r| r.group.starts_with("CPU") && r.name == "Package power").and_then(|r| r.cur)),
+        "power_short": hw.as_ref().map(|h| h.power_short.lock_anyway().clone()),
         "clock": cpu::clock_check(),
         "active": app.settings.lock().active_cpu,
     })

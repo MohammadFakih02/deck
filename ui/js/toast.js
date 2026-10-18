@@ -1,17 +1,19 @@
 // Notification pop-ups in the bottom-right corner (their own window, which
 // never takes focus from a game).
-const T = window.__TAURI__;
-const invoke = (c, a) => T.core.invoke(c, a || {});
-const stack = document.getElementById("stack");
-const timers = {};
-const KIND_ICON = { timer: "timer", plan: "power", break: "coffee", file: "download", info: "bell" };
+import { icon } from "./icons.js";
 
-function fit() {
+export const T = window.__TAURI__;
+export const invoke = (c, a) => T.core.invoke(c, a || {});
+export const stack = document.getElementById("stack");
+export const timers = {};
+export const KIND_ICON = { timer: "timer", plan: "power", break: "coffee", file: "download", info: "bell" };
+
+export function fit() {
   requestAnimationFrame(() => invoke("toast_resize", { height: stack.children.length ? stack.offsetHeight : 0 }));
 }
 
-let audioCtx;
-function chime() {
+export let audioCtx;
+export function chime() {
   try {
     audioCtx = audioCtx || new AudioContext();
     const now = audioCtx.currentTime;
@@ -33,20 +35,20 @@ function chime() {
 // While the mouse is over the notifications nothing moves under it: removals (timeouts, the
 // backend dismissing one) and new toasts wait until it leaves (at most 15 s). A toast you click
 // yourself still goes at once.
-let over = false, overSince = 0;
-const held = { remove: new Map(), show: [] };
+export let over = false, overSince = 0;
+export const held = { remove: new Map(), show: [] };
 document.addEventListener("mousemove", () => { if (!over) { over = true; overSince = Date.now(); } });
 document.addEventListener("mouseleave", () => { over = false; flushHeld(); });
 window.addEventListener("blur", () => { over = false; flushHeld(); });
 setInterval(() => { if (over && Date.now() - overSince > 15000) { over = false; flushHeld(); } }, 1000);
-function flushHeld() {
+export function flushHeld() {
   const rm = [...held.remove], sh = held.show.splice(0);
   held.remove.clear();
   rm.forEach(([id, animate]) => remove(id, animate));
   sh.forEach(show);
 }
 
-function remove(id, animate, force) {
+export function remove(id, animate, force) {
   if (over && !force) { held.remove.set(id, animate); return; }
   const el = stack.querySelector(`[data-id="${CSS.escape(id)}"]`);
   clearTimeout(timers[id]);
@@ -60,7 +62,7 @@ function remove(id, animate, force) {
   }
 }
 
-function show(t) {
+export function show(t) {
   // the shutdown / sleep warning never waits: its 60 seconds are already running
   if (over && t.kind !== "plan") { held.show.push(t); return; }
   remove(t.id, false, true);
