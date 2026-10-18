@@ -21,6 +21,8 @@ use std::time::{Duration, Instant};
 
 pub const UDP_PORT: u16 = 47835;
 const MAX_FRAME: usize = 96 << 20;
+/// connections served at once (a sync needs one or two per machine)
+const MAX_CONNS: usize = 64;
 
 const T_HELLO: u8 = 0;
 const T_GET_MANIFEST: u8 = 1;
@@ -186,7 +188,8 @@ impl Client {
 
 // ------------------------------------------------------------------------------------------ server
 fn serve_conn(mut s: TcpStream, sh: Arc<Shared>, lan: Arc<Lan>) -> io::Result<()> {
-    s.set_read_timeout(Some(Duration::from_secs(120)))?;
+    // a stranger gets a few seconds to prove the sync key, then the usual two minutes
+    s.set_read_timeout(Some(Duration::from_secs(10)))?;
     s.set_write_timeout(Some(Duration::from_secs(60)))?;
     s.set_nodelay(true)?;
     let cfg = sh.cfg();
@@ -206,6 +209,7 @@ fn serve_conn(mut s: TcpStream, sh: Arc<Shared>, lan: Arc<Lan>) -> io::Result<()
     if !ct_eq(&m, &key.mac("auth-c", &[nc, &ns])) {
         return Err(bad("client has a different sync key"));
     }
+    s.set_read_timeout(Some(Duration::from_secs(120)))?;
     let (tx, rx) = session(&key, nc, &ns, false);
     let mut ch = Chan { s, tx, rx, ntx: 0, nrx: 0 };
     let (t, b) = ch.recv()?;
@@ -317,12 +321,15 @@ pub fn start(sh: Arc<Shared>, lan: Arc<Lan>, port_override: Option<u16>) {
     {
         let (sh, lan) = (sh.clone(), lan.clone());
         std::thread::spawn(move || {
+            static CONNS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
             for c in listener.incoming().flatten() {
                 if sh.off.load(std::sync::atomic::Ordering::Relaxed) {
                     continue;
                 }
+                let Some(slot) = crate::util::Slot::take(&CONNS, MAX_CONNS) else { continue };
                 let (sh, lan) = (sh.clone(), lan.clone());
                 std::thread::spawn(move || {
+                    let _slot = slot;
                     let who = c.peer_addr().map(|a| a.ip().to_string()).unwrap_or_default();
                     if let Err(e) = serve_conn(c, sh.clone(), lan) {
                         if e.kind() != io::ErrorKind::UnexpectedEof && e.kind() != io::ErrorKind::ConnectionReset && log_once(&who, &e.to_string()) {

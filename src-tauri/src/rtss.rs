@@ -662,13 +662,23 @@ pub fn osd_switch() -> (Option<bool>, Option<bool>) {
 /// The 32-bit helper, built by build.rs (empty when the i686 target wasn't installed).
 static RTSS32: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/rtss-osd32.exe"));
 
-/// Writes the helper next to Deck (or into %LOCALAPPDATA%\Deck) the first time it's needed.
+/// Where the helper may be written and started from: next to Deck, and without admin rights also
+/// %LOCALAPPDATA%\Deck. An elevated Deck never uses that one: the user's programs could swap the
+/// file between Deck's check and the start, and it would run with admin rights.
+fn helper_dirs(elevated: bool) -> Vec<std::path::PathBuf> {
+    let mut d: Vec<_> = std::env::current_exe().ok().and_then(|e| e.parent().map(|p| p.to_path_buf())).into_iter().collect();
+    if !elevated {
+        d.extend(crate::util::env_path("LOCALAPPDATA").map(|p| p.join("Deck")));
+    }
+    d
+}
+
+/// Writes the helper next to Deck (or, without admin rights, into %LOCALAPPDATA%\Deck) the first time it's needed.
 fn rtss32_helper() -> Option<std::path::PathBuf> {
     if RTSS32.is_empty() {
         return None;
     }
-    let dirs = [std::env::current_exe().ok().and_then(|e| e.parent().map(|p| p.to_path_buf())), crate::util::env_path("LOCALAPPDATA").map(|p| p.join("Deck"))];
-    for d in dirs.into_iter().flatten() {
+    for d in helper_dirs(crate::elevation::is_admin()) {
         let p = d.join("rtss-osd32.exe");
         if std::fs::metadata(&p).map(|m| m.len() == RTSS32.len() as u64).unwrap_or(false) && std::fs::read(&p).map(|b| b == RTSS32).unwrap_or(false) {
             return Some(p);
@@ -1406,6 +1416,57 @@ mod tests {
         put(&mut m, 12, u32::MAX - 10);
         put(&mut m, 16, 255);
         assert_eq!(unsafe { fps_at(m.as_ptr(), m.len()) }, None);
+    }
+
+    /// (DllCharacteristics, extended DLL characteristics) of a PE file.
+    fn pe_flags(b: &[u8]) -> (u16, u32) {
+        let u16_at = |o: usize| u16::from_le_bytes([b[o], b[o + 1]]);
+        let u32_at = |o: usize| u32::from_le_bytes([b[o], b[o + 1], b[o + 2], b[o + 3]]);
+        let pe = u32_at(0x3C) as usize;
+        let (sections, opt_size, opt) = (u16_at(pe + 6) as usize, u16_at(pe + 20) as usize, pe + 24);
+        let dirs = opt + if u16_at(opt) == 0x20B { 112 } else { 96 };
+        let (dbg_rva, dbg_size) = (u32_at(dirs + 6 * 8) as usize, u32_at(dirs + 6 * 8 + 4) as usize);
+        let to_off = |rva: usize| {
+            (0..sections).map(|i| opt + opt_size + i * 40).find_map(|s| {
+                let (va, len, raw) = (u32_at(s + 12) as usize, (u32_at(s + 8).max(u32_at(s + 16))) as usize, u32_at(s + 20) as usize);
+                (va..va + len).contains(&rva).then(|| rva - va + raw)
+            })
+        };
+        let mut ex = 0;
+        if let Some(d) = to_off(dbg_rva) {
+            for e in (d..d + dbg_size).step_by(28) {
+                if u32_at(e + 12) == 20 {
+                    ex = u32_at(u32_at(e + 24) as usize);
+                }
+            }
+        }
+        (u16_at(opt + 70), ex)
+    }
+
+    /// Exploit mitigations on both programs Deck runs with admin rights: ASLR, DEP and Control Flow
+    /// Guard; Deck itself also CET shadow stacks (.cargo/config.toml, build.rs).
+    #[test]
+    fn deck_and_its_helper_are_built_with_exploit_mitigations() {
+        const DYNAMIC_BASE: u16 = 0x40;
+        const NX: u16 = 0x100;
+        const GUARD_CF: u16 = 0x4000;
+        const CET_COMPAT: u32 = 0x1;
+        let me = std::fs::read(std::env::current_exe().unwrap()).unwrap();
+        let (dll, ex) = pe_flags(&me);
+        assert_eq!(dll & (DYNAMIC_BASE | NX | GUARD_CF), DYNAMIC_BASE | NX | GUARD_CF, "Deck: {dll:#x}");
+        assert_eq!(ex & CET_COMPAT, CET_COMPAT, "Deck: CETCOMPAT missing ({ex:#x})");
+        if !RTSS32.is_empty() {
+            let (dll, _) = pe_flags(RTSS32);
+            assert_eq!(dll & (DYNAMIC_BASE | NX | GUARD_CF), DYNAMIC_BASE | NX | GUARD_CF, "helper: {dll:#x}");
+        }
+    }
+
+    /// An elevated Deck starts the helper only from its own (admin-only) folder.
+    #[test]
+    fn an_elevated_deck_never_runs_the_helper_from_a_user_folder() {
+        let local = crate::util::env_path("LOCALAPPDATA").unwrap();
+        assert!(!helper_dirs(true).iter().any(|d| d.starts_with(&local)));
+        assert!(helper_dirs(false).iter().any(|d| d.starts_with(&local)));
     }
 
     /// The helper runs on PCs without the Visual C++ runtime (Deck itself links it in), so it must

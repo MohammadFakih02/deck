@@ -37,8 +37,51 @@ pub fn is_runtime(id: &str) -> bool {
         .any(|p| id.starts_with(p))
 }
 
+/// App Installer's package family (winget ships in it).
+const APP_INSTALLER: &str = "Microsoft.DesktopAppInstaller_8wekyb3d8bbwe";
+
+/// winget.exe from App Installer's own folder (C:\Program Files\WindowsApps, which only Windows
+/// can change). Never by name: that finds the alias in %LOCALAPPDATA%\Microsoft\WindowsApps, a
+/// folder the user's own programs can write to, and Deck runs it with admin rights.
+fn winget_exe() -> Option<PathBuf> {
+    package_dirs(APP_INSTALLER)
+        .into_iter()
+        .map(|d| d.join("winget.exe"))
+        .find(|exe| exe.is_file() && crate::fsguard::user_could_change(exe).map(|c| !c).unwrap_or(false))
+}
+
+/// The install folders of a packaged app's versions registered for this user.
+fn package_dirs(family: &str) -> Vec<PathBuf> {
+    use windows::core::{HSTRING, PWSTR};
+    use windows::Win32::Storage::Packaging::Appx::{GetPackagePathByFullName, GetPackagesByPackageFamily};
+    let fam = HSTRING::from(family);
+    let (mut count, mut len) = (0u32, 0u32);
+    unsafe {
+        let _ = GetPackagesByPackageFamily(&fam, &mut count, None, &mut len, None);
+        if count == 0 || len == 0 {
+            return vec![];
+        }
+        let mut names = vec![PWSTR::null(); count as usize];
+        let mut buf = vec![0u16; len as usize];
+        if GetPackagesByPackageFamily(&fam, &mut count, Some(names.as_mut_ptr()), &mut len, Some(PWSTR(buf.as_mut_ptr()))).is_err() {
+            return vec![];
+        }
+        names
+            .iter()
+            .take(count as usize)
+            .filter_map(|n| {
+                let mut plen = 0u32;
+                let _ = GetPackagePathByFullName(*n, &mut plen, None);
+                let mut p = vec![0u16; plen as usize];
+                GetPackagePathByFullName(*n, &mut plen, Some(PWSTR(p.as_mut_ptr()))).ok().ok()?;
+                Some(PathBuf::from(String::from_utf16_lossy(&p[..p.iter().position(|&c| c == 0).unwrap_or(p.len())])))
+            })
+            .collect()
+    }
+}
+
 fn winget(args: &[&str]) -> Option<(i32, String)> {
-    let o = Command::new("winget.exe").args(args).creation_flags(NO_WINDOW).output().ok()?;
+    let o = Command::new(winget_exe()?).args(args).creation_flags(NO_WINDOW).output().ok()?;
     Some((o.status.code().unwrap_or(-1), String::from_utf8_lossy(&o.stdout).to_string()))
 }
 
@@ -161,5 +204,19 @@ fn explain(code: i32) -> String {
         0x80070005 => "permission was denied".into(),
         0x800704C7 => "cancelled".into(),
         c => format!("winget code {c:#010X}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// Deck runs winget with admin rights: it must come from App Installer's folder, never the
+    /// user-writable alias that a plain "winget.exe" finds through PATH.
+    #[test]
+    fn winget_never_comes_from_a_folder_the_user_can_change() {
+        let Some(exe) = super::winget_exe() else { return }; // App Installer missing (CI images)
+        assert!(!crate::fsguard::user_could_change(&exe).unwrap(), "{}", exe.display());
+        let local = crate::util::env_path("LOCALAPPDATA").unwrap();
+        assert!(!exe.starts_with(&local), "{}", exe.display());
+        assert!(super::winget_available(), "winget from its package folder runs");
     }
 }

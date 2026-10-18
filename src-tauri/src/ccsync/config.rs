@@ -54,6 +54,8 @@ fn yes() -> bool {
 pub struct Config {
     pub machine_id: String,
     pub machine_name: String,
+    /// sealed on disk (crate::secret)
+    #[serde(with = "crate::secret::field")]
     pub sync_key: String,
     pub lan_enabled: bool,
     pub lan_port: u16,
@@ -212,6 +214,10 @@ impl Shared {
     pub fn new(paths: Paths) -> Shared {
         let file = paths.data.join("config.json");
         let mut cfg: Config = std::fs::read(&file).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+        // a sealed key this Windows account can't open (a copied profile): enter the key again
+        if cfg.sync_key.is_empty() {
+            cfg.sync_key = crate::ccsync::crypto::gen_sync_key();
+        }
         cfg.projects.insert(HOME_ALIAS.into(), ProjectMap { path: paths.home.clone(), auto: false, origin: "local".into(), sync: cfg.projects.get(HOME_ALIAS).map(|p| p.sync).unwrap_or(true) });
         let sh = Shared {
             paths,

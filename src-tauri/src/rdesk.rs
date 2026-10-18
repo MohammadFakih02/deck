@@ -31,6 +31,18 @@ pub(crate) fn tailscale_exe() -> Option<PathBuf> {
 /// The environment variable that carries a secret to an already-elevated PowerShell.
 const SECRET_VAR: &str = "DECK_PS_SECRET";
 
+/// Windows PowerShell's own folder (from the Windows folder's known-folder path, not %SystemRoot%).
+fn ps_home() -> PathBuf {
+    crate::util::windows_dir().join(r"System32\WindowsPowerShell\v1.0")
+}
+
+/// The only folder an elevated script loads modules from. PowerShell otherwise looks in the user's
+/// Documents first (and wherever the user's PSModulePath points), so a program of the user's could
+/// put its own Start-Process or Get-AuthenticodeSignature there and have it run with admin rights.
+fn ps_modules() -> PathBuf {
+    ps_home().join("Modules")
+}
+
 /// Runs a PowerShell script with admin rights: directly when Deck has them, otherwise through one
 /// UAC prompt. The script goes base64-encoded, so paths need no quoting. Returns what the script
 /// printed (only when Deck is already admin; an elevated child's output can't be read).
@@ -50,8 +62,8 @@ fn admin_ps_secret(script: &str, secret: Option<&str>) -> Result<String, String>
         std::fs::write(f, s).map_err(|e| e.to_string())?;
     }
     let (args, env) = ps_args(script, secret, admin, file.as_deref());
-    let mut cmd = std::process::Command::new("powershell.exe");
-    cmd.args(&args).creation_flags(crate::util::CREATE_NO_WINDOW);
+    let mut cmd = std::process::Command::new(ps_home().join("powershell.exe"));
+    cmd.args(&args).env("PSModulePath", ps_modules()).creation_flags(crate::util::CREATE_NO_WINDOW);
     if let Some(v) = env {
         cmd.env(SECRET_VAR, v);
     }
@@ -83,12 +95,15 @@ fn ps_args(script: &str, secret: Option<&str>, admin: bool, secret_file: Option<
         }
         (Some(_), false, None) => "$secret = ''\n".into(),
     };
-    let script = format!("$ErrorActionPreference = 'Stop'\ntry {{\n{take}{script}\n}} catch {{ $_.Exception.Message; exit 1 }}");
+    // the module path again inside the script: through UAC the elevated copy gets a fresh environment
+    let modules = ps_str(&ps_modules().to_string_lossy());
+    let script = format!("$env:PSModulePath = {modules}\n$ErrorActionPreference = 'Stop'\ntry {{\n{take}{script}\n}} catch {{ $_.Exception.Message; exit 1 }}");
     let cmd = if admin {
         enc(&script)
     } else {
         enc(&format!(
-            "try {{ $p = Start-Process powershell.exe -Verb RunAs -WindowStyle Hidden -Wait -PassThru -ArgumentList '-NoProfile','-NonInteractive','-EncodedCommand','{}'; exit $p.ExitCode }} catch {{ 'Admin rights were not given.'; exit 1 }}",
+            "$env:PSModulePath = {modules}\ntry {{ $p = Start-Process {} -Verb RunAs -WindowStyle Hidden -Wait -PassThru -ArgumentList '-NoProfile','-NonInteractive','-EncodedCommand','{}'; exit $p.ExitCode }} catch {{ 'Admin rights were not given.'; exit 1 }}",
+            ps_str(&ps_home().join("powershell.exe").to_string_lossy()),
             enc(&script)
         ))
     };
@@ -220,28 +235,53 @@ pub fn install() -> Result<(), String> {
     let agent = ureq::AgentBuilder::new().timeout_connect(Duration::from_secs(10)).timeout(Duration::from_secs(300)).build();
     let rel: Value = agent.get("https://api.github.com/repos/rustdesk/rustdesk/releases/latest").set("User-Agent", "Deck").call().map_err(|e| format!("Couldn't reach GitHub ({e})"))?.into_json().map_err(|e| e.to_string())?;
     let asset = rel["assets"].as_array().and_then(|a| a.iter().find(|x| x["name"].as_str().is_some_and(|n| n.ends_with("-x86_64.msi")))).ok_or("No Windows setup in RustDesk's newest release")?;
-    let (name, url) = (asset["name"].as_str().unwrap_or("rustdesk.msi"), asset["browser_download_url"].as_str().ok_or("No download link")?);
-    let sha = asset["digest"].as_str().and_then(|d| d.strip_prefix("sha256:")).unwrap_or("");
+    let url = asset["browser_download_url"].as_str().ok_or("No download link")?;
+    let sha = asset["digest"].as_str().and_then(|d| d.strip_prefix("sha256:")).filter(|d| d.len() == 64).ok_or("GitHub gave no checksum for RustDesk's setup")?;
     let mut body = Vec::new();
     agent.get(url).set("User-Agent", "Deck").call().map_err(|e| format!("Download failed ({e})"))?.into_reader().read_to_end(&mut body).map_err(|e| format!("Download failed ({e})"))?;
-    let dir = std::env::temp_dir().join("Deck-rustdesk");
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let file = dir.join(name);
+    let file = std::env::temp_dir().join(format!("deck-rustdesk-{}.msi", crate::util::random_token(16)));
     std::fs::write(&file, &body).map_err(|e| e.to_string())?;
-    let f = ps_str(&file.to_string_lossy());
-    let r = admin_ps(&format!(
-        "$f = {f}
-if ({sha} -and (Get-FileHash $f -Algorithm SHA256).Hash -ne {sha}) {{ 'The download is damaged. Try again.'; exit 3 }}
-if ((Get-AuthenticodeSignature $f).Status -ne 'Valid') {{ 'The download is not signed by RustDesk.'; exit 3 }}
-$p = Start-Process msiexec.exe -ArgumentList '/i', ('\"' + $f + '\"'), '/qn', '/norestart' -Wait -PassThru
-if ($p.ExitCode -ne 0 -and $p.ExitCode -ne 3010) {{ \"RustDesk's setup failed (code $($p.ExitCode)).\"; exit 4 }}
-for ($i = 0; $i -lt 30 -and -not (Get-Service RustDesk -ErrorAction SilentlyContinue); $i++) {{ Start-Sleep 1 }}
-Start-Sleep 3
-& (Join-Path $env:ProgramFiles 'RustDesk\\rustdesk.exe') --option direct-server Y | Out-Null",
-        sha = ps_str(&sha.to_uppercase())
-    ));
+    let stage = crate::util::windows_dir().join("Temp").join(format!("deck-rd-{}", crate::util::random_token(20)));
+    let r = admin_ps(&install_script(&file, &stage, sha));
     let _ = std::fs::remove_file(&file);
     r.map(|_| ())
+}
+
+/// RustDesk's publisher, as its setup's code-signing certificate names it (an EV certificate).
+const RUSTDESK_SIGNER: &str = "PURSLANE";
+
+/// The elevated install. The download sits in the user's Temp folder, where the user's programs
+/// could swap it between a check and the install, so the script first copies it into a new folder
+/// under Windows\Temp (users can't change what an administrator puts there), keeps that copy open
+/// read-only, checks it (GitHub's SHA-256 and RustDesk's own signature, not just any valid one)
+/// and installs exactly that file.
+fn install_script(download: &std::path::Path, stage: &std::path::Path, sha: &str) -> String {
+    let p = |x: &std::path::Path| ps_str(&x.to_string_lossy());
+    let msiexec = crate::util::windows_dir().join(r"System32\msiexec.exe");
+    let rd = crate::util::program_files().join(r"RustDesk\rustdesk.exe");
+    format!(
+        "$d = {stage}
+New-Item -ItemType Directory -Path $d | Out-Null
+$f = Join-Path $d 'rustdesk.msi'
+Copy-Item -LiteralPath {src} -Destination $f
+$hold = [IO.File]::Open($f, 'Open', 'Read', 'Read')
+try {{
+if ((Get-FileHash -LiteralPath $f -Algorithm SHA256).Hash -ne {sha}) {{ throw 'The download is damaged. Try again.' }}
+$s = Get-AuthenticodeSignature -LiteralPath $f
+if ($s.Status -ne 'Valid' -or $s.SignerCertificate.Subject -notmatch '(^|, )O={signer}(,|$)') {{ throw 'The download is not signed by RustDesk.' }}
+$p = Start-Process {msiexec} -ArgumentList '/i', ('\"' + $f + '\"'), '/qn', '/norestart' -Wait -PassThru
+if ($p.ExitCode -ne 0 -and $p.ExitCode -ne 3010) {{ throw \"RustDesk's setup failed (code $($p.ExitCode)).\" }}
+}} finally {{ $hold.Close(); Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue }}
+for ($i = 0; $i -lt 30 -and -not (Get-Service RustDesk -ErrorAction SilentlyContinue); $i++) {{ Start-Sleep 1 }}
+Start-Sleep 3
+& {rd} --option direct-server Y | Out-Null",
+        stage = p(stage),
+        src = p(download),
+        sha = ps_str(&sha.to_uppercase()),
+        signer = RUSTDESK_SIGNER,
+        msiexec = p(&msiexec),
+        rd = p(&rd),
+    )
 }
 
 fn rd_cmd(args: &[&str]) -> String {
@@ -376,7 +416,7 @@ mod ps_tests {
         assert!(!args.iter().any(|a| a.contains(pw)) && !outer.contains(pw));
         assert!(env.is_none());
         // the inner (elevated) script is encoded inside the outer one; it names the file instead
-        let inner_b64 = outer.split('\'').find(|s| s.len() > 40 && !s.contains(' ')).expect("inner script");
+        let inner_b64 = outer.split('\'').find(|s| s.len() > 40 && crate::util::unbase64(s).is_some()).expect("inner script");
         let inner = dec(inner_b64);
         assert!(!inner.contains(pw) && inner.contains("deck-secret-test.tmp"));
     }
@@ -394,9 +434,59 @@ mod ps_tests {
         std::fs::write(&f, "plain-Secret_1").unwrap();
         let (args, _) = super::ps_args("Write-Output $secret", Some("plain-Secret_1"), false, Some(&f));
         let outer = decoded(&args);
-        let inner = outer.split('\'').find(|s| s.len() > 40 && !s.contains(' ')).unwrap().to_string();
+        let inner = outer.split('\'').find(|s| s.len() > 40 && crate::util::unbase64(s).is_some()).unwrap().to_string();
         let out = std::process::Command::new("powershell.exe").args(["-NoProfile", "-NonInteractive", "-EncodedCommand", &inner]).output().unwrap();
         assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "plain-Secret_1");
         assert!(!f.exists(), "the secret file is deleted once read");
+    }
+    /// A program of the user's can put a module first on PowerShell's module path (the user's own
+    /// Documents folder is first by default) that replaces a built-in command; the elevated script
+    /// must still get Windows' own.
+    #[test]
+    fn a_planted_module_is_not_loaded() {
+        let root = std::env::temp_dir().join(format!("deck-psm-{}", crate::util::random_token(8)));
+        let m = root.join("Probe");
+        std::fs::create_dir_all(&m).unwrap();
+        std::fs::write(m.join("Probe.psm1"), "function Get-AuthenticodeSignature { 'PLANTED' }
+Export-ModuleMember -Function *").unwrap();
+        std::fs::write(m.join("Probe.psd1"), "@{ ModuleVersion='1.0'; RootModule='Probe.psm1'; FunctionsToExport=@('Get-AuthenticodeSignature') }").unwrap();
+        let poisoned = format!("{};{}", root.display(), std::env::var("PSModulePath").unwrap_or_default());
+        // what the elevated script sees: the poisoned path inherited (as through UAC), its own line first
+        let (args, _) = super::ps_args("(Get-Command Get-AuthenticodeSignature).Source", None, true, None);
+        let out = std::process::Command::new(super::ps_home().join("powershell.exe")).args(&args).env("PSModulePath", &poisoned).output().unwrap();
+        let _ = std::fs::remove_dir_all(&root);
+        assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "Microsoft.PowerShell.Security", "{}", String::from_utf8_lossy(&out.stderr));
+    }
+
+    /// The install checks and runs a copy in an admin-only folder, needs GitHub's checksum and
+    /// RustDesk's own signature, and takes no folder from the environment.
+    #[test]
+    fn the_install_checks_the_copy_it_installs() {
+        let dl = std::env::temp_dir().join("deck-rustdesk-x.msi");
+        let stage = crate::util::windows_dir().join(r"Temp\deck-rd-x");
+        let s = super::install_script(&dl, &stage, &"ab".repeat(32));
+        assert!(!s.contains("$env:"), "{s}");
+        assert!(s.contains(&"AB".repeat(32)) && s.contains("O=PURSLANE"), "{s}");
+        // the download is only ever copied; everything else uses the staged copy
+        let src = super::ps_str(&dl.to_string_lossy());
+        assert_eq!(s.matches(src.as_str()).count(), 1);
+        assert!(s.contains(&format!("Copy-Item -LiteralPath {src} -Destination $f")));
+        assert!(s.contains("Start-Process 'C:\\") && s.contains("msiexec.exe'"), "{s}");
+    }
+
+    /// Holding the staged copy open read-only leaves Get-FileHash and the signature check working.
+    #[test]
+    fn the_held_copy_can_still_be_checked() {
+        // a signed program (Windows' own), copied: its signature travels with it
+        let f = std::env::temp_dir().join(format!("deck-hold-{}.exe", crate::util::random_token(8)));
+        std::fs::copy(crate::util::windows_dir().join(r"System32\msiexec.exe"), &f).unwrap();
+        let fp = super::ps_str(&f.to_string_lossy());
+        let script = format!("$hold = [IO.File]::Open({fp}, 'Open', 'Read', 'Read')
+try {{ (Get-FileHash -LiteralPath {fp} -Algorithm SHA256).Hash.Length; [string](Get-AuthenticodeSignature -LiteralPath {fp}).Status }} finally {{ $hold.Close() }}");
+        let (args, _) = super::ps_args(&script, None, true, None);
+        let out = std::process::Command::new(super::ps_home().join("powershell.exe")).args(&args).output().unwrap();
+        let _ = std::fs::remove_file(&f);
+        let text = String::from_utf8_lossy(&out.stdout);
+        assert_eq!(text.lines().map(str::trim).collect::<Vec<_>>(), ["64", "Valid"], "{}", String::from_utf8_lossy(&out.stderr));
     }
 }

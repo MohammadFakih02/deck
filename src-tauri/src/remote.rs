@@ -120,7 +120,7 @@ fn allow_through_firewall() {
 /// Transfer and Claude Sync between your PCs: their TCP channels and the UDP beacons the PCs find
 /// each other by (home and work networks only, like the phone's rule).
 pub fn allow_between_pcs() {
-    if std::env::var("DECK_PROFILE").map(|p| p != "test").unwrap_or(true) {
+    if !crate::settings::is_test_profile() {
         allow_program("name=Deck between your PCs", "any");
     }
 }
@@ -148,7 +148,7 @@ fn allow_program(rule: &str, protocol: &str) {
 
 pub fn start(app: Arc<App>, remote: Arc<Remote>) {
     stop(&remote);
-    if std::env::var("DECK_PROFILE").map(|p| p != "test").unwrap_or(true) {
+    if !crate::settings::is_test_profile() {
         std::thread::spawn(allow_through_firewall);
     }
     let preferred = app.settings.lock().remote_port;
@@ -156,7 +156,7 @@ pub fn start(app: Arc<App>, remote: Arc<Remote>) {
     let handle = tauri::async_runtime::spawn(async move {
         let mut listener = None;
         // Test runs stay on this PC (no firewall prompt, nothing on the network).
-        let ip = if std::env::var("DECK_PROFILE").map(|p| p == "test").unwrap_or(false) { [127, 0, 0, 1] } else { [0, 0, 0, 0] };
+        let ip = if crate::settings::is_test_profile() { [127, 0, 0, 1] } else { [0, 0, 0, 0] };
         for port in [preferred, preferred + 1, preferred + 2, 0] {
             if let Ok(l) = tokio::net::TcpListener::bind(SocketAddr::from((ip, port))).await {
                 listener = Some(l);

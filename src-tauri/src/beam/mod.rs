@@ -518,10 +518,12 @@ pub fn act(app: &Arc<App>, what: &str, a: &Value) -> Result<Value, String> {
                 "manual_peers" => c.manual_peers = parse_list(v.as_str().unwrap_or("")),
                 "code" => {
                     let n = crypto::normalize(v.as_str().unwrap_or(""));
-                    if n.len() == 20 {
-                        c.code = n.as_bytes().chunks(4).map(|c| String::from_utf8_lossy(c).to_string()).collect::<Vec<_>>().join("-");
-                    } else {
+                    if n.len() != 20 {
                         err = Some("A pairing code has 20 letters and digits");
+                    } else if let Some(e) = crate::kdf::too_easy(&n) {
+                        err = Some(e);
+                    } else {
+                        c.code = n.as_bytes().chunks(4).map(|c| String::from_utf8_lossy(c).to_string()).collect::<Vec<_>>().join("-");
                     }
                 }
                 "new_code" => c.code = crypto::gen_code(),

@@ -33,7 +33,7 @@ pub fn verdict(recorded: Option<&str>, current: &[u8]) -> Seal {
 }
 
 fn key_path() -> Vec<u16> {
-    let profile = std::env::var("DECK_PROFILE").ok().filter(|p| !p.is_empty()).map(|p| format!("-{p}")).unwrap_or_default();
+    let profile = crate::settings::profile().map(|p| format!("-{p}")).unwrap_or_default();
     format!("SOFTWARE\\Deck{profile}\\Seals").encode_utf16().chain([0]).collect()
 }
 

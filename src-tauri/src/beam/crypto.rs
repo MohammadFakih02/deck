@@ -16,16 +16,7 @@ pub fn hex(b: &[u8]) -> String {
 
 /// e.g. `K7QM-2XRP-A9DF-7HWT-ZC4N` (100 bits, no look-alike characters)
 pub fn gen_code() -> String {
-    const A: &[u8] = b"ABCDEFGHJKMNPQRSTUVWXYZ23456789";
-    let r = random::<20>();
-    let mut s = String::new();
-    for (i, b) in r.iter().enumerate() {
-        if i > 0 && i % 4 == 0 {
-            s.push('-');
-        }
-        s.push(A[*b as usize % A.len()] as char);
-    }
-    s
+    crate::kdf::gen_code()
 }
 
 /// case/space/dash-insensitive, so it's easy to type on the other PC

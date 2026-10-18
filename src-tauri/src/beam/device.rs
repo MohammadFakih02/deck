@@ -32,18 +32,35 @@ fn unhex(s: &str) -> Option<Vec<u8>> {
 }
 
 impl Device {
-    /// This PC's key from `dir` (made the first time; a damaged file is replaced, which gives this
-    /// PC a new id that the other PCs have to trust again).
+    /// This PC's key from `dir`, sealed with DPAPI (crate::secret). Made the first time; a damaged
+    /// file, or one this Windows account can't open (a copied profile), is replaced, which gives
+    /// this PC a new id that the other PCs have to trust again. A plain key from an older version
+    /// is sealed in place.
     pub fn load_or_create(dir: &Path) -> Device {
         let file = dir.join("device.key");
-        if let Some(pair) = std::fs::read(&file).ok().and_then(|b| Ed25519KeyPair::from_pkcs8(&b).ok()) {
-            return Device { pair };
+        if let Ok(b) = std::fs::read(&file) {
+            if let Some(pair) = crate::secret::unseal(&b).and_then(|p| Ed25519KeyPair::from_pkcs8(&p).ok()) {
+                return Device { pair };
+            }
+            if let Ok(pair) = Ed25519KeyPair::from_pkcs8(&b) {
+                Self::save(&file, &b);
+                return Device { pair };
+            }
         }
         let rng = ring::rand::SystemRandom::new();
         let pkcs8 = Ed25519KeyPair::generate_pkcs8(&rng).expect("the system's random number generator failed");
         let _ = std::fs::create_dir_all(dir);
-        let _ = crate::util::write_atomic(&file, pkcs8.as_ref());
+        Self::save(&file, pkcs8.as_ref());
         Device { pair: Ed25519KeyPair::from_pkcs8(pkcs8.as_ref()).expect("a key just made") }
+    }
+
+    fn save(file: &Path, pkcs8: &[u8]) {
+        match crate::secret::seal(pkcs8) {
+            Some(sealed) => {
+                let _ = crate::util::write_atomic(file, &sealed);
+            }
+            None => crate::log::warn("device key: Windows couldn't seal it; not saved (a new id next start)"),
+        }
     }
 
     /// The id other PCs know this one by (a hash of its public key).
@@ -91,6 +108,25 @@ mod tests {
         let other = tmp("other");
         assert_ne!(Device::load_or_create(&other).id(), a.id());
         let _ = (std::fs::remove_dir_all(&d), std::fs::remove_dir_all(&other));
+    }
+
+    /// The private key is sealed on disk; a plain key from an older version keeps its id and is
+    /// sealed in place.
+    #[test]
+    fn the_key_file_is_sealed_and_an_old_plain_one_is_kept() {
+        let d = tmp("sealed");
+        let a = Device::load_or_create(&d);
+        let on_disk = std::fs::read(d.join("device.key")).unwrap();
+        assert!(Ed25519KeyPair::from_pkcs8(&on_disk).is_err(), "the file holds no plain key");
+        let old = tmp("plain");
+        let pkcs8 = Ed25519KeyPair::generate_pkcs8(&ring::rand::SystemRandom::new()).unwrap();
+        std::fs::write(old.join("device.key"), pkcs8.as_ref()).unwrap();
+        let id = id_of(Ed25519KeyPair::from_pkcs8(pkcs8.as_ref()).unwrap().public_key().as_ref());
+        assert_eq!(Device::load_or_create(&old).id(), id);
+        assert!(Ed25519KeyPair::from_pkcs8(&std::fs::read(old.join("device.key")).unwrap()).is_err(), "sealed in place");
+        assert_eq!(Device::load_or_create(&old).id(), id, "and still the same PC");
+        assert_ne!(a.id(), id);
+        let _ = (std::fs::remove_dir_all(&d), std::fs::remove_dir_all(&old));
     }
 
     #[test]

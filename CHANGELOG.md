@@ -2,6 +2,20 @@
 
 All notable changes to Deck. Setups for each version are on the [Releases](https://github.com/MohammadFakih02/deck/releases) page.
 
+## Unreleased
+
+> **When you update:** if you typed your own PC to PC pairing code or Claude Code sync key, it keeps working. A new one you type must now pass the "too easy to guess" check.
+
+### Security
+- **Programs can't borrow Deck's admin rights through winget.** Deck ran `winget` (PC to PC → Apps) by name, which finds a copy in a folder any of your programs can write to. It now runs winget only from App Installer's own protected folder.
+- **Remote desktop setup can't be hijacked through PowerShell.** Deck's admin PowerShell steps could load commands from your Documents folder before Windows' own. They now load commands only from Windows' folder, and take no folder from the environment.
+- **RustDesk's installer is checked where it can't be swapped.** It is copied into a protected folder, kept locked while it is checked and installed, and must carry GitHub's checksum and RustDesk's own signature (not just any valid one).
+- **Hardware settings can't skip the "changed outside Deck" check.** A test switch (`DECK_PROFILE`) that your programs could set made Deck read hardware settings from a fresh folder it then trusted. An admin Deck now ignores it.
+- **The 32-bit RivaTuner helper** starts only from Deck's own folder when Deck runs as admin.
+- **Keys on disk are sealed with Windows (DPAPI).** This PC's PC to PC key, the pairing code, the phone key and the sync key no longer sit in plain text in AppData, so a copied profile or backup doesn't carry them. Older files are sealed the first time Deck starts.
+- **Typed pairing codes and sync keys that are easy to guess are turned down** (repeats, runs like 1234 or ABCD, or few different characters). PC to PC and Claude Code sync serve at most 64 connections at once, and a stranger has 10 seconds to prove the code.
+- **Exploit mitigations:** Deck and its helper are built with Control Flow Guard, and Deck with CET shadow-stack support.
+
 ## 2.5.6 — 2026-10-18
 
 > **When you update:** update every PC that uses PC to PC or Claude Code sync, since old and new versions can't talk to each other. Then re-pair your PCs once (trusted PCs and "always allow" are asked again; "never" choices are kept). If Deck was installed per user before, click **Set up** once more after the update. The phone page reloads itself once.

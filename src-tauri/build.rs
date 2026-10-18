@@ -26,8 +26,9 @@ fn rtss32() {
         .args(["build", "--release", "--quiet", "--target", "i686-pc-windows-msvc", "--manifest-path", "rtss32/Cargo.toml", "--target-dir"])
         .arg(&target_dir)
         // the outer build's flags are for 64-bit Deck, not this helper. It links the C runtime in, as
-        // Deck does, so it starts on PCs without the Visual C++ runtime.
-        .env("CARGO_ENCODED_RUSTFLAGS", "-Ctarget-feature=+crt-static")
+        // Deck does, so it starts on PCs without the Visual C++ runtime, and gets Control Flow Guard
+        // like Deck (.cargo/config.toml). Flags are separated by \x1f.
+        .env("CARGO_ENCODED_RUSTFLAGS", "-Ctarget-feature=+crt-static\x1f-Ccontrol-flow-guard")
         .env_remove("RUSTFLAGS")
         .env_remove("CARGO_TARGET_DIR")
         .env_remove("CARGO_BUILD_TARGET")

@@ -24,6 +24,10 @@ use std::time::{Duration, Instant};
 pub const UDP_PORT: u16 = 47833;
 const CHUNK: usize = 1 << 20;
 const MAX_FRAME: usize = 256 << 20;
+/// connections served at once (transfers between your PCs need a handful)
+const MAX_CONNS: usize = 64;
+/// how long a new connection has to prove the pairing code
+const PROVE_WITHIN: Duration = Duration::from_secs(10);
 /// size of the pieces a file is verified (and resumed) in
 const BLOCK: u64 = 32 << 20;
 
@@ -956,7 +960,8 @@ struct Cur {
 }
 
 fn serve_conn(mut s: TcpStream, sh: Arc<Shared>) -> io::Result<()> {
-    s.set_read_timeout(Some(Duration::from_secs(60)))?;
+    // a stranger gets a few seconds to prove the pairing code, then the usual minute
+    s.set_read_timeout(Some(PROVE_WITHIN))?;
     s.set_write_timeout(Some(Duration::from_secs(60)))?;
     tune(&s);
     let cfg = sh.cfg();
@@ -976,6 +981,7 @@ fn serve_conn(mut s: TcpStream, sh: Arc<Shared>) -> io::Result<()> {
     if !ct_eq(&m, &key.mac("auth-c", &[nc, &ns])) {
         return Err(bad("a PC with a different pairing code tried to connect"));
     }
+    s.set_read_timeout(Some(Duration::from_secs(60)))?;
     let mut ch = Chan::new(s, &key, nc, &ns, false);
     if ch.recv()? != T_HELLO {
         return Err(bad("handshake"));
@@ -1485,12 +1491,15 @@ pub fn start(sh: Arc<Shared>, lan: Arc<Lan>, port_override: Option<u16>) {
     {
         let sh = sh.clone();
         std::thread::spawn(move || {
+            static CONNS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
             for c in listener.incoming().flatten() {
                 if quiet || sh.off.load(std::sync::atomic::Ordering::Relaxed) {
                     continue;
                 }
+                let Some(slot) = crate::util::Slot::take(&CONNS, MAX_CONNS) else { continue };
                 let sh = sh.clone();
                 std::thread::spawn(move || {
+                    let _slot = slot;
                     let who = c.peer_addr().map(|a| a.ip().to_string()).unwrap_or_default();
                     if let Err(e) = serve_conn(c, sh.clone()) {
                         if e.kind() != io::ErrorKind::UnexpectedEof && e.kind() != io::ErrorKind::ConnectionReset && log_once(&who, &e.to_string()) {

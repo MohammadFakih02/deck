@@ -26,6 +26,42 @@ pub fn stretch(context: &str, secret: &str) -> [u8; 32] {
     key
 }
 
+/// The letters and digits codes are made of (no 0/O, 1/I/L: easy to read out and type).
+const CODE_CHARS: &[u8] = b"ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+
+/// A new pairing code or sync key: 20 characters (about 99 bits) in groups of four, each one
+/// equally likely, and never one that `too_easy` would turn down on the other PC.
+pub fn gen_code() -> String {
+    loop {
+        let mut picked = Vec::with_capacity(20);
+        while picked.len() < 20 {
+            let mut b = [0u8; 32];
+            getrandom::fill(&mut b).expect("the system's random number generator failed");
+            // 248 = 8 x 31: bytes above it would make the first letters more likely
+            picked.extend(b.iter().filter(|&&x| x < 248).map(|&x| CODE_CHARS[x as usize % CODE_CHARS.len()] as char));
+        }
+        let code = picked[..20].chunks(4).map(|c| c.iter().collect::<String>()).collect::<Vec<_>>().join("-");
+        if too_easy(&code).is_none() {
+            return code;
+        }
+    }
+}
+
+/// Why a typed code is too easy to guess, if it is. The PCs' beacons carry a fingerprint of the
+/// code, so anyone on the network can try guesses offline (each costs a `stretch`); a code made of
+/// repeats, runs like 1234 or ABCD, or few different characters falls to a short list of guesses.
+pub fn too_easy(code: &str) -> Option<&'static str> {
+    let c: Vec<u8> = code.bytes().filter(u8::is_ascii_alphanumeric).map(|b| b.to_ascii_uppercase()).collect();
+    if c.len() < 16 {
+        return Some("Use at least 16 letters and digits");
+    }
+    const EASY: &str = "That code is too easy to guess: use the code from your other PC, or make a new one";
+    let distinct = c.iter().collect::<std::collections::BTreeSet<_>>().len();
+    let run = c.windows(4).any(|w| w.windows(2).all(|p| p[1] as i16 - p[0] as i16 == 1) || w.windows(2).all(|p| p[0] as i16 - p[1] as i16 == 1));
+    let repeat = c.windows(4).enumerate().any(|(i, w)| c[i + 1..].windows(4).any(|x| x == w));
+    (distinct < 10 || run || repeat).then_some(EASY)
+}
+
 fn romix(seed: [u8; 32], n: usize) -> [u8; 32] {
     let mut v = vec![[0u8; 32]; n];
     let mut x = seed;
@@ -68,4 +104,19 @@ mod tests {
     }
 
     const FROZEN: &str = "4ba0bd3caf0200794cdcb6c9c1d32042704cce7d302cd341e9cd91fc6bd848b1";
+
+    /// Typed codes a short guess list would find are turned down; made ones never are.
+    #[test]
+    fn easy_codes_are_turned_down() {
+        use super::too_easy;
+        for easy in ["AAAA-AAAA-AAAA-AAAA-AAAA", "PASS-WORD-PASS-WORD-1234", "ABCD-EFGH-JKMN-PQRS-TUVW", "1234-5678-9ABC-DEFG-HJKM", "my-key-12", "QWER-TYQW-ERTY-QWER-TYXX"] {
+            assert!(too_easy(easy).is_some(), "{easy}");
+        }
+        assert!(too_easy("K7QD-M2XH-9RFA-WN4T-3BJP").is_none());
+        for _ in 0..500 {
+            let c = super::gen_code();
+            assert!(too_easy(&c).is_none(), "{c}");
+            assert_eq!(c.len(), 24);
+        }
+    }
 }

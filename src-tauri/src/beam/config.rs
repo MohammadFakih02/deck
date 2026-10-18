@@ -17,6 +17,8 @@ pub fn now_ms() -> u64 {
 pub struct Config {
     pub machine_id: String,
     pub machine_name: String,
+    /// sealed on disk (crate::secret)
+    #[serde(with = "crate::secret::field")]
     pub code: String,
     pub port: u16,
     /// extra peers as host or host:port, for networks that block broadcasts
@@ -233,6 +235,10 @@ impl Shared {
             cfg.v = 1;
         }
         cfg.trusted.retain(|t| t.until == 0 || t.until > now_ms());
+        // a sealed code this Windows account can't open (a copied profile): this PC pairs again
+        if cfg.code.is_empty() {
+            cfg.code = crate::beam::crypto::gen_code();
+        }
         // this PC's id is its key's (device.rs); trust and "always allow" set before PCs proved
         // their ids named ids anyone could claim, so they are asked again once
         let device = crate::beam::device::Device::load_or_create(&paths.data);

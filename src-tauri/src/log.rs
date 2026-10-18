@@ -80,10 +80,7 @@ pub fn dir() -> PathBuf {
     if cfg!(test) {
         return std::env::temp_dir().join("deck-test-logs");
     }
-    let name = match std::env::var("DECK_PROFILE") {
-        Ok(p) if !p.is_empty() => format!("Deck-{p}"),
-        _ => "Deck".to_string(),
-    };
+    let name = crate::settings::profile().map(|p| format!("Deck-{p}")).unwrap_or_else(|| "Deck".into());
     crate::util::local_appdata().join(name).join("logs")
 }
 

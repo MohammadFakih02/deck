@@ -355,6 +355,36 @@ fn token_char(b: u8) -> Option<char> {
 /// Replaces `path` with `data` so that a crash leaves either the old file or the new one, never a
 /// cut-off mix. Deck's own files live in the user's folders while Deck has admin rights, so this
 /// writes only where the signed-in user could write themselves (see crate::fsguard).
+/// One of at most `max` connections a listener serves at once (PC to PC, Claude Sync): anyone on
+/// the network could otherwise open thousands, each holding a thread until it times out.
+pub struct Slot(&'static std::sync::atomic::AtomicUsize);
+
+impl Slot {
+    pub fn take(count: &'static std::sync::atomic::AtomicUsize, max: usize) -> Option<Slot> {
+        use std::sync::atomic::Ordering::{AcqRel, Relaxed};
+        count.try_update(AcqRel, Relaxed, |n| (n < max).then_some(n + 1)).ok().map(|_| Slot(count))
+    }
+}
+
+impl Drop for Slot {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
+    }
+}
+
+#[cfg(test)]
+mod slot_tests {
+    #[test]
+    fn connections_past_the_limit_are_turned_away_until_one_ends() {
+        static N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let a = super::Slot::take(&N, 2).unwrap();
+        let _b = super::Slot::take(&N, 2).unwrap();
+        assert!(super::Slot::take(&N, 2).is_none());
+        drop(a);
+        assert!(super::Slot::take(&N, 2).is_some());
+    }
+}
+
 pub fn write_atomic(path: &Path, data: &[u8]) -> std::io::Result<()> {
     crate::fsguard::write_for_user(path, data)
 }

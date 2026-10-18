@@ -147,7 +147,7 @@ fn start_server() {
         .route("/{t}", get(page))
         .route("/{t}/download", get(dl));
     st.server = Some(tauri::async_runtime::spawn(async move {
-        let ip = if std::env::var("DECK_PROFILE").map(|p| p == "test").unwrap_or(false) { [127, 0, 0, 1] } else { [0, 0, 0, 0] };
+        let ip = if crate::settings::is_test_profile() { [127, 0, 0, 1] } else { [0, 0, 0, 0] };
         match tokio::net::TcpListener::bind(SocketAddr::from((ip, PORT))).await {
             Ok(l) => {
                 let _ = axum::serve(l, router.into_make_service_with_connect_info::<SocketAddr>()).await;
@@ -362,7 +362,7 @@ fn may_serve(s: &Share, via_funnel: bool) -> bool {
 /// Whether a request came in through Tailscale Funnel: Funnel marks what it forwards, and it hands
 /// it on from this PC itself (home links are opened by the PC's network address, not 127.0.0.1).
 fn via_funnel(headers: &axum::http::HeaderMap, from: std::net::IpAddr) -> bool {
-    let test = std::env::var("DECK_PROFILE").map(|p| p == "test").unwrap_or(false);
+    let test = crate::settings::is_test_profile();
     headers.contains_key("tailscale-funnel-request") || (from.is_loopback() && !test)
 }
 

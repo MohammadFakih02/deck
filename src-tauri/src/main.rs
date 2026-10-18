@@ -50,6 +50,7 @@ mod remote;
 mod osd;
 mod rtss;
 mod seal;
+mod secret;
 mod settings;
 mod share;
 mod startup;

@@ -1,10 +1,43 @@
 # Deck — project state
 
-Handoff notes so work can resume later. Last updated: 2026-10-18 (v2.5.6 released).
+Handoff notes so work can resume later. Last updated: 2026-10-18 (v2.5.6 + unreleased thick-client audit fixes).
 
 **Start with `DECK.md`** (full overview: features, hardware, files, build/test, status). This file is the dated history.
 
 > **RULE: before every commit, update the docs.** Add today's dated entry here, add user-visible changes to `CHANGELOG.md`, update `DECK.md` / `README.md` when facts change, and stage them in the same commit. The pre-commit hook enforces it; never bypass it. No personal data in these files (that goes in the git-ignored `PRIVATE_NOTES.md`).
+
+## 2026-10-18: Thick-client audit fixes (after 2.5.6, unreleased)
+
+A thick-client audit (OWASP Desktop App Top 10, TCASVS 5.0; report kept out of the repo until released) found the elevated
+process still trusting user-controlled locations. All fixed with tests:
+- **F1 (High):** `winget.exe` was started by name, which resolves to the user-writable alias in
+  `%LOCALAPPDATA%\Microsoft\WindowsApps`. Now `beam::apps::winget_exe`: App Installer's package folder
+  (`GetPackagesByPackageFamily` + `GetPackagePathByFullName`), only if `fsguard::user_could_change` is false.
+  Test `winget_never_comes_from_a_folder_the_user_can_change`.
+- **F2 (High):** elevated PowerShell auto-loaded modules from the user's Documents first (reproduced: a planted module
+  replaced `Get-AuthenticodeSignature`). `rdesk.rs` now starts System32's `powershell.exe` with `PSModulePath` pinned to
+  System32's modules, set again on the script's first line (UAC path); `$env:ProgramFiles` replaced by Rust's known-folder
+  path. Test `a_planted_module_is_not_loaded`.
+- **F3 (Medium):** RustDesk's MSI was hashed, signature-checked and installed from `%TEMP%\Deck-rustdesk` (swappable), any
+  valid signer passed, and a missing digest skipped the hash. `install_script` copies it into a new random folder under
+  `Windows\Temp`, holds it read-only, requires the digest and the publisher `O=PURSLANE` (read from RustDesk 1.5.0's EV
+  certificate). Tests `the_install_checks_the_copy_it_installs`, `the_held_copy_can_still_be_checked`.
+- **F4 (Medium):** `DECK_PROFILE` (user-settable) moved the settings folder and the HKLM seal key; a fresh key is a "first
+  start" and trusted, bypassing the S8 hold. `settings::profile()` ignores it in an elevated release build; every reader
+  (settings, seal, log, remote, share) uses it. Test `an_elevated_release_build_ignores_the_test_profile`.
+- **F5 (Low):** an elevated Deck no longer falls back to `%LOCALAPPDATA%\Deck` for the 32-bit helper (`rtss::helper_dirs`).
+- **F6 (Low):** `src-tauri/.cargo/config.toml`: `-Ccontrol-flow-guard` and `/CETCOMPAT` for x64; the helper gets CFG via
+  `build.rs`. First build after the change rebuilds every dependency (about 4 min at 12 jobs). Test
+  `deck_and_its_helper_are_built_with_exploit_mitigations` reads the PE headers. **Not yet run as the installed app.**
+- **F7 (Low):** new `secret.rs` (DPAPI, CurrentUser): `device.key`, `remote_token`, the pairing `code` and `sync_key` sealed
+  on disk (`dpapi:` prefix, `#[serde(with = "crate::secret::field")]`); plain values read and re-sealed on the next save; an
+  unopenable value is replaced (pair again). Tests in `secret`, `the_key_file_is_sealed_and_an_old_plain_one_is_kept`,
+  `the_phone_key_is_sealed_in_the_file`.
+- **F8 (Low):** beacons carry a code fingerprint, so reordering the handshake would gain nothing. Instead `kdf::too_easy`
+  turns down typed codes with repeats, runs or under 10 distinct characters (`kdf::gen_code` replaces both generators,
+  rejection-sampled), and `util::Slot` caps each listener at 64 connections with 10 s to prove the code.
+- 219 passed / 31 ignored; clippy `-D warnings` clean. Not run live yet (Warframe was running): install, then check PC to
+  PC pairing, the phone page and the overlay still work under CFG/CET.
 
 ## 2026-10-18: v2.5.6 — Clock and battery fixes, security remediation, faster tests, UI theme pass
 

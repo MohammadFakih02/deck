@@ -205,6 +205,8 @@ pub struct Settings {
     /// "auto" (H.264 where the phone can decode it) or "jpeg"
     pub remote_screen_codec: String,
     pub remote_port: u16,
+    /// sealed on disk (crate::secret)
+    #[serde(with = "crate::secret::field")]
     pub remote_token: String,
     /// phones at a time on the home network / away (Tailscale or any address that isn't this
     /// network); 0 = no limit. A phone counts once, however many pages or views it has open.
@@ -427,14 +429,43 @@ pub fn builtin_layouts() -> Vec<Layout> {
     ]
 }
 
+/// The test profile (`DECK_PROFILE`): its own settings, log and seal key, so test runs never
+/// touch the real ones. An elevated release build ignores it: the user's programs can set it
+/// without admin rights, and it would point Deck (and the hardware seal) at files of their choosing.
+pub fn profile() -> Option<String> {
+    profile_from(std::env::var("DECK_PROFILE").ok(), cfg!(debug_assertions), crate::elevation::is_admin)
+}
+
+fn profile_from(var: Option<String>, debug: bool, admin: impl Fn() -> bool) -> Option<String> {
+    if !debug && admin() {
+        return None;
+    }
+    var.filter(|p| !p.is_empty())
+}
+
+/// The "test" profile: servers stay on 127.0.0.1 and the firewall is left alone.
+pub fn is_test_profile() -> bool {
+    profile().as_deref() == Some("test")
+}
+
+#[cfg(test)]
+mod profile_tests {
+    use super::profile_from;
+
+    #[test]
+    fn an_elevated_release_build_ignores_the_test_profile() {
+        let p = || Some("x".to_string());
+        assert_eq!(profile_from(p(), false, || true), None);
+        assert_eq!(profile_from(p(), false, || false).as_deref(), Some("x"));
+        assert_eq!(profile_from(p(), true, || true).as_deref(), Some("x"));
+        assert_eq!(profile_from(Some(String::new()), true, || false), None);
+    }
+}
+
 impl Settings {
-    /// %APPDATA%\Deck, or %APPDATA%\Deck-<profile> when DECK_PROFILE is set
-    /// (test runs must never touch the real settings).
+    /// %APPDATA%\Deck, or %APPDATA%\Deck-<profile> for a test profile (see `profile`).
     pub fn dir() -> PathBuf {
-        let name = match std::env::var("DECK_PROFILE") {
-            Ok(p) if !p.is_empty() => format!("Deck-{p}"),
-            _ => "Deck".to_string(),
-        };
+        let name = profile().map(|p| format!("Deck-{p}")).unwrap_or_else(|| "Deck".into());
         crate::util::appdata().join(name)
     }
 
@@ -582,6 +613,23 @@ mod durability_tests {
 
     fn corrupt_copies(d: &std::path::Path) -> usize {
         std::fs::read_dir(d).unwrap().flatten().filter(|e| e.file_name().to_string_lossy().starts_with("settings.json.corrupt-")).count()
+    }
+
+    /// The phone key is sealed in the file (crate::secret); a file from an older version with it in
+    /// plain text still reads.
+    #[test]
+    fn the_phone_key_is_sealed_in_the_file() {
+        let d = dir("token");
+        let s = Settings { remote_token: "PhoneKey-0123456789abcd".into(), ..Default::default() };
+        s.save_to(&d).unwrap();
+        let text = std::fs::read_to_string(d.join("settings.json")).unwrap();
+        assert!(!text.contains("PhoneKey-0123456789abcd") && text.contains("dpapi:"));
+        assert_eq!(Settings::load_from(&d).0.remote_token, "PhoneKey-0123456789abcd");
+        let mut v = serde_json::to_value(&s).unwrap();
+        v["remote_token"] = serde_json::json!("OldPlainKey-0123456789");
+        std::fs::write(d.join("settings.json"), v.to_string()).unwrap();
+        assert_eq!(Settings::load_from(&d).0.remote_token, "OldPlainKey-0123456789");
+        let _ = std::fs::remove_dir_all(&d);
     }
 
     #[test]

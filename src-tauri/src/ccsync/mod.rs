@@ -343,9 +343,10 @@ pub fn act(app: &Arc<App>, what: &str, a: &Value) -> Result<Value, String> {
                     Some(n) => c.machine_name = n.chars().take(40).collect(),
                     None => err = Some("Type a name"),
                 },
-                "key" => match v.as_str().map(str::trim).filter(|x| x.len() >= 8) {
-                    Some(k) => c.sync_key = k.into(),
-                    None => err = Some("The sync key is too short"),
+                "key" => match v.as_str().map(str::trim).map(|k| (k, crate::kdf::too_easy(k))) {
+                    Some((k, None)) => c.sync_key = k.into(),
+                    Some((_, Some(e))) => err = Some(e),
+                    None => err = Some("Type the sync key"),
                 },
                 "new_key" => c.sync_key = crypto::gen_sync_key(),
                 "lan" => c.lan_enabled = v.as_bool().unwrap_or(true),
