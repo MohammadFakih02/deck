@@ -42,6 +42,8 @@ Handoff notes so work can resume later. Last updated: 2026-10-18 (v2.5.5 + unrel
 - **CI on Rust 1.99:** the first push failed clippy: 1.99 added `chunks_exact_to_as_chunks` (10 places; local was 1.97).
   Now `as_chunks::<N>()` (same whole chunks, remainder dropped as before). Local toolchain updated to 1.99.1 to match CI;
   clippy clean, 205 tests pass.
+- **CI runs tests as admin:** four fsguard tests failed there (an admin may write to System32). The tests now check with a
+  copy of their own token where Administrators only denies, so they test an everyday user on any runner.
 - **Final artifact:** `cargo tauri build --bundles nsis` with `DECK_REQUIRE_RTSS32=1` (2 m 40 s at 12 jobs): `Deck_2.5.5_x64-setup.exe`,
   7.6 MB; `deck.exe` holds 3 PE images (Deck, the RivaTuner helper and one more, as before) and no `vcruntime140.dll` import
   anywhere. Not installed (Phase 4: no install without the owner).

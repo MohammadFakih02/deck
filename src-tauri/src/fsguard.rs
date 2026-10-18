@@ -105,9 +105,22 @@ fn own_token() -> io::Result<Token> {
         return Err(io::Error::last_os_error());
     }
     let own = Token(t);
+    // as an everyday user even when the tests run as admin (CI runners do): Administrators only denies
+    use windows_sys::Win32::Security::{CreateRestrictedToken, CreateWellKnownSid, WinBuiltinAdministratorsSid, SID_AND_ATTRIBUTES};
+    let mut sid = [0u8; 68];
+    let mut len = sid.len() as u32;
+    if unsafe { CreateWellKnownSid(WinBuiltinAdministratorsSid, std::ptr::null_mut(), sid.as_mut_ptr() as _, &mut len) } == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let deny = SID_AND_ATTRIBUTES { Sid: sid.as_mut_ptr() as _, Attributes: 0 };
+    let mut user: HANDLE = std::ptr::null_mut();
+    if unsafe { CreateRestrictedToken(own.0, 0, 1, &deny, 0, std::ptr::null(), 0, std::ptr::null(), &mut user) } == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let user = Token(user);
     // AccessCheck wants an impersonation token
     let mut dup: HANDLE = std::ptr::null_mut();
-    if unsafe { DuplicateToken(own.0, SecurityIdentification, &mut dup) } == 0 {
+    if unsafe { DuplicateToken(user.0, SecurityIdentification, &mut dup) } == 0 {
         return Err(io::Error::last_os_error());
     }
     Ok(Token(dup))
