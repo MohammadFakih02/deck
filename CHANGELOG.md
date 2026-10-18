@@ -2,7 +2,7 @@
 
 All notable changes to Deck. Setups for each version are on the [Releases](https://github.com/MohammadFakih02/deck/releases) page.
 
-## Unreleased
+## 2.5.10 — 2026-10-19
 
 ### Fixed
 - **CPU clocks now match MSI Afterburner and HWiNFO.** Deck showed Windows' estimate of each thread's clock, which runs a few % low and jumps around (4.8-5.2 GHz on P-cores and 3.2-3.9 GHz on E-cores where Afterburner showed a steady 5.29 and 3.99). Deck now reads each core's own cycle counters, as Afterburner does, on Intel and AMD; Windows' figure is only used without the driver.

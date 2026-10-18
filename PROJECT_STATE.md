@@ -1,12 +1,14 @@
 # Deck — project state
 
-Handoff notes so work can resume later. Last updated: 2026-10-18 (v2.5.9).
+Handoff notes so work can resume later. Last updated: 2026-10-19 (v2.5.10).
 
 **Start with `DECK.md`** (full overview: features, hardware, files, build/test, status). This file is the dated history.
 
 > **RULE: before every commit, update the docs.** Add today's dated entry here, add user-visible changes to `CHANGELOG.md`, update `DECK.md` / `README.md` when facts change, and stage them in the same commit. The pre-commit hook enforces it; never bypass it. No personal data in these files (that goes in the git-ignored `PRIVATE_NOTES.md`).
 
-## 2026-10-19: CPU clocks from each core's cycle counters (APERF/MPERF)
+## 2026-10-19: v2.5.10 — CPU clocks from each core's cycle counters (APERF/MPERF)
+
+- **Released as 2.5.10:** version bumped in `tauri.conf.json`, `Cargo.toml`, `Cargo.lock`, DECK.md and README.md; the CHANGELOG's clock fix became `## 2.5.10`; tag `v2.5.10` pushed so `release.yml` builds and publishes the setup. Only the clock fix: the controller overlay and the death counter (still uncommitted) come in a later release. DECK.md's PDH gotcha now says APERF/MPERF, not `IA32_PERF_STATUS`.
 
 - **Why:** a user's friend (same i5-14600KF) saw different clocks than MSI Afterburner after 2.5.9. A read-only check script (Windows' inputs + Afterburner's `MAHMSharedMemory`) in his game: Afterburner 5292 on every P-core (53 x 99.85), 3994 on every E-core (799 for a core that slept); Deck (PDH `% Processor Performance` x 3500) 4836-5227 and 3225-3878, max 5227. Windows' counter is an estimate from its own sampling; Afterburner's figures fit APERF/MPERF (not IA32_PERF_STATUS, which stays at the top step while a core naps, the 2.5.x bug).
 - **Fix (`hw/sensors.rs`):** `Cpu::clock` reads every logical processor's MPERF/APERF (Intel 0xE7/0xE8, AMD's read-only 0xC00000E7/0xC00000E8; both PawnIO modules allow them) each tick; `counted_mhz` = TSC MHz x dAPERF / dMPERF (TSC rate measured once with `rdtsc`, `tsc_mhz`; base clock otherwise); a thread that ran under 1 ms gives nothing and `merge_clocks` takes Windows' value for it. Without the driver (or if every read fails once) it's Windows' clocks as before. Feeds the overlay, the CPU page, Sensors and the core table.
