@@ -1,12 +1,12 @@
 # Deck — project state
 
-Handoff notes so work can resume later. Last updated: 2026-10-20 (after v2.5.10; unreleased: controller overlay, death counter, overlay clock changes, updates from GitHub, crash protection).
+Handoff notes so work can resume later. Last updated: 2026-10-20 (v2.6.0).
 
 **Start with `DECK.md`** (full overview: features, hardware, files, build/test, status). This file is the dated history.
 
 > **RULE: before every commit, update the docs.** Add today's dated entry here, add user-visible changes to `CHANGELOG.md`, update `DECK.md` / `README.md` when facts change, and stage them in the same commit. The pre-commit hook enforces it; never bypass it. No personal data in these files (that goes in the git-ignored `PRIVATE_NOTES.md`).
 
-## 2026-10-20: Everything unreleased built, tested, installed and committed
+## 2026-10-20: v2.6.0 — controller overlay, death counter, updates from GitHub, crash protection (built, tested, installed)
 
 - **Checks:** `cargo clippy --all-targets -D warnings` clean (two style fixes: `checked_div` in `screen::aspect_of`, `contains` in `elevation::runs_as_desktop_user`); `cargo test` 350 passed, 35 ignored; UI `regress.mjs` 40/40, `a11y.mjs` clean; `ingest.py --selftest` ok.
 - **Install while a game runs:** `install.ps1 -Quiet` skips the launch test (it opens a console through Explorer) and the script's elevated re-run is hidden; every install now starts Deck through `\Deck\Background` (hidden, in the tray) instead of `\Deck\Open`. The log showed the four tasks made and the watchdog up.

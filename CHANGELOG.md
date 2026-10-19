@@ -2,7 +2,7 @@
 
 All notable changes to Deck. Setups for each version are on the [Releases](https://github.com/MohammadFakih02/deck/releases) page.
 
-## Unreleased
+## 2.6.0 — 2026-10-20
 
 ### Fixed
 - **No more "Set up" after an install or an update.** The setup is the one place that asks for admin rights: it makes Deck's admin tasks itself and starts Deck hidden through them. Before, the setup started Deck as a normal user and every install showed the Set up banner again. A Deck started without admin rights (the setup's "Run Deck" box, a shortcut) while the tasks exist now hands over to the admin task by itself.
