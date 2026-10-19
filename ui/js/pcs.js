@@ -477,7 +477,7 @@ export function csStatusTab(c) {
   else if (c.last_error && c.phase === "Idle") { txt = `${c.last_result}, with problems`; cls = "warn"; }
   else if (c.phase === "Idle") { txt = c.last_result || "Up to date"; cls = "good"; }
   else { txt = `${c.phase}…`; cls = ""; }
-  const versions = c.machines.filter((m) => m.cmp !== 0).map((m) => h("div", { class: "warn-t" }, m.cmp < 0 ? `${m.name} runs an older Deck (${m.version}; this PC has ${c.version}). Update it there.` : `${m.name} runs a newer Deck (${m.version}). Update this PC to match.`));
+  const versions = c.machines.filter((m) => m.cmp !== 0).map((m) => h("div", { class: "warn-t" }, m.same ? `${m.name} runs a different build of Deck ${m.version} (built ${m.cmp < 0 ? "earlier" : "later"} than this PC's).` : m.cmp < 0 ? `${m.name} runs an older Deck (${m.version}; this PC has ${c.version}). Update it there.` : `${m.name} runs a newer Deck (${m.version}). Update this PC to match.`));
   const sid8 = (s) => s.slice(0, 8);
   const sess = (name, sid, alias) => `${name ? `${name} (${sid8(sid)})` : sid8(sid)}${alias ? ` in ${csWhere(alias)}` : ""}`;
   return [

@@ -6,6 +6,7 @@ All notable changes to Deck. Setups for each version are on the [Releases](https
 
 ### Fixed
 - **The overlay's CPU clocks now really match MSI Afterburner.** 2.5.10 measured the average clock each core ran at, which comes out a few % below Afterburner's on a boosting CPU (5.1 GHz against 5.29), and the thread lines still used Windows' estimate. Afterburner shows each core's current speed step times the bus clock; the overlay now reads the same (Intel), so the CPU clock, every thread line and the core table show the same figures as Afterburner. The CPU page keeps the measured average.
+- **Claude Sync no longer calls the same version "older".** It compares build times, so another build of the same version (a test build) showed "runs an older Deck (2.5.10; this PC has 2.5.10)". It now says the other PC runs a different build of that version.
 - **A core's load in the overlay's core table is its busiest thread's.** The average of a P-core's two threads showed a game's main thread at 100 % as 50 %, hiding a CPU-bound game.
 
 ### Changed

@@ -217,7 +217,9 @@ pub fn state(app: &App) -> Value {
         .iter()
         .map(|m| {
             json!({ "id": m.id, "name": m.name, "via": m.via, "ago": ago_ms(m.generated_at), "files": m.files, "online": live.contains(&m.id),
-                    "version": config::app_version(&m.app), "cmp": match config::compare_app(&m.app) { std::cmp::Ordering::Less => -1, std::cmp::Ordering::Equal => 0, _ => 1 } })
+                    "version": config::app_version(&m.app),
+                    // the same version number, another build (a test build, say): not "older"
+                    "same": config::app_version(&m.app) == config::app_version(&config::app_id()), "cmp": match config::compare_app(&m.app) { std::cmp::Ordering::Less => -1, std::cmp::Ordering::Equal => 0, _ => 1 } })
         })
         .collect();
     let projects: Vec<Value> = cfg
