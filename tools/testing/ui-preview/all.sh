@@ -19,6 +19,15 @@ fans -
 lighting -
 lcd -
 overlay -
+controller overlay
+controller keys
+controller battery
+controller test
+deaths now
+deaths bosses
+deaths history
+deaths games
+deaths settings
 drives -
 thispc -
 windows open

@@ -1,11 +1,211 @@
 # Deck — project state
 
-Handoff notes so work can resume later. Last updated: 2026-10-19 (after v2.5.10, unreleased overlay changes).
+Handoff notes so work can resume later. Last updated: 2026-10-20 (after v2.5.10; unreleased: controller overlay, death counter, overlay clock changes, updates from GitHub, crash protection).
 
 **Start with `DECK.md`** (full overview: features, hardware, files, build/test, status). This file is the dated history.
 
 > **RULE: before every commit, update the docs.** Add today's dated entry here, add user-visible changes to `CHANGELOG.md`, update `DECK.md` / `README.md` when facts change, and stage them in the same commit. The pre-commit hook enforces it; never bypass it. No personal data in these files (that goes in the git-ignored `PRIVATE_NOTES.md`).
 
+## 2026-10-20: Everything unreleased built, tested, installed and committed
+
+- **Checks:** `cargo clippy --all-targets -D warnings` clean (two style fixes: `checked_div` in `screen::aspect_of`, `contains` in `elevation::runs_as_desktop_user`); `cargo test` 350 passed, 35 ignored; UI `regress.mjs` 40/40, `a11y.mjs` clean; `ingest.py --selftest` ok.
+- **Install while a game runs:** `install.ps1 -Quiet` skips the launch test (it opens a console through Explorer) and the script's elevated re-run is hidden; every install now starts Deck through `\Deck\Background` (hidden, in the tray) instead of `\Deck\Open`. The log showed the four tasks made and the watchdog up.
+- **Measured (60 s, a game open in the background, 20 logical cores):** Deck 3.9 % of one core (0.2 % of the PC), 69 MB private, 98 threads, 1,340 handles; its WebView about 1 % of a core, 303 MB; the watchdog 0 %, 2 MB. By thread: `rtss` 1.25 % (it takes a full sensor snapshot every `osd_ms` even with the overlay off, so switching it on shows at once), `driver-watch` 0.16 %, `gpu` 0.16 %, the rest under 0.5 % each. The death counter wasn't measured in a game (it only watches the game in front). Ideas not done: a slower snapshot while the overlay and the Sensors page are off (~1 % of a core); reading back a small mip level for the 64x36 thumbnail and the 1280-wide one only for OCR.
+- **Not live-checked yet:** the restart after `taskkill /f`, the updater against a real release, the driver-install pause.
+
+## 2026-10-19: Death counter: second review, fixes (unreleased)
+
+Built and tested 2026-10-20 (see above). Fixed:
+- **Fullscreen browsers and video players were games:** `ident::not_a_game` now also uses `boost::not_a_game` (boost's `NOT_GAMES` + Windows' folder). A fullscreen YouTube video of Elden Ring counted its "YOU DIED"s against "exe:chrome".
+- **An unchecked save reader silenced the screen watcher:** `Tracker::proven()` = working and (catalogue `verified` or it has counted a death); only then is screen detection off for the game.
+- **One death counted twice (your key + the screen):** `act` merges a death from another way of counting within 10 s when one of the two is automatic (`same_death`); the pill says "Already counted".
+- **"WASTED" matched "WANTED":** one-word phrases are exact; longer ones allow one letter read wrong, never a dropped one.
+- **Celeste:** a save can bring up to 500 deaths at once (`save::max_step`), the Souls games 20.
+- **Library updates could be skipped:** two PRs merged from the same base carry the same version; `adopt` now takes the same version with other content (never a lower one), and the GitHub copy wins a tie with the embedded one.
+- **Shared exe names:** `Game.exe`, `nw.exe`, launchers… are keyed `exe:<folder>-<stem>` (`ident::exe_key`); the library refuses bare generic keys.
+- **Rescans:** a program not found in a fresh list of installed games isn't looked for again for 10 min (`ident::looked_for_lately`); before, every app in front made Deck read every Steam/Epic manifest every 30 s.
+- **Cost:** games Deck knows nothing special about are watched 2 times a second, not 4; the teaching strip keeps the last 10 s whatever the rate.
+- **English OCR missing:** the page says so (`screen::NO_ENGLISH`, "screen_lang").
+- **Taught prints and screen shape:** `Print.aspect` (width/height x 1000, 0 = any), matched within 3 % (`Taught::fits`); the intake script keeps it and draws each print as text in the PR so the reviewer sees what will be matched; 6 prints per game (what Deck uses), at most 20 waiting PRs.
+- **Smaller:** a +1 hotkey with no game yet says why (a toast; nothing is in front then); taught prints are read from disk once (`store` cache); the controller combo's text says the game sees the buttons too (it was already off by default with its own switch).
+- **Every game is known by its exe (user, 2026-10-19: "just use the exe for those, even for Steam games"):** the key is `exe:<stem>` in every store (`catalog::stem_key` drops `.exe` and Unreal's `-Win64-Shipping` / `-WinGDK-Shipping`), so a Steam, GOG, Game Pass or EA copy is the same game with the same history, catalogue extras and shared-library prints. Steam/Epic folders still give the store name and, for Steam, the catalogue entry by number; otherwise `catalog::by_exe` (now also Celeste's `celeste.exe`). `catalog::by_key` finds the entry for a key; `steam:` keys are still read.
+- **Not done:** death words are English only (localised games); the CPU cost in games is still unmeasured.
+
+## 2026-10-19: Updates from GitHub, one-step setup, crash protection (unreleased)
+
+Spec and plan: `docs/superpowers/specs/2026-10-19-updates-and-crash-protection-design.md`. Not installed, not committed, not pushed.
+
+- **Why "Set up" came back after every install:** the NSIS finish page (`RunMainBinary`) and `/R` start Deck with `RunAsUser`, so Deck ran unelevated even though the admin tasks survived the update. The 2026-10-18/19 log shows the tasks being re-created each time.
+- **One UAC, in the setup:** `hooks.nsh` `NSIS_HOOK_POSTINSTALL` runs `deck.exe --setup-task` (the setup is elevated: per-machine) and, for silent, passive and update installs, starts Deck through the new `\Deck\Background` task (`--minimized`: no window, no focus). An uninstall now removes the four tasks and `updates`. A GUI install's "Run Deck" box still starts it as the user; `elevation::handover` (called in `main` before the window exists) passes any plain unelevated start (no args: `\Deck\Open`; `--minimized`: `\Deck\Background`) to the admin task when it runs this exe; a 20 s marker file stops a loop. `ensure_quit_task` also makes the Background task for installs that lack it.
+- **Crash restart:** `watchdog::wait_for` now returns `Outcome` (`Clean`, `Unclean { code }`, `NothingToWatch`); `describe_exit` names the code. After the hardware release `restart::after_unclean_end` waits 15 s and for a driver installer or Deck's own setup/uninstaller, then runs `\Deck\Background`. 3 unclean ends in 10 min (`crashes.json`) = give up and write `safe.json`; the next start holds the hardware like `HW_HELD` (fans on the BIOS, no overclock) with the `crash-loop` toast ("Turn hardware control on" clears it); safe mode lapses after 30 min. The watchdog now starts for every admin Deck with tasks (not only with the hardware engine). The native-crash filter logs the exception code and the module (`watchdog::module_at`). Setting `restart_after_crash` (default on).
+- **Driver installs:** `driver.rs` recognises a graphics driver setup by the folder or name it runs from (NVIDIA `DisplayDriver`/`Installer2`/`Downloader`, AMD software installer; best effort) with a cheap name-first process scan every 5 s. While one runs `PAUSED` is set: `gpu::nvml::Nvml.f` is a `Gated` wrapper whose `Deref` returns an empty function table, and `NvApi::func` returns None, so every GPU call fails cleanly with no call-site changes. Twenty seconds after it ends Deck restarts itself once (`restart_deck` spawns `--start-after <pid>`, then quits cleanly) so NVML is initialised fresh and the profile is applied again.
+- **Updater:** `update.rs` (+ `updatecmd.rs`, Settings → About → Updates): daily check of `api.github.com/repos/MohammadFakih02/deck/releases/latest` (ETag, first look 2 min after start, retry in an hour), accepts only a published plain `X.Y.Z` greater than this build with a `*-setup.exe` and its `.sha256` under this repo's release downloads; downloads (150 MB cap) to `Program Files\Deck\updates` when Deck is admin with tasks in an admin-only folder (`silent_ok`) or to a fresh Temp folder; SHA-256 checked while the file is held open without write sharing; runs `setup /S /UPDATE` (no prompt when elevated; UAC via `runas` otherwise, only on the user's click or toast button); waits while `boost::game_in_front` or a fullscreen app; toasts "Updating Deck to X" and "Deck updated to X" (once, via `update.json`); a setup that did not replace Deck within 4 min is not retried for a day. Setting `auto_update` (default on; off = no background requests).
+- **Tests:** 344 pass (16 new: handover decision, restart verdicts, own-setup and driver-installer recognition, exit codes and module names, version compare, release picking and URL allowlist, checksum parsing, hashing); clippy clean; UI regress 40/40 and a11y clean; `makensis` compiles the installer with the new hooks. **Not verified live:** the restart after `taskkill /f`, the silent setup over an install, the updater against a real release and the driver-install pause need an install on the PC (check for games first).
+- **Limits:** the SHA-256 comes from the same release (no signing); driver-setup recognition is a path list, backed by the restart.
+- **Two code reviews, all findings fixed (built and tested 2026-10-20):** a failed download/start now waits 6 h, a setup that didn't install a day (it used to retry every minute); `update::set` locked the status twice (a deadlock); an error stays on the page for the same version and the minute loop only tells the page when something changed; `silent_ok` is remembered 10 min; the silent setup is waited for (30 min) instead of a 4-minute guess; without admin tasks the setup no longer runs elevated from Temp (`--install-update`, see DECK.md) and Temp folders are cleaned; the uninstaller keeps `updates` during an update; the update's close isn't counted as a crash (`restart::mark_updating`) and the watchdog doesn't start a second Deck (`other_deck_running`); `ensure_quit_task` only points the Quit/Background tasks at the copy `\Deck\Deck` runs, in an admin-only folder; a `--minimized` start forwarded to a running Deck no longer opens the window; `--start-after` waits 2 min and never starts a second Deck; the restart after a driver install honours "Start again after a crash" and waits for no game in front (GPU calls stay paused meanwhile); safe mode's button goes through the "changed outside Deck" check (`App::resume_hardware` shared with hw-changed); the setup makes no tasks when it runs as another account (`--from-setup`).
+
+## 2026-10-19: Death counter: code review of the feature, 9 findings fixed (unreleased)
+
+- **Counting:** (1) the screen watcher no longer ends for good on a capture error: it opens the capture
+  again (20 bad frames in a row, or a failed open, then every 5 s) until the deaths thread stops it;
+  (2) the OCR matcher re-arms when the picture has moved at least 3 s after a count (`Gate::moving`,
+  `Matcher::moved`), not only on a read without the death text, which action games rarely give;
+  (3) a save read that hits a half-written file no longer starts a screen watcher (`Tracker::working`,
+  15 s grace) so one death can't be counted by both; (4) `act` refuses "death" and "start" for a game
+  turned off, whatever the source (the shortcuts bypassed the tray's check).
+- **Library:** `made` is capped to what the Rust side reads (`ingest.py`), `library::parse` skips a bad
+  game or print instead of failing the whole file (a 1e30 `made` used to turn every Deck's library, the
+  embedded one too, into an empty one), names are cut on a character (the old `truncate` could panic) and
+  cleaned (`clean_name`), the import of a pasted code uses the same key and name rules (`unshare`).
+- **Workflow:** one trigger (`labeled` with the `death-screen` label), a per-issue concurrency group and a
+  "handled already" check, so an issue can't start two runs or a second PR.
+- **Page/settings:** the share code is remembered with its game; the settings form can't overwrite the
+  games turned off (`set_setting` keeps `off_games`); the loop reads save files before taking the lock the
+  page and tray share.
+- **Tests:** 7 new (`tracker working`, matcher moved x2, gate moving, off-games rule, library parse x2,
+  unshare cleaning, capture retry); the three live screen tests pass again after the watcher rewrite.
+  Clippy clean, UI suites clean, `ingest.py --selftest` covers the huge `made`.
+
+## 2026-10-19: Death counter: the shared death-screen library (unreleased)
+
+- **Why:** user: "can we make it so teaching the app teaches the whole repo? so we have stuff from online,
+  instead of having to manually". A game is taught once by anyone; everyone gets it.
+- **Repo:** `data/death-screens/library.json` ({version, games: {key: {name, prints}}}, seeded empty),
+  issue form `.github/ISSUE_TEMPLATE/death_screen.yml` (label `death-screen`), workflow
+  `.github/workflows/death-screen-intake.yml` (issue -> `tools/deaths-library/ingest.py` -> PR; the issue
+  text goes in only through an env var; names are stripped of @ and markup), CI runs `ingest.py --selftest`.
+  **Untested on GitHub** (needs Settings -> Actions -> General -> "Allow GitHub Actions to create and
+  approve pull requests"); the script itself is tested locally, both directions: a share code made by
+  Deck's Rust code passes `ingest.py`, and the file it writes loads in `library::parse`.
+- **App:** `deaths/library.rs` embeds the file (`include_str!("../../../data/...")`), refreshes it from
+  `raw.githubusercontent.com/MohammadFakih02/deck/main/data/death-screens/library.json` at most once a
+  day (first look 60 s after start, ETag, 3 MB cap, retry after an hour on failure, last check kept in
+  `deaths\library.meta.json`, copy in `deaths\library.json`, used only when its version is higher and
+  every print passes `Taught::new`); setting `deaths.community_library` (default on; Settings tab). The
+  watcher matches user prints + library prints; library prints are never saved to the user's list.
+  Now tab: "Submit to the shared library" (copies the code, opens the form via `open_url`), a card when
+  only the library knows the game, a count; Games tab: library totals.
+- **This is Deck's first background network request** (everything else is user-triggered). Flagged to the
+  user; one toggle turns it off.
+- **Checks:** 321 tests (4 new in `library::`), clippy clean, UI suites clean.
+- **To do on GitHub:** push, enable the Actions setting above, submit one test issue to check the
+  workflow, then it fills as people teach games.
+
+## 2026-10-19: Death counter: teaching a death screen (unreleased)
+
+- **What:** for death screens OCR can't read (Sekiro's 死, a symbol, a flash): the watcher keeps the last
+  40 frames (10 s; 64x36 thumbnail + 160x90 grey preview) in memory (`screen::RECENT`, never written).
+  A death counted by hand (tray, page, hotkey, combo) within 60 s of the last frame keeps them as a strip
+  (`St.strip`); the Now tab offers "Did Deck miss that death?", you click the clearest frame, and
+  `screen/teach.rs` learns it: cells differing >= 24 from the median of frames unlike the picked one
+  (normal play) become the mask; refused when fewer than 24 cells, a flat colour, too few play frames, or
+  when it matches any play frame. Matching: correlation >= 0.85 and mean difference <= 30 over the mask,
+  on every frame, its own matcher (same pair + cooldown rules; either matcher counting cools the other).
+  Up to 3 per game in `deaths\<key>.taught.json`; Forget; Share code `deck-death-screen:<base64 json>`,
+  added on the Games tab. Commands `deaths_strip`, `deaths_teach`. Works without an OCR language.
+- **Checks:** 317 tests after the merge (3 new in `teach::`), clippy clean; new ignored live test `a_wordless_death_screen_is_learned_from_captured_frames`
+  (a red disc on Deck's own test window: not counted by OCR, learned from captured frames, then matches it
+  and not play) passed; run the two screen live tests one at a time (they share the frame buffer).
+- **Merged with the friend's 16ca8af** (pulled 2026-10-19): CHANGELOG and this file had conflicts; his
+  commit turned this file's line endings to LF, kept.
+
+## 2026-10-19: Death counter, stages 2 and 3 built without a game (unreleased)
+
+- **Why theory:** no soulslike installed (user: "keep it theory for now", "finish the core logic",
+  "a basic catalogue, about 10 games, I will work on it with you later").
+- **Save readers** (`deaths/save.rs`): Celeste (`Saves\N.celeste` in the install folder, XML
+  `<TotalDeaths>`; format from github.com/frissyn/celeste-saves) and Dark Souls PtDE
+  (`Documents\NBGI\DarkSouls\*\DRAKS0005.sl2`, BND4, name +0x100, deaths +0x1F128 from dsfp's
+  datasheet, MIT). `Tracker` checks modified times every 2 s, first read is the baseline, a rise of
+  at most 20 on the same slot + name counts. `ident::Game` now carries `dir` (install or exe folder).
+  Elden Ring's count has no fixed offset (variable-length slot sections): needs two real saves.
+  DSR/DS3 are AES-CBC per entry with public keys, but their death offsets are unknown.
+- **Screen detection** (`deaths/screen/`): WGC capture of the front game's window at 4 fps (code from
+  the capture spike, reading back a mip level at most 1280 px wide), 64x36 thumbnail gate, OCR of the
+  middle 3/4 x 2/3 with `Windows.Media.Ocr` (English engine first), line-wise phrase matching with
+  edit slack and I/l/1 O/0 folding, matcher (pair within 3 s, 8 s cooldown, must clear first).
+  Runs only while a counted game is in front, `auto_screen` on, and no healthy save reader.
+  The page shows how the game is counted (`auto`: save / save_missing / screen / screen_blind /
+  screen_failed) and the presets on the Games tab; Settings has the two automatic toggles.
+  Teaching (taught fingerprints) is not built yet.
+- **Presets** (catalogue, all `verified: false`): FromSoftware (ER, Nightreign, DSR, PtDE + save,
+  DS2, SotFS, DS3, Bloodborne, Demon's Souls) "YOU DIED"; Cuphead "YOU DIED"; Nioh 1/2
+  "FREED FROM THIS MORTAL COIL"; Wo Long "COMPLETE FAILURE"; The First Berserker: Khazan "KHAZAN HAS FALLEN"
+  (the publisher's Steam Awards post says those words are "burned into your screen"; added 2026-10-19 after a
+  web search for the wording; the other ~300 games found nothing, see the research note in DECK-GAMING-PLAN.md);
+  Celeste (save). 15 in all.
+- **Checks:** 312 tests (+2 new ignored live tests that passed here: Windows OCR reads a drawn banner;
+  a drawn "YOU DIED" on Deck's own test window counts exactly once end to end), clippy `-D warnings`
+  clean, `regress.mjs` all PASS, `a11y.mjs` clean.
+- **Next (needs games):** a real death in each preset game; Elden Ring save diff; CPU check in game;
+  teaching; Sekiro's 死 fingerprint.
+
+## 2026-10-19: Death counter, stage 1 (unreleased)
+
+- **What:** Monitor → **Deaths** + tray submenu "Death counter" + in-game pill + two hotkeys.
+  Design: `docs/superpowers/specs/2026-10-19-death-counter-design.md` (stages: 1 manual counting
+  [this], 2 save-file readers starting with Elden Ring, 3 screen detection after the capture spike).
+- **User's choices (2026-10-19):** counting automatic + hotkeys + controller combo, shown on Deck's own
+  pill; any game counts ("don't want it to just detect these games"), the catalogue only adds extras;
+  100+ known games.
+- **Code:** `src-tauri/src/deaths/` (`book.rs` from the earlier `deck-deaths` worktree, now in main),
+  `deathscmd.rs`, `ui/js/deaths.js`, `.dc-*` styles, skull icon, mocks + `all.sh` entries. Game
+  recognition reuses `games::installed()` (Steam/Epic install folders) and `hw::game::covers_like_fullscreen`.
+  Pill = `pad::window::Layered` + `pad::art::pill` on its own thread (1 s tick, 200 ms while flashing).
+- **Catalogue:** `tools/deaths-catalog/` builds `catalog.json` (320 games): hand-picked list (Steam
+  store search) + SteamSpy tag lists (Souls-like, Boss Rush, Precision Platformer, Action Roguelike,
+  Metroidvania, Hack and Slash) with ≥ 10,000 reviews, filtered by hand. Steam's own review API
+  rate-limited (429) at 1 request / 1.3 s, so SteamSpy (one request per tag, a minute apart) was used.
+  Death words only for FromSoftware ("YOU DIED", unverified in-game); Bloodborne (shadPS4) and Demon's
+  Souls (RPCS3) by emulator + window title.
+- **Controller combo:** `deaths/combo.rs`, hold Select + D-pad Down 1 s = +1, Select + Up = undo,
+  once per hold. The deaths thread opens its own passive `pad::input::Reader` (the overlay's only
+  runs while the overlay is on; SDL ref-counts a pad opened twice) only while the combo is on and a
+  counted game is in front, polling at 50 ms; otherwise it keeps its 1 s tick. Toggle on the
+  Settings tab.
+- **Not done yet:** save readers, screen detection, a live test in a game.
+- **Checks:** 301 tests (20 in `deaths::`), clippy clean, `regress.mjs` all PASS, `a11y.mjs` clean.
+  Also fixed: the "Connected" toast now names a GameSir dongle ("XInput Controller #1" before),
+  `battery::known_name`.
+
+## 2026-10-19: Controller Overlay merged into Deck + universal controller battery (unreleased)
+
+The standalone Controller Overlay (Python, pygame-ce + tkinter) is now a Deck feature: Monitor →
+**Controller**. Design: `docs/superpowers/specs/2026-10-18-controller-overlay-design.md`; plan:
+`docs/superpowers/plans/2026-10-18-controller-overlay.md`.
+
+- **Backend `src-tauri/src/pad/`** (see DECK.md §5). Battery thread: GameSir vendor protocol (dongle
+  3537:1098 MI_02, `01 01`, byte 19), Sony DS4/DualSense input reports read passively (never a feature
+  write), Windows.Gaming.Input, the Bluetooth battery property, XInput; merged per controller (a higher
+  source wins per VID/PID, ViGEm virtual pads dropped, XInput only without WGI), phone-style smoothing in
+  `pad-battery.json`, 2 silent polls = off, low warning once per charge at 15%. Runs only while tray icons or
+  the overlay are on.
+- **Overlay thread:** native layered windows (`WS_EX_LAYERED|TRANSPARENT|TOOLWINDOW|NOACTIVATE`, topmost
+  re-asserted every 500 ms, `WDA_EXCLUDEFROMCAPTURE` unless turned off), high-resolution waitable timer +
+  `MsgWaitForMultipleObjects` (60 Hz lively, 30 faded, 20 hidden, no timer while off), toast pill, Move /
+  resize (drag, wheel, right-click), auto-monitor from the foreground window (ignores Deck's own windows and
+  the shell), idle fade, demo input.
+- **Art:** the old SVG builders ported to Rust and rasterised once per look with `resvg` (text feature only;
+  Segoe UI loaded from Windows' fonts). The old renderer (SDL_image's nanosvg) drew every gradient as its end
+  colour, so `theme_defs` does the same: side-by-side pixel checks against the Python app now differ by a few
+  shades at most.
+- **Input:** SDL 3.4.16 loaded at run time (`sdl.rs`; the official DLL embedded gzipped, written next to
+  deck.exe, loaded by full path), hints keep it passive (background events on, enhanced Sony reports off, no
+  rumble/LEDs); XInput fallback. Real pads are opened before a ViGEm Xbox 360 pad. Keyboard & mouse: Raw Input,
+  receive-only, only while that mode is on (user's choice "A", 2026-10-18; DECK.md §0 rule 3 updated).
+- **Deck integration:** `pad` + `pad_imported` in settings.json (field-by-field validation, the old
+  `Settings.CHECKS`); one-time import of `%APPDATA%\ControllerOverlay\settings.json` + `battery.json` (overlay on
+  after an import, off for new users); tray submenu **Controller overlay**; one tray icon per controller
+  (`pad-<hash>`, left-click opens the page, right-click is Deck's menu); `pad_state` / `pad_action`;
+  `--pad-probe` diagnostic; `hooks.nsh` removes `SDL3.dll` on uninstall.
+- **UI:** `ui/js/controller.js` (tabs Overlay, Keys, Battery, Test; the Test tab polls 8×/s with a timer, no
+  frame loop), new `joystick` icon, mock commands for `shot.mjs`; Controller tabs added to `all.sh` (a11y).
+- **Checks:** 281 tests pass (47 new in `pad::`), clippy `-D warnings` clean, `regress.mjs` 40/40, `a11y.mjs`
+  clean on every Controller tab (also at 900×600). `--pad-probe` on this PC: SDL3 loads; the GameSir dongle
+  shows as 3537:2106 (one vendor interface) while the controller is off, as expected.
+- **Not yet done live** (the user was in a game the whole session, so Deck wasn't restarted): the overlay
+  window on screen, the tray icons, the GameSir reading with the controller on, CPU per the budget, Raw Input
+  next to tao's own registration. Do these first next session; then the user uninstalls the old app.
 ## 2026-10-19 (later): overlay clocks = Afterburner's (ratio x bus), Afterburner look, busiest-thread core load (not released)
 
 - **Why:** the user (i5-14600KF, the "friend" of the 2.5.10 entry) still saw 2.5.10's overlay differ from Afterburner: Deck's thread lines 4931-5199 (P) / 3487-3666 (E), Afterburner a flat 5292 / 3994 with an occasional 799. Two causes: (1) the overlay's thread table never used 2.5.10's counters: `rtss::snapshot` filled `thread_reads` from its own PDH `ThreadClocks`; only the CPU line used `Cpu::clock`. (2) APERF/MPERF is the average clock while awake; Afterburner shows the current ratio (`IA32_PERF_STATUS` 15:8) x bus. Its 799 is a read that landed on a sleeping core (ratio 8), which only a ratio read gives. On a freely boosting CPU in a light game load the step moves within the second, so the average sits 2-4 % under the snapshot; with the clock locked (a fixed ratio) both agree, which is why the earlier HWiNFO check matched. Cinebench R23 multi on the same PC: ~23,700, normal for the part.

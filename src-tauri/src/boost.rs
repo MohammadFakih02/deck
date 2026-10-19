@@ -126,6 +126,13 @@ const NOT_GAMES: &[&str] = &[
     "explorer", "deck", "code", "photos", "microsoft.photos", "zoom", "ms-teams", "obs64",
 ];
 
+/// A browser, video player or other fullscreen program that isn't a game, or one of Windows' own.
+pub fn not_a_game(path: &str) -> bool {
+    let lower = path.to_lowercase();
+    let windir = std::env::var("WINDIR").unwrap_or_default().to_lowercase();
+    NOT_GAMES.contains(&stem_of(&lower).as_str()) || (!windir.is_empty() && lower.starts_with(&windir))
+}
+
 fn stem_of(path_or_name: &str) -> String {
     let n = path_or_name.rsplit(['\\', '/']).next().unwrap_or(path_or_name).to_lowercase();
     n.strip_suffix(".exe").map(str::to_string).unwrap_or(n)
@@ -970,6 +977,7 @@ fn restore(a: &Active, reopen_apps: bool) -> Value {
 /// or it's fullscreen while the graphics card is busy. The phone's Screen control pauses for it
 /// (Deck never sends input into games: anti-cheat).
 pub fn game_in_front(app: &App) -> Option<String> {
+    // (see also `not_a_game`, the same check for other features)
     let mut pid = 0u32;
     unsafe { GetWindowThreadProcessId(windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow(), Some(&mut pid)) };
     if pid == 0 || pid == std::process::id() {

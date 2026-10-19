@@ -291,6 +291,7 @@ export const ENGINES = [["https://www.google.com/search?q=", "Google"], ["https:
 Pages.settings = {
   async load() {
     S.cache.indexInfo = await invoke("index_info");
+    S.cache.update = await invoke("update_state").catch(() => null);
   },
   render() {
     const s = S.state.settings;
@@ -320,7 +321,8 @@ Pages.settings = {
       panel && s.hot_corner !== "off" ? row(h("span", null, "Also over fullscreen games and videos", helpTip("set.fullscreen")), "Off: the corner does nothing while a game or video is fullscreen, so you can't open Deck by accident mid-match.", toggle(s.hot_corner_fullscreen, set("hot_corner_fullscreen"))) : null,
       panel ? row("Hide when I click somewhere else", null, toggle(s.hide_on_blur, set("hide_on_blur"))) : null,
       row("Other ways in", "Click the tray icon, the Start menu entry, or the phone. Right-click the tray icon for quick tools.", null),
-      row("Start with Windows", "Starts hidden in the tray.", toggle(s.autostart, set("autostart")))));
+      row("Start with Windows", "Starts hidden in the tray.", toggle(s.autostart, set("autostart"))),
+      row("Start again after a crash", "If something ends Deck (a crash, a graphics driver update), it comes back by itself, hidden. After three in ten minutes it stops and starts with the fans on the BIOS and no overclock.", toggle(s.restart_after_crash, set("restart_after_crash")))));
 
     cur = "home";
     add(h("div", { class: "section" }, h("h2", null, "Home tiles")));
@@ -403,9 +405,44 @@ Pages.settings = {
     add(h("div", { class: "settings-card" },
       row(`Deck ${S.state.version}`, "Dashboard, launcher, hardware control and Windows power tools in one tray app." + (S.state.admin ? " Running with admin rights." : ""), null),
       row("Quit Deck", "Stops the hot corner, clipboard history, timers and the phone connection until you start it again. Fans go back to the BIOS.", h("button", { class: "btn danger", onclick: async () => { if (await confirmBox("Quit Deck?", "Timers and shutdown plans stop too.", "Quit", true)) invoke("quit"); } }, I("power"), "Quit"))));
+    add(h("div", { class: "section" }, h("h2", null, "Updates")));
+    add(updatesCard(s, set, el));
     return el;
   },
 };
+
+/** What the Updates card says for each state of the updater (`update_state`). */
+export function updateText(u) {
+  if (!u) return "Updates are not available right now.";
+  switch (u.state) {
+    case "checking": return "Looking for a newer version…";
+    case "downloading": return `Downloading Deck ${u.latest || ""}…`;
+    case "installing": return "Installing. Deck restarts by itself in a moment.";
+    case "error": return u.error || "Something went wrong.";
+    case "available":
+      return `Deck ${u.latest} is available.` + (u.waiting ? " It installs when the game or fullscreen program closes." : u.silent ? "" : " Installing asks for admin rights once.");
+    case "uptodate": return `Deck ${u.current} is the newest version.`;
+    default: return `Deck ${u.current}. Not checked yet in this run.`;
+  }
+}
+
+function updatesCard(s, set, page) {
+  const u = S.cache.update;
+  const busy = u && ["checking", "downloading", "installing"].includes(u.state);
+  const refresh = async () => { S.cache.update = await invoke("update_state").catch(() => null); if (page.isConnected) render(); };
+  if (busy) setTimeout(() => { if (page.isConnected) refresh(); }, 1500);
+  const check = async () => {
+    try { S.cache.update = await invoke("update_check"); } catch (e) { note(String(e), true); S.cache.update = await invoke("update_state").catch(() => null); }
+    if (page.isConnected) render();
+  };
+  const install = async () => { try { await invoke("update_install"); } catch (e) { note(String(e), true); } setTimeout(refresh, 600); };
+  return h("div", { class: "settings-card" },
+    settingRow("Updates", updateText(u), h("div", { class: "row", style: { gap: "8px" } },
+      u && u.state === "available" ? h("button", { class: "btn", disabled: busy ? "" : null, onclick: install }, I("download"), "Install " + u.latest) : null,
+      h("button", { class: "btn", disabled: busy ? "" : null, onclick: check }, I("refresh"), "Check now"))),
+    settingRow("Update by itself", "Looks once a day on GitHub and installs a newer Deck when no game is in front. Settings and profiles stay. Off: Deck only looks when you press Check now.", toggle(s.auto_update, set("auto_update"))),
+    u && u.state === "available" && u.notes ? h("div", { class: "setting" }, h("div", { class: "grow dim small", style: { whiteSpace: "pre-wrap" } }, u.notes)) : null);
+}
 
 /** The theme cards; `pick` gets the theme id. */
 export function themeCards(cur, pick) {

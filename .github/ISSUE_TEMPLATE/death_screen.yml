@@ -1,0 +1,35 @@
+name: Death screen for the shared library
+description: Add a death screen you taught Deck so everyone gets it
+title: "Death screen: "
+labels: [death-screen]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        In Deck: Monitor → Deaths → Now → **Submit to the shared library**. Deck copies the code and opens this form; paste it below.
+
+        The code holds a tiny grey fingerprint (64x36 cells, no picture) of the death screen and the game's name. Nothing about you or your PC is in it. Anyone can read what you post here.
+  - type: textarea
+    id: code
+    attributes:
+      label: The code
+      description: Starts with `deck-death-screen:`
+      placeholder: deck-death-screen:eyJ...
+    validations:
+      required: true
+  - type: input
+    id: game
+    attributes:
+      label: Game
+      description: The game's name, in case the code can't be read
+    validations:
+      required: true
+  - type: checkboxes
+    id: ok
+    attributes:
+      label: Checks
+      options:
+        - label: I taught it from the game's own death screen (not a loading screen, menu or anything else)
+          required: true
+        - label: It counted correctly when I tried it (one death, one count)
+          required: false

@@ -69,6 +69,10 @@ macro_rules! fns {
         #[allow(non_snake_case)]
         struct Fns { $($name: Option<unsafe extern "C" fn($($a),*) -> i32>,)* }
         impl Fns {
+            /// No function at all: every call fails as "not supported" (see `Gated`).
+            const fn none() -> Self {
+                Self { $($name: None,)* }
+            }
             unsafe fn load(m: HMODULE) -> Self {
                 Self { $($name: GetProcAddress(m, PCSTR(concat!(stringify!($name), "\0").as_ptr())).map(|f| std::mem::transmute::<unsafe extern "system" fn() -> isize, unsafe extern "C" fn($($a),*) -> i32>(f)),)* }
             }
@@ -114,8 +118,25 @@ fns! {
     nvmlDeviceResetGpuLockedClocks: fn(Dev);
 }
 
+/// The functions while the driver is being replaced (`driver::PAUSED`): none, so every call fails
+/// cleanly and nothing touches a driver that is half installed. No call site needs to know.
+static NO_FNS: Fns = Fns::none();
+
+struct Gated(Fns);
+
+impl std::ops::Deref for Gated {
+    type Target = Fns;
+    fn deref(&self) -> &Fns {
+        if crate::driver::paused() {
+            &NO_FNS
+        } else {
+            &self.0
+        }
+    }
+}
+
 pub struct Nvml {
-    f: Fns,
+    f: Gated,
     pub dev: Dev,
     pub name: String,
     pub driver: String,
@@ -182,7 +203,7 @@ impl Nvml {
             if let Some(g) = f.nvmlSystemGetDriverVersion {
                 g(d.as_mut_ptr(), d.len() as u32);
             }
-            Some(Nvml { f, dev, name, driver: cstr(&d) })
+            Some(Nvml { f: Gated(f), dev, name, driver: cstr(&d) })
         }
     }
 

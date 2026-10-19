@@ -110,12 +110,19 @@ pub enum Action {
     Limiter,
     /// opens / closes Deck (works even when profile keys are switched off)
     Open,
+    /// the death counter: +1 death / undo the last one
+    Death,
+    DeathUndo,
 }
 
 /// The keys Deck wants right now: (canonical key text, action).
 pub fn wanted(app: &App) -> Vec<(String, Action)> {
     let s = app.settings.lock();
     let mut v = vec![(s.open_hotkey.clone(), Action::Open)];
+    if s.deaths.on {
+        v.push((s.deaths.hotkey_death.clone(), Action::Death));
+        v.push((s.deaths.hotkey_undo.clone(), Action::DeathUndo));
+    }
     if s.hotkeys_on {
         for p in &s.cpu_profiles {
             v.push((p.hotkey.clone(), Action::Switch("cpu".into(), p.id.clone())));
@@ -142,6 +149,8 @@ pub fn taken_by(app: &App, key: &str, except_id: &str) -> Option<String> {
         .or_else(|| (except_id != "overlay_reset" && same(&s.osd_reset_hotkey)).then(|| "the key that resets the framerate figures".to_string()))
         .or_else(|| (except_id != "limiter" && same(&s.limiter_hotkey)).then(|| "the framerate limit key".to_string()))
         .or_else(|| (except_id != "open" && same(&s.open_hotkey)).then(|| "the key that opens Deck".to_string()))
+        .or_else(|| (except_id != "death" && same(&s.deaths.hotkey_death)).then(|| "the death counter's +1 key".to_string()))
+        .or_else(|| (except_id != "death_undo" && same(&s.deaths.hotkey_undo)).then(|| "the death counter's undo key".to_string()))
 }
 
 /// A key for profile `id` (or "overlay" / "open"): Ok(normalized text, "" for none) or why not.
@@ -186,6 +195,17 @@ fn run(a: Option<Action>) {
             Action::ResetStats => crate::rtss::reset_stats(),
             Action::Limiter => crate::rtss::toggle_limiter(&app),
             Action::Open => app.toggle_window(),
+            Action::Death => {
+                // with no game yet nothing is in front, so a note can't land on top of a game
+                if let Err(e) = crate::deaths::act(&app, "death", None, None, "hotkey") {
+                    if crate::deaths::no_game_yet(&e) {
+                        app.toast(crate::app::Toast::simple("deaths", "Death counter", &e));
+                    }
+                }
+            }
+            Action::DeathUndo => {
+                let _ = crate::deaths::act(&app, "undo", None, None, "hotkey");
+            }
         });
     }
 }

@@ -95,6 +95,10 @@ pub struct Settings {
     pub hot_corner_fullscreen: bool,
     pub hide_on_blur: bool,
     pub autostart: bool,
+    /// Deck starts itself again (hidden) after it was ended from outside: a crash, a driver install.
+    pub restart_after_crash: bool,
+    /// Deck installs new releases from GitHub by itself, when no game is in front.
+    pub auto_update: bool,
     /// "panel": a quick panel opened by the hot corner or the shortcut, gone when you click away |
     /// "app": a normal window with a taskbar button that stays open
     pub mode: String,
@@ -273,6 +277,12 @@ pub struct Settings {
     pub mahm_on: bool,
     /// how the overlay is laid out and drawn
     pub osd_style: crate::osd::OsdStyle,
+    /// the controller overlay and the controller battery (Controller page)
+    pub pad: crate::pad::cfg::PadSettings,
+    /// the standalone Controller Overlay's settings were looked for (imported once when found)
+    pub pad_imported: bool,
+    /// the death counter (Deaths page)
+    pub deaths: crate::deaths::cfg::DeathSettings,
     /// units shown everywhere (pages, phone, overlay): "MHz" / "GHz"
     pub unit_clock: String,
     /// "Mb/s" (bits) / "MB/s" (bytes)
@@ -294,6 +304,8 @@ impl Default for Settings {
             hot_corner_fullscreen: false,
             hide_on_blur: true,
             autostart: true,
+            restart_after_crash: true,
+            auto_update: true,
             mode: "panel".into(),
             open_hotkey: String::new(),
             app_rect: None,
@@ -387,6 +399,9 @@ impl Default for Settings {
             drive_alerts: false,
             mahm_on: true,
             osd_style: crate::osd::OsdStyle::default(),
+            pad: crate::pad::cfg::PadSettings::default(),
+            pad_imported: false,
+            deaths: crate::deaths::cfg::DeathSettings::default(),
             unit_clock: "MHz".into(),
             unit_net: "Mb/s".into(),
             unit_temp: "C".into(),

@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-Only the latest release gets fixes. Update from the [Releases](https://github.com/MohammadFakih02/deck/releases) page. Each setup has a SHA-256 checksum next to it.
+Only the latest release gets fixes. Update from the [Releases](https://github.com/MohammadFakih02/deck/releases) page. Each setup has a SHA-256 checksum next to it. Deck can update itself from these releases (Settings → About, on by default): it only takes a newer plain `X.Y.Z` release of this repository, checks the download against the release's `.sha256` and runs it silently only when Deck already has admin rights and sits in a folder only admins can change. Otherwise it asks once (UAC) and a Deck with admin rights copies the setup into that admin-only folder and checks it again before it runs; a setup is never run with admin rights from a folder the user can change. The checksum comes from the same release as the setup, so it catches a damaged download, not a hijacked release; the setup is not code-signed.
 
 ## Reporting a problem
 

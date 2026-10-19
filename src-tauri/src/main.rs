@@ -11,6 +11,10 @@ mod audio;
 mod audiocmd;
 mod beam;
 mod ccsync;
+mod deaths;
+mod deathscmd;
+mod update;
+mod updatecmd;
 mod boost;
 mod boostcmd;
 mod calc;
@@ -48,6 +52,8 @@ mod h264;
 mod screencast;
 mod remote;
 mod osd;
+mod pad;
+mod padcmd;
 mod rtss;
 mod seal;
 mod secret;
@@ -57,6 +63,8 @@ mod startup;
 mod sys;
 mod syscmd;
 mod util;
+mod driver;
+mod restart;
 mod watchdog;
 mod webview_guard;
 mod winmgr;
@@ -394,6 +402,37 @@ fn quit(handle: AppHandle) {
     quit_deck(&handle);
 }
 
+/// Ends Deck cleanly and starts it again, hidden, through the admin task: a helper process waits for
+/// this one to be gone first (a second Deck would only hand over to this one). Without the admin
+/// task there is nothing that could start it again, so it stays running.
+/// Returns false when it should be asked again later (a game is in front: GPU calls stay paused
+/// until then); true when it is settled (restarting, or not restarting at all).
+fn restart_deck(handle: &AppHandle) -> bool {
+    let app = handle.state::<Arc<App>>().inner().clone();
+    if !app.settings.lock().restart_after_crash {
+        driver::resume();
+        log::info("restart after a driver update is off: the new driver is used from Deck's next start");
+        return true;
+    }
+    if !elevation::is_admin() || !elevation::task_exists(elevation::BACKGROUND_TASK) {
+        driver::resume();
+        log::warn("restart wanted, but Deck has no admin task to start it again: keeping it running");
+        return true;
+    }
+    // never in the middle of a game: the fans and the GPU profile would be let go and applied again
+    if boost::game_in_front(&app).is_some() || hotcorner::fullscreen_in_front() {
+        return false;
+    }
+    // the GPU is handed back to the driver on the way out, which needs the calls
+    driver::resume();
+    use std::os::windows::process::CommandExt;
+    let started = std::env::current_exe().and_then(|exe| std::process::Command::new(exe).args(["--start-after", &std::process::id().to_string()]).creation_flags(util::CREATE_NO_WINDOW).spawn());
+    if started.is_ok() {
+        quit_deck(handle);
+    }
+    true
+}
+
 /// Puts things back first if Full power is on.
 fn quit_deck(handle: &AppHandle) {
     let app = handle.state::<Arc<App>>().inner().clone();
@@ -440,12 +479,18 @@ fn set_setting(handle: AppHandle, app: A, remote: State<Arc<Remote>>, key: Strin
     let old_style = app.settings.lock().osd_style.clone();
     {
         let mut s = app.settings.lock();
+        // the games turned off are changed by the tray and the Now tab, never by the settings form:
+        // the form's copy may be older than the tray's last change
+        let off_games = (key == "deaths").then(|| s.deaths.off_games.clone());
         let mut v = serde_json::to_value(&*s).map_err(|e| e.to_string())?;
         if v.get(&key).is_none() {
             return Err(format!("unknown setting {key}"));
         }
         v[&key] = value.clone();
         *s = serde_json::from_value(v).map_err(|e| format!("bad value for {key}: {e}"))?;
+        if let Some(off) = off_games {
+            s.deaths.off_games = off;
+        }
     }
     match key.as_str() {
         "autostart" => sync_autostart(&handle, value.as_bool().unwrap_or(true)),
@@ -499,6 +544,11 @@ fn set_setting(handle: AppHandle, app: A, remote: State<Arc<Remote>>, key: Strin
             rtss::refresh_now();
         }
         "osd_items" | "unit_clock" | "unit_net" | "unit_temp" => rtss::refresh_now(),
+        "pad" => pad::settings_changed(),
+        "deaths" => {
+            profiles::hotkeys::reload();
+            app.changed("deaths");
+        }
         _ => {}
     }
     app.save_settings();
@@ -1033,6 +1083,58 @@ fn tray_menu(handle: &AppHandle, app: &App) -> tauri::Result<Menu<tauri::Wry>> {
         None => None,
     };
     let ram_item = if elevation::is_admin() { Some(MenuItem::with_id(handle, "clearram", "Clear RAM", true, None::<&str>)?) } else { None };
+    // the controller overlay (Controller Overlay's own tray menu, now a submenu of Deck's)
+    let pad_menu = {
+        let (on, kbm) = {
+            let s = app.settings.lock();
+            (s.pad.on, s.pad.mode == "kbm")
+        };
+        let (edit, demo) = pad::shared().map(|sh| (sh.edit.load(Ordering::Relaxed), sh.demo.load(Ordering::Relaxed))).unwrap_or_default();
+        let show = CheckMenuItem::with_id(handle, "pad:visible", "Show overlay", true, on, None::<&str>)?;
+        let mv = CheckMenuItem::with_id(handle, "pad:edit", "Move / resize", true, edit, None::<&str>)?;
+        let sep = PredefinedMenuItem::separator(handle)?;
+        let ctl = CheckMenuItem::with_id(handle, "pad:controller", "Controller", true, !kbm, None::<&str>)?;
+        let km = CheckMenuItem::with_id(handle, "pad:kbm", "Keyboard && mouse", true, kbm, None::<&str>)?;
+        let dm = CheckMenuItem::with_id(handle, "pad:demo", "Demo input", true, demo, None::<&str>)?;
+        let sep2 = PredefinedMenuItem::separator(handle)?;
+        let set = MenuItem::with_id(handle, "pad:open", "Settings…", true, None::<&str>)?;
+        Submenu::with_items(handle, "Controller overlay", true, &[&show, &mv, &sep, &ctl, &km, &dm, &sep2, &set])?
+    };
+    // the death counter: the game in front (or last in front), its fight and the last bosses
+    let deaths_menu = {
+        let info = if app.settings.lock().deaths.on { deaths::tray_info(app) } else { None };
+        match info {
+            Some((game, total, open, names, can_undo, counted)) => {
+                let mut owned: Vec<Box<dyn IsMenuItem<tauri::Wry>>> = vec![];
+                let head = match &open {
+                    Some(b) => format!("{game}  ·  {b}"),
+                    None => format!("{game}  ·  {total} death{}", if total == 1 { "" } else { "s" }),
+                };
+                owned.push(Box::new(MenuItem::with_id(handle, "deaths:head", head, false, None::<&str>)?));
+                owned.push(Box::new(MenuItem::with_id(handle, "deaths:death", "+1 death", counted, None::<&str>)?));
+                owned.push(Box::new(MenuItem::with_id(handle, "deaths:undo", "Undo last death", counted && can_undo, None::<&str>)?));
+                owned.push(Box::new(PredefinedMenuItem::separator(handle)?));
+                if open.is_some() {
+                    owned.push(Box::new(MenuItem::with_id(handle, "deaths:win", "Boss defeated", counted, None::<&str>)?));
+                    owned.push(Box::new(MenuItem::with_id(handle, "deaths:abandon", "Abandon fight", counted, None::<&str>)?));
+                }
+                owned.push(Box::new(MenuItem::with_id(handle, "deaths:new", "Start boss fight…", counted, None::<&str>)?));
+                for (i, n) in names.iter().enumerate().filter(|(_, n)| Some(*n) != open.as_ref()) {
+                    owned.push(Box::new(MenuItem::with_id(handle, format!("deaths:fight:{i}"), format!("Fight {n}"), counted, None::<&str>)?));
+                }
+                owned.push(Box::new(PredefinedMenuItem::separator(handle)?));
+                owned.push(Box::new(CheckMenuItem::with_id(handle, "deaths:count", "Count deaths in this game", true, counted, None::<&str>)?));
+                owned.push(Box::new(MenuItem::with_id(handle, "deaths:open", "Open death counter…", true, None::<&str>)?));
+                let refs: Vec<&dyn IsMenuItem<tauri::Wry>> = owned.iter().map(|b| b.as_ref()).collect();
+                Some(Submenu::with_items(handle, "Death counter", true, &refs)?)
+            }
+            None if app.settings.lock().deaths.on => {
+                let open = MenuItem::with_id(handle, "deaths:open", "Open death counter…", true, None::<&str>)?;
+                Some(Submenu::with_items(handle, "Death counter", true, &[&open])?)
+            }
+            None => None,
+        }
+    };
     let open = MenuItem::with_id(handle, "open", "Open Deck", true, None::<&str>)?;
     let s1 = PredefinedMenuItem::separator(handle)?;
     let boost_i = CheckMenuItem::with_id(handle, "boost", "Full power for gaming", true, boost_on, None::<&str>)?;
@@ -1069,7 +1171,11 @@ fn tray_menu(handle: &AppHandle, app: &App) -> tauri::Result<Menu<tauri::Wry>> {
     if let Some(m) = &ram_item {
         items.push(m);
     }
-    items.extend([&s3 as &dyn IsMenuItem<tauri::Wry>, &clip, &color, &text, &awake_i, &s4, &settings, &quit]);
+    items.push(&s3);
+    if let Some(m) = &deaths_menu {
+        items.push(m);
+    }
+    items.extend([&pad_menu as &dyn IsMenuItem<tauri::Wry>, &clip, &color, &text, &awake_i, &s4, &settings, &quit]);
     Menu::with_items(handle, &items)
 }
 
@@ -1078,6 +1184,60 @@ fn refresh_tray(handle: &AppHandle) {
     if let (Some(tray), Ok(menu)) = (handle.tray_by_id("main"), tray_menu(handle, &app)) {
         let _ = tray.set_menu(Some(menu));
     }
+    // the controller battery icons open the same menu
+    for id in PAD_TRAYS.lock().iter().map(|(id, ..)| id.clone()).collect::<Vec<_>>() {
+        if let (Some(tray), Ok(menu)) = (handle.tray_by_id(&id), tray_menu(handle, &app)) {
+            let _ = tray.set_menu(Some(menu));
+        }
+    }
+}
+
+/// The battery tray icons shown now: (id, tooltip, pixels).
+static PAD_TRAYS: parking_lot::Mutex<Vec<(String, String, Vec<u8>)>> = parking_lot::Mutex::new(Vec::new());
+
+/// One tray icon per controller that reports a battery (the Controller page's Battery tab can
+/// turn them off). Left-click opens the Controller page; right-click is Deck's tray menu.
+fn sync_pad_trays(handle: &AppHandle) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSMICON};
+    let app = handle.state::<Arc<App>>().inner().clone();
+    let size = unsafe { GetSystemMetrics(SM_CXSMICON) }.max(16) as u32;
+    let want = if app.settings.lock().pad.battery_tray { pad::tray_icons(size) } else { vec![] };
+    let mut shown = PAD_TRAYS.lock();
+    for (id, ..) in shown.iter().filter(|(id, ..)| !want.iter().any(|w| &w.0 == id)) {
+        let _ = handle.remove_tray_by_id(id);
+    }
+    for (id, tip, px) in &want {
+        match shown.iter().find(|s| &s.0 == id) {
+            Some((_, old_tip, old_px)) => {
+                if let Some(tray) = handle.tray_by_id(id) {
+                    if old_px != px {
+                        let _ = tray.set_icon(Some(tauri::image::Image::new_owned(px.clone(), size, size)));
+                    }
+                    if old_tip != tip {
+                        let _ = tray.set_tooltip(Some(tip));
+                    }
+                }
+            }
+            None => {
+                let Ok(menu) = tray_menu(handle, &app) else { continue };
+                let built = TrayIconBuilder::with_id(id)
+                    .icon(tauri::image::Image::new_owned(px.clone(), size, size))
+                    .tooltip(tip)
+                    .menu(&menu)
+                    .show_menu_on_left_click(false)
+                    .on_tray_icon_event(|tray, ev| {
+                        if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = ev {
+                            show_deck(tray.app_handle(), Some("controller"));
+                        }
+                    })
+                    .build(handle);
+                if let Err(e) = built {
+                    log::warn(format!("controller battery tray icon: {e}"));
+                }
+            }
+        }
+    }
+    *shown = want;
 }
 
 /// Full power / Clean up from the tray or the phone, with a toast saying what happened.
@@ -1272,6 +1432,10 @@ fn handle_args(h: &AppHandle, args: &[String]) -> bool {
         quit_deck(h);
         return true;
     }
+    // a hidden start (the logon task, \Deck\Background) while Deck already runs: nothing to show
+    if args.iter().any(|a| a == "--minimized") {
+        return true;
+    }
     let Some(i) = args.iter().position(|a| a == "--switch") else { return false };
     let Some((kind, id)) = args.get(i + 1).and_then(|v| v.split_once(':')) else { return true };
     let app = h.state::<Arc<App>>().inner().clone();
@@ -1369,6 +1533,12 @@ fn main() {
     }
     // `Deck.exe --setup-task [--start]` (elevated, from Set up or install.ps1): create the tasks
     if std::env::args().any(|a| a == "--setup-task") {
+        // from the installer: tasks made for another account (an administrator's password typed by a
+        // standard user) would never start this user's Deck; the setup then starts it as the user
+        if std::env::args().any(|a| a == "--from-setup") && elevation::runs_as_desktop_user() == Some(false) {
+            log::warn("the setup runs as another account than the one signed in: Deck's admin tasks were not made (use Set up in Deck)");
+            std::process::exit(2);
+        }
         let code = match std::env::current_exe().map_err(|e| e.to_string()).and_then(|exe| elevation::setup(&exe, settings::Settings::load().autostart)) {
             Ok(()) => {
                 if std::env::args().any(|a| a == "--start") {
@@ -1426,6 +1596,8 @@ fn main() {
             Some(profiles::cpu::probe())
         } else if has("--hw-selftest") {
             Some(hw::selftest())
+        } else if has("--pad-probe") {
+            Some(pad::probe(4))
         } else {
             None
         };
@@ -1447,10 +1619,32 @@ fn main() {
     // the hardware fail-safe: waits for Deck to end, releases the hardware if it was ended from outside
     let args: Vec<String> = std::env::args().collect();
     if let Some(pid) = args.iter().position(|a| a == "--watchdog").and_then(|i| args.get(i + 1)).and_then(|p| p.parse::<u32>().ok()) {
-        if watchdog::wait_for(pid) {
+        if let watchdog::Outcome::Unclean { code } = watchdog::wait_for(pid) {
             let msg = release_everything();
-            log::warn(format!("Deck (process {pid}) was ended from outside; watchdog released the hardware: {msg}"));
+            log::warn(format!("Deck (process {pid}) was ended from outside ({}); watchdog released the hardware: {msg}", watchdog::describe_exit(code)));
+            // then Deck comes back by itself (hidden), unless it keeps ending
+            restart::after_unclean_end(code);
         }
+        return;
+    }
+    // `--install-update <setup> <checksum url> <version>`: an update the user allowed with the UAC prompt
+    if let Some(i) = args.iter().position(|a| a == "--install-update") {
+        std::process::exit(update::install_helper(&args[i + 1..]));
+    }
+    // a restart Deck asked for (after a driver install): once the old Deck is gone, start it hidden
+    if let Some(pid) = args.iter().position(|a| a == "--start-after").and_then(|i| args.get(i + 1)).and_then(|p| p.parse::<u32>().ok()) {
+        // starting while the old Deck still quits would hand the start to it, and then nothing runs
+        if !watchdog::wait_for_exit(pid) {
+            log::warn("restart: the old Deck did not quit within 2 minutes; not starting another");
+        } else if restart::other_deck_running() {
+            log::info("restart: Deck is already running again");
+        } else {
+            elevation::run_task(elevation::BACKGROUND_TASK);
+        }
+        return;
+    }
+    // started without admin rights (setup's finish page, a shortcut) while the admin tasks exist: let the task start it
+    if elevation::handover() {
         return;
     }
     let minimized = std::env::args().any(|a| a == "--minimized" || a == "--switch" || a == "--quit");
@@ -1473,9 +1667,13 @@ fn main() {
         default_hook(info);
     }));
     // a native crash (access violation) skips the panic hook: release the fans there too
-    unsafe extern "system" fn on_crash(_: *const windows_sys::Win32::System::Diagnostics::Debug::EXCEPTION_POINTERS) -> i32 {
+    unsafe extern "system" fn on_crash(info: *const windows_sys::Win32::System::Diagnostics::Debug::EXCEPTION_POINTERS) -> i32 {
         let _ = hw::release_fans_direct();
         gpu::release();
+        // what crashed and where (a driver's DLL, Deck itself), so the next report names the cause
+        if let Some(rec) = info.as_ref().and_then(|i| i.ExceptionRecord.as_ref()) {
+            log::warn(format!("native crash {:#X} at {:p} in {}", rec.ExceptionCode as u32, rec.ExceptionAddress, watchdog::module_at(rec.ExceptionAddress as *const _)));
+        }
         0 // EXCEPTION_CONTINUE_SEARCH: Windows reports the crash as usual
     }
     unsafe {
@@ -1523,6 +1721,8 @@ fn main() {
         .setup(move |tapp| {
             let handle = tapp.handle().clone();
             let app = app_state.clone();
+            // before the page first reads the settings: it would show the defaults until the next change
+            pad::import_old(&app);
             // made here rather than by the config so it gets the same browser flags as the other windows
             let main_cfg = tapp.config().app.windows.iter().find(|w| w.label == "main").cloned().expect("main window config");
             WebviewWindowBuilder::from_config(&handle, &main_cfg)?.additional_browser_args(&webview_guard::browser_args()).build()?;
@@ -1543,7 +1743,14 @@ fn main() {
                         return;
                     }
                     let _ = h.emit(event, payload.clone());
-                    if event == "changed" && (payload["topic"] == "power" || payload["topic"] == "boost" || payload["topic"] == "profiles" || payload["topic"] == "hw") {
+                    if event == "changed" && (payload["topic"] == "pad" || payload["topic"] == "settings") {
+                        let h2 = h.clone();
+                        std::thread::spawn(move || {
+                            let h3 = h2.clone();
+                            let _ = h2.run_on_main_thread(move || sync_pad_trays(&h3));
+                        });
+                    }
+                    if event == "changed" && (payload["topic"] == "power" || payload["topic"] == "boost" || payload["topic"] == "profiles" || payload["topic"] == "hw" || payload["topic"] == "pad" || payload["topic"] == "deaths") {
                         // posted from another thread: run_on_main_thread runs inline when called on
                         // the main thread, and the caller may still hold a lock tray_menu needs
                         let h2 = h.clone();
@@ -1599,6 +1806,34 @@ fn main() {
                             std::thread::spawn(move || {
                                 let msg = hw::memclean::clear();
                                 app.toast(Toast::simple("clearram", "Clear RAM", &msg));
+                            });
+                        }
+                        "pad:open" => show_deck(h, Some("controller")),
+                        "deaths:open" | "deaths:new" => show_deck(h, Some("deaths")),
+                        id if id.starts_with("deaths:") => {
+                            let what = &id[7..];
+                            let r = if what == "count" {
+                                let on = deaths::tray_info(&app).map(|i| i.5).unwrap_or(true);
+                                deaths::act(&app, if on { "off" } else { "on" }, None, None, "manual")
+                            } else if let Some(i) = what.strip_prefix("fight:").and_then(|i| i.parse::<usize>().ok()) {
+                                let boss = deaths::tray_info(&app).and_then(|t| t.3.get(i).cloned());
+                                deaths::act(&app, "start", boss.as_deref(), None, "manual")
+                            } else {
+                                deaths::act(&app, what, None, None, "manual")
+                            };
+                            if let Err(e) = r {
+                                app.toast(Toast::simple("deaths", "Death counter", &e));
+                            }
+                        }
+                        id if id.starts_with("pad:") => {
+                            if let Err(e) = pad::action(&app, &id[4..]) {
+                                log::warn(e);
+                            }
+                            let h2 = h.clone();
+                            std::thread::spawn(move || {
+                                std::thread::sleep(std::time::Duration::from_millis(150));
+                                let h3 = h2.clone();
+                                let _ = h2.run_on_main_thread(move || refresh_tray(&h3));
                             });
                         }
                         id if id.starts_with("fans:") => {
@@ -1672,11 +1907,24 @@ fn main() {
                 std::process::exit(0);
             }
             app.start();
+            pad::start(&app);
+            deaths::start(&app);
+            update::start(&app);
             {
                 let app = app.clone();
+                let handle = handle.clone();
                 std::thread::spawn(move || {
                     if let Some(why) = elevation::ensure_quit_task() {
                         app.toast(app::Toast { id: "unsafe-install".into(), kind: "warn".into(), title: "Deck's admin start was turned off".into(), body: why, actions: vec![("ok".into(), "OK".into())], sticky: true, sound: false });
+                    }
+                    // with the admin tasks in place Deck can come back by itself: the watchdog starts it
+                    // again after it was ended from outside (it also hands the hardware back)
+                    if elevation::is_admin() && elevation::task_exists(elevation::BACKGROUND_TASK) {
+                        watchdog::start();
+                        // an NVIDIA card Deck talks to is what a driver install can hurt
+                        if gpu::nvml::Nvml::shared().is_some() {
+                            driver::start_watch(move || restart_deck(&handle));
+                        }
                     }
                 });
             }
@@ -1737,7 +1985,12 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            webview_guard::ui_heartbeat, get_state, live, hide, set_pinned, quit, set_setting,
+            webview_guard::ui_heartbeat, get_state, live, hide, set_pinned, quit, set_setting, padcmd::pad_state, padcmd::pad_action, deathscmd::deaths_state, deathscmd::deaths_act,
+            deathscmd::deaths_strip,
+            deathscmd::deaths_teach,
+            updatecmd::update_state,
+            updatecmd::update_check,
+            updatecmd::update_install,
             search, apps_list, launch_app, open_path, reveal, open_url, open_system, games_list,
             fonts_list, audiocmd::audio_state, audiocmd::set_output, audiocmd::set_master, audiocmd::set_app_volume, audiocmd::media_control,
             clip_list, clip_copy, set_clipboard, clip_pin, clip_remove, clip_clear,

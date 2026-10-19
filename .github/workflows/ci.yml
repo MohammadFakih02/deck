@@ -36,6 +36,9 @@ jobs:
       - name: Check UI scripts
         shell: bash
         run: for f in ui/js/*.js ui/guard.js; do node --check "$f" || exit 1; done
+      - name: Death-screen library intake
+        shell: bash
+        run: python tools/deaths-library/ingest.py --selftest
       - name: Clippy
         working-directory: src-tauri
         run: cargo clippy --locked --all-targets -- -D warnings

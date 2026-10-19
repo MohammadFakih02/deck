@@ -61,6 +61,7 @@
   const DEFAULT_CURVES = [["Silent", [[20, 20], [50, 25], [70, 40], [85, 70], [100, 100]]], ["Balanced", [[20, 25], [45, 30], [65, 50], [80, 80], [100, 100]]], ["Performance", [[20, 35], [40, 45], [60, 70], [75, 100], [100, 100]]]];
   const settings = {
     mode: "app", accent: "#4f8cff", theme_picked: true, look_picked: true, setup_picked: true, open_anim: "zoom", low_spec: false, pc_cards: ["cpu", "ram", "gpu"], pc_drives: true, remote_screen: "control", remote_screen_quality: "balanced", remote_screen_fps: 60, remote_screen_kbps: 0, remote_screen_priority: "smooth", remote_screen_codec: "auto", nav_folded: [], nav_width: 0, panels: {}, ping_hosts: ["1.1.1.1", "8.8.8.8", "google.com"],
+    pad: { on: true, anchor_h: "right", anchor_v: "bottom", off_x: 24, off_y: 24, monitor: "auto", scale: 1, opacity: 0.88, theme: "ds4", style: "glass", layout: "controller", labels: "playstation", fade: true, hide_no_pad: true, mode: "controller", keys: ["1", "2", "3", "4", "tab", "q", "w", "e", "r", "shift", "a", "s", "d", "f", "ctrl", "space"], mouse: true, capture_hidden: true, battery_tray: true, battery_warn: true }, pad_imported: true, deaths: { on: true, pill: true, pill_always: false, pill_corner: "top", pill_scale: 1, pill_opacity: 0.9, pill_in_recordings: false, hotkey_death: "Ctrl+F9", hotkey_undo: "", pad_combo: false, auto_save: true, auto_screen: true, community_library: true, off_games: [] },
     osd_on: true, osd_items: ["gpu_temp", "gpu_usage", "gpu_mem", "gpu_clock", "gpu_power", "cpu_temp", "cpu_usage", "cpu_clock", "ram", "fps", "frametime", "fps_1low"], osd_hotkey: "Ctrl+Alt+O", osd_reset_hotkey: "", osd_ms: 500, rtss_autostart: true, mahm_on: false,
     breaks_on: false, theme_auto: false, theme_mode: "times", light_at: "07:00", dark_at: "19:00",
     remote_on: true, // remote_info says the phone server is running
@@ -99,6 +100,42 @@
     hw_table: () => ({ since: Math.floor(Date.now() / 1000) - 4 * 3600 - 17 * 60, rows }),
     hw_table_reset: () => null,
     fonts_list: () => ["Bahnschrift", "Consolas", "JetBrains Mono", "Segoe UI", "Arial"],
+    pad_state: ({ test } = {}) => ({
+      connected: true, name: "Wireless Controller", note: "", vid: 0x054c, pid: 0x09cc, sdl: true, running: true, shown: true, edit: false, demo: false,
+      battery: { percent: 64, level: null, charging: false },
+      controllers: [{ id: "hid:x", name: "DualShock 4", vid: 0x054c, pid: 0x09cc, source: "PlayStation", reading: { percent: 64, level: null, charging: false }, path: "", virtual_pad: false },
+        { id: "gamesir:4c4a", name: "GameSir Nova 2 Lite", vid: 0x3537, pid: 0x1098, source: "GameSir", reading: { percent: null, level: null, charging: true }, path: "", virtual_pad: false },
+        { id: "wgi:y", name: "Xbox Wireless Controller", vid: 0x045e, pid: 0x0b13, source: "Windows", reading: { percent: 12, level: null, charging: false }, path: "", virtual_pad: false }],
+      monitors: [{ w: 2560, h: 1440, primary: true }, { w: 1920, h: 1080, primary: false }],
+      key_list: [["esc", "Esc", 0, 0, 1], ["1", "1", 0, 1, 1], ["2", "2", 0, 2, 1], ["3", "3", 0, 3, 1], ["4", "4", 0, 4, 1], ["5", "5", 0, 5, 1], ["tab", "Tab", 1, 0, 1.5], ["q", "Q", 1, 1.5, 1], ["w", "W", 1, 2.5, 1], ["e", "E", 1, 3.5, 1], ["r", "R", 1, 4.5, 1], ["t", "T", 1, 5.5, 1], ["caps", "Caps", 2, 0, 1.75], ["a", "A", 2, 1.75, 1], ["s", "S", 2, 2.75, 1], ["d", "D", 2, 3.75, 1], ["f", "F", 2, 4.75, 1], ["g", "G", 2, 5.75, 1], ["shift", "Shift", 3, 0, 2.25], ["z", "Z", 3, 2.25, 1], ["x", "X", 3, 3.25, 1], ["c", "C", 3, 4.25, 1], ["v", "V", 3, 5.25, 1], ["b", "B", 3, 6.25, 1], ["ctrl", "Ctrl", 4, 0, 1.5], ["alt", "Alt", 4, 1.5, 1.25], ["space", "Space", 4, 2.75, 4.5]].map(([id, label, row, x, w]) => ({ id, label, row, x, w })),
+      buttons: test ? ["cross", "r1"] : undefined,
+      axes: test ? { lx: 0.62, ly: -0.31, rx: 0, ry: 0.05, l2: 0, r2: 0.84 } : undefined,
+    }),
+    pad_action: () => null,
+    deaths_state: ({ game } = {}) => {
+      const t = Date.now();
+      const er = { key: "steam:1245620", name: "ELDEN RING", kind: "boss", known: true, total: 52, loose: 6, off: false, can_undo: true,
+        open: { boss: "Malenia, Blade of Miquella", deaths: 14, started: t - 47 * 60000 },
+        bosses: [{ boss: "Malenia, Blade of Miquella", attempts: 14, deaths: 14, wins: 0, deaths_to_first_win: null, time_ms: 47 * 60000, fighting: true },
+          { boss: "Mohg, Lord of Blood", attempts: 9, deaths: 8, wins: 1, deaths_to_first_win: 8, time_ms: 31 * 60000, fighting: false },
+          { boss: "Margit, the Fell Omen", attempts: 25, deaths: 24, wins: 1, deaths_to_first_win: 24, time_ms: 96 * 60000, fighting: false }],
+        names: ["Malenia, Blade of Miquella", "Mohg, Lord of Blood", "Margit, the Fell Omen"],
+        auto: "screen", strip: t - 20000, taught: [t - 3 * 86400000], library: 2, can_submit: true, history: [{ i: 61, t: t - 30000, ev: "death", boss: "", src: "screen" }, { i: 60, t: t - 60000, ev: "death", boss: "", src: "hotkey" }, { i: 59, t: t - 180000, ev: "death", boss: "", src: "manual" }, { i: 58, t: t - 47 * 60000, ev: "fight_start", boss: "Malenia, Blade of Miquella", src: "" }, { i: 57, t: t - 50 * 60000, ev: "win", boss: "", src: "" }] };
+      const hades = { key: "steam:1145360", name: "Hades", kind: "run", known: true, total: 3, loose: 3, off: false, can_undo: true, open: null, bosses: [], names: [], history: [{ i: 2, t: t - 86400000, ev: "death", boss: "", src: "manual" }] };
+      return { running: true, settings: S.state.settings.deaths, front: { key: er.key, name: er.name, known: true }, game: game === hades.key ? hades : er, catalog: 320, library: { games: 4, prints: 6, issue_url: "https://github.com/MohammadFakih02/deck/issues/new?template=death_screen.yml" },
+        presets: [{ name: "Celeste", save: "celeste", words: [], verified: false }, { name: "ELDEN RING", save: "", words: ["YOU DIED"], verified: false }, { name: "Nioh 2 – The Complete Edition", save: "", words: ["FREED FROM THIS MORTAL COIL"], verified: false }],
+        games: [{ key: er.key, name: er.name, last: t - 60000, deaths: 52, fighting: true, off: false }, { key: hades.key, name: "Hades", last: t - 86400000, deaths: 3, fighting: false, off: false }] };
+    },
+    deaths_act: () => null,
+    update_state: () => ({ current: "2.5.10", state: "available", latest: "2.6.0", notes: "- Updates from GitHub\n- Deck comes back after a crash", checked: Date.now() / 1000, error: null, waiting: false, silent: true }),
+    update_check: () => ({ current: "2.5.10", state: "uptodate", latest: null, notes: "", checked: Date.now() / 1000, error: null, waiting: false, silent: true }),
+    update_install: () => null,
+    deaths_strip: () => {
+      const t = Date.now();
+      const img = (v) => { const c = document.createElement("canvas"); c.width = 160; c.height = 90; const x = c.getContext("2d"); x.fillStyle = `rgb(${v},${v},${v})`; x.fillRect(0, 0, 160, 90); if (v < 40) { x.fillStyle = "#bbb"; x.font = "40px serif"; x.fillText("死", 60, 60); } return c.toDataURL(); };
+      return { at: t, frames: Array.from({ length: 12 }, (_, i) => ({ t: t - (12 - i) * 750, img: img(i > 7 ? 20 : 90 + i * 4) })) };
+    },
+    deaths_teach: ({ what }) => (what === "share" || what === "submit" ? "deck-death-screen:eyJkZWNrX2RlYXRoX3NjcmVlbiI6MX0=" : what === "import" ? "Sekiro" : ""),
     rtss_limiter: ({ what, fps }) => ({ on: what === "toggle" ? true : false, fps: fps ?? 141 }),
     rtss_state: () => {
       const D = [["gpu_temp", "Temperature", "GPU temp", "gpu", "gpu", "°C", 64], ["gpu_usage", "Usage", "GPU load", "gpu", "gpu", "%", 98], ["gpu_mem", "Memory used", "VRAM", "gpu", "vram", "MB", 7000], ["gpu_mem_pct", "Memory used (%)", "VRAM %", "gpu", "vram", "%", 85], ["gpu_clock", "Core clock", "GPU clock", "gpu", "gpu", "MHz", 1920], ["gpu_memclock", "Memory clock", "VRAM clock", "gpu", "vram", "MHz", 7000], ["gpu_power", "Power", "GPU power", "gpu", "gpu", "W", 212], ["gpu_power_pct", "Power (% of the default limit)", "GPU power %", "gpu", "gpu", "%", 96], ["gpu_fan", "Fan", "GPU fan", "gpu", "gpu", "%", 58], ["gpu_volt", "Voltage", "GPU volt", "gpu", "gpu", "mV", 1050], ["gpu_limit", "What is holding the clock back", "GPU limit", "gpu", "gpu", "", "power"],

@@ -82,7 +82,7 @@ pub fn shell_run(verb: Option<&str>, file: &str, params: &str, cwd: &str) -> Res
     shell_run_as(verb, file, params, cwd, SW_SHOWNORMAL)
 }
 
-fn shell_run_as(verb: Option<&str>, file: &str, params: &str, cwd: &str, show: i32) -> Result<u32, String> {
+pub(crate) fn shell_run_as(verb: Option<&str>, file: &str, params: &str, cwd: &str, show: i32) -> Result<u32, String> {
     unsafe {
         let (v, f, p, d) = (verb.map(wide), wide(file), wide(params), wide(cwd));
         let mut info: SHELLEXECUTEINFOW = std::mem::zeroed();

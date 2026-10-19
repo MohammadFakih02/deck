@@ -71,3 +71,46 @@
     ExecWait '"$INSTDIR\deck.exe" --uninstall-cleanup'
   ${EndIf}
 !macroend
+
+; The setup is elevated (per-machine), so it is the place for the one UAC prompt: it makes Deck's
+; admin tasks itself (Deck.exe --setup-task), and Deck never shows "Set up" after an install or an
+; update. Silent, passive and update installs (the updater, scripts) also start Deck again, hidden,
+; through the admin \Deck\Background task. A GUI install's "Run Deck" box starts it as the user;
+; Deck hands that start over to the admin task by itself (see elevation::handover).
+; --from-setup: when the setup runs as another account than the one signed in (a standard user typed
+; an administrator's password), no tasks are made (exit code 2) and Deck is started as the signed-in
+; user instead; it then shows Set up.
+!macro NSIS_HOOK_POSTINSTALL
+  ExecWait '"$INSTDIR\deck.exe" --setup-task --from-setup' $0
+  ${If} ${Silent}
+  ${OrIf} $PassiveMode = 1
+  ${OrIf} $UpdateMode = 1
+    ${If} $0 = 0
+      nsExec::Exec 'schtasks.exe /run /tn "\Deck\Background"'
+      Pop $0
+    ${Else}
+      nsis_tauri_utils::RunAsUser "$INSTDIR\deck.exe" "--minimized"
+    ${EndIf}
+  ${EndIf}
+!macroend
+
+; Deck writes SDL3.dll (the controller overlay's controller library) next to deck.exe itself,
+; so the template's file list doesn't know it: take it out, then the folder can go too.
+; An uninstall (not an update) also takes Deck's admin tasks away: they would point at a missing exe.
+; The updater's downloads (updates) go too, but not during an update: the update's setup runs from
+; there (the new Deck clears it when it starts).
+!macro NSIS_HOOK_POSTUNINSTALL
+  ${If} $UpdateMode <> 1
+    nsExec::Exec 'schtasks.exe /delete /tn "\Deck\Deck" /f'
+    Pop $0
+    nsExec::Exec 'schtasks.exe /delete /tn "\Deck\Open" /f'
+    Pop $0
+    nsExec::Exec 'schtasks.exe /delete /tn "\Deck\Quit" /f'
+    Pop $0
+    nsExec::Exec 'schtasks.exe /delete /tn "\Deck\Background" /f'
+    Pop $0
+    RMDir /r "$INSTDIR\updates"
+  ${EndIf}
+  Delete "$INSTDIR\SDL3.dll"
+  RMDir "$INSTDIR"
+!macroend

@@ -79,6 +79,35 @@ pub fn toast_allowed(caller: Caller, id: &str, action: &str, received: &dyn Fn(&
 /// Hardware settings were changed outside Deck and wait for the user (see crate::seal).
 static HW_HELD: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+impl App {
+    /// Hardware settings another program changed: they wait for the user's Apply (HW_HELD stays on).
+    fn hw_changed_toast(&self) {
+        self.toast(Toast {
+            actions: vec![("apply".into(), "Apply them".into())],
+            sticky: true,
+            ..Toast::simple(
+                "hw-changed",
+                "Hardware settings were changed outside Deck",
+                "Another program changed Deck's fan, CPU or GPU settings. Fans stay on the BIOS and no overclock is applied until you check them; apply only if you made this change.",
+            )
+        });
+    }
+
+    /// Ends a hardware hold (the user said so): starts the hardware and the startup GPU profile.
+    fn resume_hardware(self: &Arc<Self>) {
+        if HW_HELD.swap(false, Ordering::SeqCst) {
+            self.start_hardware();
+            let startup = {
+                let s = self.settings.lock();
+                s.gpu_profiles.iter().find(|p| p.id == s.gpu_startup).map(|p| p.id.clone())
+            };
+            if let Some(id) = startup {
+                crate::profiles::switch(self, "gpu", &id, "startup");
+            }
+        }
+    }
+}
+
 /// Hardware settings changed outside Deck are waiting for the user: nothing switches by itself.
 pub fn hw_held() -> bool {
     HW_HELD.load(Ordering::SeqCst)
@@ -200,21 +229,28 @@ impl App {
             self.files.rebuild(r);
         }
         crate::boost::start_watch(self.clone());
-        // hardware settings another program changed wait for the user (see crate::seal)
+        // hardware settings another program changed wait for the user (see crate::seal); safe mode
+        // comes first, and leaving it goes through this check too (see the "crash-loop" action)
         let changed = if crate::elevation::is_admin() { crate::seal::changed_outside(&self.settings.lock()) } else { vec![] };
-        if !changed.is_empty() {
+        if crate::restart::safe_mode() {
+            // Deck was ended from outside again and again: it starts with the fans on the BIOS and no
+            // overclock until the user says it is fine
+            HW_HELD.store(true, Ordering::SeqCst);
+            self.hw_done.store(true, Ordering::SeqCst);
+            self.toast(Toast {
+                actions: vec![("apply".into(), "Turn hardware control on".into())],
+                sticky: true,
+                ..Toast::simple(
+                    "crash-loop",
+                    "Deck stopped several times in a row",
+                    "Something ended Deck three times in ten minutes (the log says how), so it started without touching the fans, clocks or power limits. Turn hardware control on once the cause is gone.",
+                )
+            });
+        } else if !changed.is_empty() {
             HW_HELD.store(true, Ordering::SeqCst);
             // the pages show the hardware as not running (not as still loading) until Apply
             self.hw_done.store(true, Ordering::SeqCst);
-            self.toast(Toast {
-                actions: vec![("apply".into(), "Apply them".into())],
-                sticky: true,
-                ..Toast::simple(
-                    "hw-changed",
-                    "Hardware settings were changed outside Deck",
-                    "Another program changed Deck's fan, CPU or GPU settings. Fans stay on the BIOS and no overclock is applied until you check them; apply only if you made this change.",
-                )
-            });
+            self.hw_changed_toast();
         } else {
             self.start_hardware();
         }
@@ -453,15 +489,21 @@ impl App {
         } else if id == "hw-changed" && action == "apply" {
             if let Some(a) = APP_SELF.lock().as_ref().and_then(|w| w.upgrade()) {
                 crate::seal::accept_all(&a.settings.lock());
-                if HW_HELD.swap(false, Ordering::SeqCst) {
-                    a.start_hardware();
-                    let startup = {
-                        let s = a.settings.lock();
-                        s.gpu_profiles.iter().find(|p| p.id == s.gpu_startup).map(|p| p.id.clone())
-                    };
-                    if let Some(id) = startup {
-                        crate::profiles::switch(&a, "gpu", &id, "startup");
-                    }
+                a.resume_hardware();
+            }
+        } else if id == "update" && action == "install" {
+            if let Some(a) = APP_SELF.lock().as_ref().and_then(|w| w.upgrade()) {
+                let _ = crate::update::install_now(&a);
+            }
+        } else if id == "crash-loop" && action == "apply" {
+            crate::restart::clear_safe();
+            if let Some(a) = APP_SELF.lock().as_ref().and_then(|w| w.upgrade()) {
+                // settings another program changed meanwhile still wait for their own Apply
+                let changed = crate::elevation::is_admin() && !crate::seal::changed_outside(&a.settings.lock()).is_empty();
+                if changed {
+                    a.hw_changed_toast();
+                } else {
+                    a.resume_hardware();
                 }
             }
         } else if id == "gpu-held" && action == "apply" {

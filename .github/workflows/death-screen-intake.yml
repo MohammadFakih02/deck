@@ -1,0 +1,87 @@
+name: Death screen intake
+
+# A "Death screen for the shared library" issue becomes a pull request that adds it to
+# data/death-screens/library.json. Nothing is merged without review. The issue's text is untrusted:
+# it is only handed to tools/deaths-library/ingest.py (as data, through an environment variable).
+# Needs Settings -> Actions -> General -> "Allow GitHub Actions to create and approve pull requests".
+
+# `labeled` fires once for the label the issue form adds at creation (`opened` would fire at the
+# same moment and start a second run), and once for any label added later, which the guards below
+# turn into a no-op.
+on:
+  issues:
+    types: [labeled]
+
+# one run per issue at a time; a second one waits instead of colliding on the same branch
+concurrency:
+  group: death-screen-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  add:
+    if: github.event.label.name == 'death-screen'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Has this issue been handled already?
+        id: done
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NUM: ${{ github.event.issue.number }}
+        run: |
+          if git ls-remote --exit-code --heads origin "death-screen-issue-$NUM" >/dev/null 2>&1 \
+             || [ -n "$(gh pr list --state all --head "death-screen-issue-$NUM" --json number --jq '.[0].number')" ]; then
+            echo "handled=yes" >> "$GITHUB_OUTPUT"
+          elif [ "$(gh pr list --state open --limit 200 --json headRefName --jq '[.[] | select(.headRefName | startswith("death-screen-issue-"))] | length')" -ge 20 ]; then
+            # anyone can open these issues: no more than 20 waiting at once
+            echo "handled=busy" >> "$GITHUB_OUTPUT"
+          else
+            echo "handled=no" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Add the death screen to the library
+        id: ingest
+        if: steps.done.outputs.handled == 'no'
+        env:
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: |
+          set +e
+          python3 tools/deaths-library/ingest.py > ingest.txt
+          echo "code=$?" >> "$GITHUB_OUTPUT"
+          cat ingest.txt
+      - name: Open a pull request
+        if: steps.done.outputs.handled == 'no' && steps.ingest.outputs.code == '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NUM: ${{ github.event.issue.number }}
+        run: |
+          branch="death-screen-issue-$NUM"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          git add data/death-screens/library.json
+          git commit -m "Death screens: add the one from issue #$NUM"
+          git push origin "$branch"
+          gh pr create --base main --head "$branch" \
+            --title "Death screens: add the one from issue #$NUM" \
+            --body "$(printf 'From issue #%s.\n\n%s\n\nBefore merging: the issue says it was taught from the real death screen. Check that the game name matches the key. Closes #%s' "$NUM" "$(cat ingest.txt)" "$NUM")"
+      - name: Too many waiting
+        if: steps.done.outputs.handled == 'busy'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NUM: ${{ github.event.issue.number }}
+        run: |
+          gh issue comment "$NUM" --body "Thanks! There are many death screens waiting for review right now, so this one wasn't added automatically. It will be looked at by hand."
+      - name: Tell the author why not
+        if: steps.done.outputs.handled == 'no' && steps.ingest.outputs.code != '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NUM: ${{ github.event.issue.number }}
+        run: |
+          gh issue comment "$NUM" --body "I couldn't add this automatically: $(cat ingest.txt). Check that the whole code was pasted (it starts with deck-death-screen:), or that it isn't in the library already."

@@ -13,6 +13,8 @@ import "./hw.js";
 import { ovStyleNow, ovRefresh } from "./overlay.js";
 import { editCpu, editGpu } from "./profiles.js";
 import "./pcs.js";
+import "./controller.js";
+import "./deaths.js";
 import { boot, go, render, tick } from "./app.js";
 
 // The UI tests (tools/testing/ui-preview) and DevTools reach these by name.

@@ -18,7 +18,7 @@
     pinned: [], frecency: { "app:app0": [14, now], "app:app1": [12, now], "app:app2": [9, now], "app:app3": [7, now], "app:app9": [4, now] },
     notes: [{ id: "n1", text: "Check RAM timings tonight\nBuy thermal pads for the VRM", updated: now - 3600e3, pinned: false }, { id: "n2", text: "Valorant crosshair code: 0;P;c;5;h;0", updated: now - 86400e3, pinned: true }],
     colors: ["#4F8CFF", "#FF453A", "#30D158", "#BF5AF2", "#FFD60A", "#1C1C1E"],
-    mode: "panel", open_hotkey: "", hot_corner: "top-left", hot_corner_ms: 250, hot_corner_fullscreen: false, hide_on_blur: true, autostart: true, accent: "#4f8cff",
+    mode: "panel", open_hotkey: "", hot_corner: "top-left", hot_corner_ms: 250, hot_corner_fullscreen: false, hide_on_blur: true, autostart: true, restart_after_crash: true, auto_update: true, accent: "#4f8cff",
     clip_images: true, clip_max: 400, web_search: "https://www.google.com/search?q=", index_on: true, index_roots: ["C:\Users\you\Documents", "C:\Users\you\Downloads", "D:\Projects"], hotkeys_on: true, profile_toast: true,
     clip_on: true, clip_paste: true, zones_on: true, zones_trigger: "rbutton", layout: "thirds",
     layouts: [

@@ -8,7 +8,7 @@
 use std::os::windows::process::CommandExt;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, WAIT_OBJECT_0};
-use windows_sys::Win32::System::Threading::{CreateEventW, OpenEventW, OpenProcess, SetEvent, WaitForSingleObject, INFINITE, PROCESS_SYNCHRONIZE, SYNCHRONIZATION_SYNCHRONIZE};
+use windows_sys::Win32::System::Threading::{CreateEventW, GetExitCodeProcess, OpenEventW, OpenProcess, SetEvent, WaitForSingleObject, INFINITE, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE, SYNCHRONIZATION_SYNCHRONIZE};
 
 /// Deck's "ending on my own terms" event (a handle, 0 = no watchdog).
 static CLEAN: AtomicUsize = AtomicUsize::new(0);
@@ -55,12 +55,68 @@ fn ended_unclean(process: HANDLE, clean: HANDLE) -> bool {
     !said_goodbye
 }
 
-/// In the watchdog process: waits for Deck (`pid`) to end. True when it was ended from outside
-/// and the hardware needs releasing.
-pub fn wait_for(pid: u32) -> bool {
-    let process = unsafe { OpenProcess(PROCESS_SYNCHRONIZE, 0, pid) };
+/// How the watched Deck ended.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Outcome {
+    /// Deck said goodbye (the hardware is released).
+    Clean,
+    /// Ended from outside; the hardware needs releasing. `code` is the process's exit code.
+    Unclean { code: Option<u32> },
+    /// There was nothing to watch (no such process or event).
+    NothingToWatch,
+}
+
+/// The exit code of an ended process.
+fn exit_code(process: HANDLE) -> Option<u32> {
+    let mut c = 0u32;
+    (unsafe { GetExitCodeProcess(process, &mut c) } != 0).then_some(c)
+}
+
+/// Plain words for an exit code, for the log: a crash names its kind, a plain 1 or a Ctrl-C code
+/// means "ended by something else" (Task Manager, `taskkill /f`, an installer).
+pub fn describe_exit(code: Option<u32>) -> String {
+    match code {
+        None => "exit code unknown".into(),
+        Some(0xC000_0005) => "crash: access violation (0xC0000005)".into(),
+        Some(0xC000_0409) => "crash: fail-fast (0xC0000409)".into(),
+        Some(0xC000_0374) => "crash: heap corruption (0xC0000374)".into(),
+        Some(0xC000_00FD) => "crash: stack overflow (0xC00000FD)".into(),
+        Some(0x4000_0015) => "crash: abort (0x40000015)".into(),
+        Some(1) | Some(0xC000_013A) => "ended by another program (terminated)".into(),
+        Some(0) => "exited with code 0, without saying goodbye".into(),
+        Some(c) => format!("exit code {c:#X}"),
+    }
+}
+
+/// The module (exe or DLL file name) that holds `addr`, for a crash report; "?" when unknown.
+pub fn module_at(addr: *const std::ffi::c_void) -> String {
+    use windows_sys::Win32::System::LibraryLoader::{GetModuleFileNameW, GetModuleHandleExW, GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT};
+    let mut module = std::ptr::null_mut();
+    let mut buf = [0u16; 260];
+    unsafe {
+        if GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, addr as *const u16, &mut module) == 0 {
+            return "?".into();
+        }
+        let n = GetModuleFileNameW(module, buf.as_mut_ptr(), buf.len() as u32) as usize;
+        if n == 0 {
+            return "?".into();
+        }
+        let path = String::from_utf16_lossy(&buf[..n.min(buf.len())]);
+        path.rsplit('\\').next().unwrap_or("?").to_string()
+    }
+}
+
+/// In the watchdog process: waits for Deck (`pid`) to end and says how.
+pub fn wait_for(pid: u32) -> Outcome {
+    let process = unsafe { OpenProcess(PROCESS_SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
     let clean = unsafe { OpenEventW(SYNCHRONIZATION_SYNCHRONIZE, 0, event_name(pid).as_ptr()) };
-    let unclean = !process.is_null() && !clean.is_null() && ended_unclean(process, clean);
+    let outcome = if process.is_null() || clean.is_null() {
+        Outcome::NothingToWatch
+    } else if ended_unclean(process, clean) {
+        Outcome::Unclean { code: exit_code(process) }
+    } else {
+        Outcome::Clean
+    };
     unsafe {
         if !process.is_null() {
             CloseHandle(process);
@@ -69,7 +125,22 @@ pub fn wait_for(pid: u32) -> bool {
             CloseHandle(clean);
         }
     }
-    unclean
+    outcome
+}
+
+/// In a helper process (`--start-after <pid>`): waits (at most 2 minutes) for `pid` to end. False
+/// when it is still running after that.
+pub fn wait_for_exit(pid: u32) -> bool {
+    let process = unsafe { OpenProcess(PROCESS_SYNCHRONIZE, 0, pid) };
+    if process.is_null() {
+        // already gone (or never was)
+        return true;
+    }
+    unsafe {
+        let r = WaitForSingleObject(process, 120_000);
+        CloseHandle(process);
+        r == WAIT_OBJECT_0
+    }
 }
 
 #[cfg(test)]
@@ -101,6 +172,31 @@ mod tests {
     #[test]
     fn nothing_to_watch_does_nothing() {
         // no such process (pids are multiples of 4): the watchdog has nothing to release for
-        assert!(!wait_for(3));
+        assert_eq!(wait_for(3), Outcome::NothingToWatch);
+    }
+
+    #[test]
+    fn a_crash_address_names_its_module() {
+        // an address inside this very program
+        let here = a_crash_address_names_its_module as *const std::ffi::c_void;
+        let name = module_at(here).to_lowercase();
+        assert!(name.ends_with(".exe"), "{name}");
+        assert_eq!(module_at(std::ptr::null()), "?");
+    }
+
+    #[test]
+    fn exit_codes_are_named() {
+        assert!(describe_exit(Some(0xC000_0005)).contains("access violation"));
+        assert!(describe_exit(Some(1)).contains("another program"));
+        assert!(describe_exit(None).contains("unknown"));
+        assert_eq!(describe_exit(Some(7)), "exit code 0x7");
+    }
+
+    #[test]
+    fn the_exit_code_of_an_ended_process_is_read() {
+        let mut child = std::process::Command::new("cmd.exe").args(["/c", "exit", "7"]).creation_flags(crate::util::CREATE_NO_WINDOW).spawn().unwrap();
+        child.wait().unwrap();
+        // std keeps the handle open after wait: the code is still there to read
+        assert_eq!(exit_code(child.as_raw_handle() as HANDLE), Some(7));
     }
 }

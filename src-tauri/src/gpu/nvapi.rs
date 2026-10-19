@@ -66,6 +66,10 @@ impl NvApi {
     }
 
     fn func(&self, id: u32) -> Option<unsafe extern "C" fn(*mut c_void, *mut u8) -> i32> {
+        // a driver install is replacing the driver: nothing is called (see crate::driver)
+        if crate::driver::paused() {
+            return None;
+        }
         unsafe { non_null((self.q)(id)).map(|p| std::mem::transmute(p)) }
     }
 

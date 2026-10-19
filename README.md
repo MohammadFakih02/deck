@@ -21,7 +21,7 @@ Get **`Deck_2.5.10_x64-setup.exe`** from the [latest release](https://github.com
 
 > The setup isn't code-signed, so Windows SmartScreen may say "Windows protected your PC". Click **More info → Run anyway**.
 
-The setup asks for admin rights once and installs Deck to `C:\Program Files\Deck` (an older per-user copy is removed; your settings stay).
+The setup asks for admin rights once and installs Deck to `C:\Program Files\Deck` (an older per-user copy is removed; your settings stay). It also sets up Deck's admin start, so there is no "Set up" to press afterwards, and Deck starts hidden in the tray. From then on Deck updates itself from GitHub releases (when no game is in front; Settings → About) and starts again by itself if a crash or a graphics driver update ends it.
 
 Hardware control (fans, lighting, CPU power limits, GPU tuning) and the CPU's clock, power and temperature readings need administrator rights. Open any hardware page and click **Set up**, or **Needs admin** on Home's CPU card: one admin prompt, and from then on Deck starts with those rights through scheduled tasks, so it never asks again. Programs Deck opens for you still start as your normal account. How Deck keeps those admin rights from being borrowed is in [docs/trust-boundaries.md](docs/trust-boundaries.md); to report a security problem, see [SECURITY.md](SECURITY.md).
 
@@ -41,6 +41,9 @@ Hardware control (fans, lighting, CPU power limits, GPU tuning) and the CPU's cl
 | **Drives** | The health of every HDD and SSD (S.M.A.R.T.): temperature, hours, data written, wear and warning signs, with history and optional alerts. |
 | **Sensors** | 5-minute graphs for temperature, load, power, fans and frametimes (average, 1% and 0.1% lows); every reading with min / max / average; heat alerts; CSV logging. |
 | **In-game overlay** | Through RivaTuner (Deck can install it for you). A live preview stays beside the settings while you edit. Choose and group any reading, pick Afterburner-style looks and colours, and add a smooth frametime graph. Keys show the overlay, reset the figures and turn RivaTuner's framerate limiter on and off; the limit itself is set right there too. |
+| **Controller overlay** | Your controller's buttons, sticks and triggers on screen over your games, drawn like a DualShock 4 (or a compact strip, or keyboard & mouse keys). Five themes, three styles, PlayStation or Xbox labels, any size and corner, follows the game across monitors, fades when idle, stays out of recordings. Works with PlayStation, Xbox, GameSir and other controllers. |
+| **Controller battery** | One tray icon per controller with its battery like a phone's (the percentage inside, green while charging, red when low), the same level on the overlay, and a warning at 15%. Reads GameSir dongles, PlayStation and Xbox controllers and Bluetooth pads, with no vendor software. |
+| **Death counter** | Count your deaths in any game, per boss: attempts, wins, time and deaths before the first kill. Counts by itself when it sees a death screen ("YOU DIED", "GAME OVER"…) or, for some games, from the save file. A death screen with no words can be taught once from the last few seconds of the game, and shared so nobody else has to teach it again. A small counter over the game, a tray menu and keyboard shortcuts to count without leaving it, and Undo for every count. Knows 320 hard games (soulslikes, roguelikes, platformers); never reads game memory. |
 | **Everyday tools** | Clipboard history (skips password managers), per-app volume, timers and break reminders, keep awake, "shut down when…" (a time, an app closing, downloads finishing, idle, media stopping). |
 | **Screen and PC** | Window pinning / see-through / FancyZones-style snap zones / workspaces, display refresh rate and brightness, processes, startup apps, network (speed test, ping, game-server ping), a WizTree-fast disk space treemap (reads the NTFS file table directly), clean up, colour picker, text from screen, locked files. |
 | **Phone remote** | A web app on your phone (scan a QR code): media, volume, profiles, shared files. At home, or from anywhere through Tailscale (free). The phone key never travels over the network; each request is signed. |
@@ -66,7 +69,7 @@ Every hardware setting has a **?** that explains what it does, why you'd change 
 
 ## Safe with anti-cheat
 
-Deck uses no input hooks and never injects into games. Keys use `RegisterHotKey`, the hot corner polls the cursor, and window snapping uses WinEvent hooks. The overlay is drawn by RivaTuner, which anti-cheat systems already allow.
+Deck uses no input hooks and never injects into games. Keys use `RegisterHotKey`, the hot corner polls the cursor, and window snapping uses WinEvent hooks. The in-game overlay is drawn by RivaTuner, which anti-cheat systems already allow. The controller overlay is an ordinary click-through window; controllers are read through SDL like any game reads them, and its keyboard & mouse mode listens through Windows Raw Input (receive-only, the way games read input themselves), only while that mode is on.
 
 ## Hardware support
 
@@ -102,6 +105,8 @@ The UI is plain HTML, CSS and JavaScript in [`ui/`](ui), as native ES modules (`
 | `src-tauri/src/hw/` | Fans, lighting, sensors, cooler display (Super I/O through the PawnIO driver) |
 | `src-tauri/src/gpu/`, `profiles/` | GPU engine (NVML, NvAPI, curves, crash guard), CPU/GPU profiles, Afterburner import, hotkeys |
 | `src-tauri/src/rtss.rs`, `osd.rs` | RivaTuner overlay slot, framerate limiter, frame statistics, overlay layout and graph |
+| `src-tauri/src/pad/` | Controller overlay (native layered window, SVG art via resvg, SDL3 input) and the universal controller battery |
+| `src-tauri/src/deaths/` | Death counter (per-game history files, game recognition, the game catalogue, the in-game counter) |
 | `ui/` | The app's pages (`js/`), styles and the toast / snap-zone windows |
 | `src-tauri/phone/` | The phone remote web app |
 

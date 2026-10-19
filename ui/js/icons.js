@@ -66,6 +66,8 @@ export const ICONS = {
   info: '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h0"/>',
   bell: '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/>',
   zap: '<path d="M13 2L3 14h9l-1 8 10-12h-9z"/>',
+  skull: '<path d="M12 3a8 8 0 0 0-8 8c0 2.6 1.2 4.3 3 5.3V20h10v-3.7c1.8-1 3-2.7 3-5.3a8 8 0 0 0-8-8z"/><circle cx="9" cy="11.5" r="1.6"/><circle cx="15" cy="11.5" r="1.6"/><path d="M10 20v-2"/><path d="M14 20v-2"/>',
+  joystick: '<path d="M7.5 6h9a4 4 0 0 1 3.9 3.2l1.2 6.3a2.6 2.6 0 0 1-4.6 2.1L15.5 16h-7l-1.5 1.6a2.6 2.6 0 0 1-4.6-2.1l1.2-6.3A4 4 0 0 1 7.5 6z"/><circle cx="9" cy="12.5" r="1.6"/><circle cx="15" cy="12.5" r="1.6"/><path d="M10.5 9h3"/>',
   gamepad: '<path d="M6 12h4"/><path d="M8 10v4"/><circle cx="15" cy="13" r="1"/><circle cx="18" cy="11" r="1"/><path d="M17.3 5H6.7a4 4 0 0 0-4 3.6L2 15a3 3 0 0 0 5.2 2.2L9 15h6l1.8 2.2A3 3 0 0 0 22 15l-.7-6.4a4 4 0 0 0-4-3.6z"/>',
   mic: '<rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0"/><path d="M12 17v4"/><path d="M8 21h8"/>',
   "mic-off": '<path d="M9 5a3 3 0 0 1 6 0v5"/><path d="M15 13.5A3 3 0 0 1 9 11V9"/><path d="M5 10a7 7 0 0 0 11.5 5.4"/><path d="M19 10a7 7 0 0 1-.4 2.3"/><path d="M12 17v4"/><path d="M8 21h8"/><path d="M3 3l18 18"/>',

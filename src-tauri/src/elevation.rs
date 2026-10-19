@@ -144,6 +144,14 @@ fn create_quit_task(exe: &Path) -> Result<(), String> {
     create_task(QUIT_TASK, &task_xml(&exe.display().to_string(), "--quit", false, "Closes Deck (used by its setup and uninstaller)."))
 }
 
+/// The trigger-less task that starts Deck elevated and hidden in the tray (`--minimized`): used by
+/// the setup, the watchdog after a crash and the updater, so none of them puts a window in front.
+pub const BACKGROUND_TASK: &str = "\\Deck\\Background";
+
+fn create_background_task(exe: &Path) -> Result<(), String> {
+    create_task(BACKGROUND_TASK, &task_xml(&exe.display().to_string(), "--minimized", false, "Starts Deck hidden with admin rights (setup, updates, restart after a crash)."))
+}
+
 /// Creates the Deck tasks for `exe`. Called from `Deck.exe --setup-task` (elevated).
 pub fn setup(exe: &Path, autostart: bool) -> Result<(), String> {
     if crate::fsguard::user_could_change(exe).map_err(|e| format!("Couldn't check Deck's folder: {e}"))? {
@@ -152,6 +160,7 @@ pub fn setup(exe: &Path, autostart: bool) -> Result<(), String> {
     }
     ensure_task(exe, autostart)?;
     create_task(OPEN_TASK, &task_xml(&exe.display().to_string(), "", false, "Opens Deck with admin rights (used by the Start menu shortcut)."))?;
+    create_background_task(exe)?;
     create_quit_task(exe)
 }
 
@@ -175,19 +184,83 @@ pub fn ensure_quit_task() -> Option<String> {
     }
     let Ok(exe) = std::env::current_exe() else { return None };
     if task_runs(TASK, &exe) && crate::fsguard::user_could_change(&exe).unwrap_or(false) {
-        for t in [TASK, OPEN_TASK, QUIT_TASK] {
+        for t in [TASK, OPEN_TASK, QUIT_TASK, BACKGROUND_TASK] {
             delete_task(t);
         }
         crate::log::warn(format!("admin tasks removed: {} can be changed without admin rights", exe.display()));
         return Some(UNSAFE_PLACE.into());
     }
-    let want = exe.display().to_string().to_lowercase();
-    let current = Command::new("schtasks.exe").args(["/query", "/tn", QUIT_TASK, "/xml"]).creation_flags(NO_WINDOW).output();
-    let ok = current.map(|o| o.status.success() && String::from_utf8_lossy(&o.stdout).to_lowercase().contains(&esc_xml(&want))).unwrap_or(false);
-    if !ok {
+    // only the copy the logon task runs, in a folder only admins can change, may own the other tasks:
+    // a dev or portable copy started with admin rights must not point them at itself
+    if !task_runs(TASK, &exe) || crate::fsguard::user_could_change(&exe).unwrap_or(true) {
+        return None;
+    }
+    if !task_runs(QUIT_TASK, &exe) {
         let _ = create_quit_task(&exe);
     }
+    if !task_runs(BACKGROUND_TASK, &exe) {
+        let _ = create_background_task(&exe);
+    }
     None
+}
+
+/// The setup runs as the account signed in at the screen. Not so when a standard user typed an
+/// administrator's password at the UAC prompt: the setup then runs as that administrator, and tasks
+/// made now would belong to the wrong account. Some(false) when this process's account has no
+/// Explorer running while another one does; None when it can't be told.
+pub fn runs_as_desktop_user() -> Option<bool> {
+    use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
+    let mut sys = System::new();
+    sys.refresh_processes_specifics(ProcessesToUpdate::All, true, ProcessRefreshKind::nothing().with_user(UpdateKind::Always));
+    let me = sys.process(Pid::from_u32(std::process::id()))?.user_id()?.clone();
+    let shells: Vec<_> = sys.processes().values().filter(|p| p.name().to_string_lossy().eq_ignore_ascii_case("explorer.exe")).filter_map(|p| p.user_id().cloned()).collect();
+    if shells.is_empty() {
+        return None;
+    }
+    Some(shells.contains(&me))
+}
+
+/// How long after a handover another one is refused (the task did not start Deck elevated).
+const HANDOVER_GAP: std::time::Duration = std::time::Duration::from_secs(20);
+
+/// Whether an unelevated start should be passed to the admin task: only a plain start (no arguments,
+/// or just `--minimized`), only for the copy the task runs, and not again right after a handover
+/// (a task that doesn't give admin rights would otherwise start Deck in a loop).
+pub fn handover_task(admin: bool, args: &[String], opens_this_exe: bool, since_last: Option<std::time::Duration>) -> Option<&'static str> {
+    if admin || !opens_this_exe || since_last.is_some_and(|d| d < HANDOVER_GAP) {
+        return None;
+    }
+    match args {
+        [] => Some(OPEN_TASK),
+        [a] if a == "--minimized" => Some(BACKGROUND_TASK),
+        _ => None,
+    }
+}
+
+/// At the start of an unelevated Deck whose admin tasks exist: starts Deck through them and says so
+/// (the caller then exits). The finish page of the setup, the Start menu and shortcuts all start Deck
+/// as the user; this is what makes that the same as starting it with admin rights.
+pub fn handover() -> bool {
+    if is_admin() {
+        return false;
+    }
+    let Ok(exe) = std::env::current_exe() else { return false };
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let marker = crate::util::local_appdata().join("Deck").join("handover");
+    let since = std::fs::metadata(&marker).and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok());
+    // cheap checks first: the task query below starts a process
+    if handover_task(false, &args, true, since).is_none() || !task_exists(OPEN_TASK) || !task_runs(OPEN_TASK, &exe) {
+        return false;
+    }
+    let task = handover_task(false, &args, true, since).unwrap_or(OPEN_TASK);
+    let _ = std::fs::create_dir_all(marker.parent().unwrap_or(Path::new(".")));
+    let _ = std::fs::write(&marker, b"");
+    if run_task(task) {
+        crate::log::info(format!("started without admin rights: handed over to {task}"));
+        true
+    } else {
+        false
+    }
 }
 
 /// From an unelevated Deck: one UAC prompt runs `Deck.exe --setup-task`, which creates the
@@ -246,6 +319,21 @@ mod tests {
         let x = task_xml("D.exe", "--switch \"cpu:a\"", false, "x");
         assert!(!x.contains("Trigger"));
         assert!(x.contains("--switch &quot;cpu:a&quot;"));
+    }
+
+    #[test]
+    fn an_unelevated_start_goes_to_the_admin_task() {
+        let none: Vec<String> = vec![];
+        let min = vec!["--minimized".to_string()];
+        let other = vec!["--switch".to_string(), "cpu:a".to_string()];
+        let secs = |n| Some(std::time::Duration::from_secs(n));
+        assert_eq!(handover_task(false, &none, true, None), Some(OPEN_TASK));
+        assert_eq!(handover_task(false, &min, true, None), Some(BACKGROUND_TASK), "hidden stays hidden");
+        assert_eq!(handover_task(false, &none, true, secs(60)), Some(OPEN_TASK), "an old marker doesn't count");
+        assert_eq!(handover_task(true, &none, true, None), None, "already admin");
+        assert_eq!(handover_task(false, &none, false, None), None, "the task runs another copy");
+        assert_eq!(handover_task(false, &other, true, None), None, "commands keep their own path");
+        assert_eq!(handover_task(false, &none, true, secs(3)), None, "no loop when the task isn't elevated");
     }
 
     #[test]

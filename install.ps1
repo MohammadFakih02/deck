@@ -2,7 +2,8 @@
 # Deck then runs with admin rights through a logon scheduled task, so it never shows a UAC prompt:
 #   \Deck\Deck  at logon (Start with Windows)      \Deck\Open  started by the Start menu shortcut
 # Settings in %APPDATA%\Deck are kept.
-param([switch]$NoBuild)
+# -Quiet: no launch test (it opens a console through Explorer); for installing while a game runs
+param([switch]$NoBuild, [switch]$Quiet)
 $ErrorActionPreference = "Stop"
 
 $admin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
@@ -18,9 +19,10 @@ if (-not $NoBuild) {
 
 if (-not $admin) {
     # the copy step needs admin: run this script again elevated, without rebuilding
-    $argList = "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" -NoBuild"
-    if ($env:CARGO_TARGET_DIR) { $argList = "-NoProfile -ExecutionPolicy Bypass -Command `"`$env:CARGO_TARGET_DIR='$env:CARGO_TARGET_DIR'; & '$PSCommandPath' -NoBuild`"" }
-    $p = Start-Process powershell -Verb RunAs -ArgumentList $argList -Wait -PassThru
+    $q = if ($Quiet) { " -Quiet" } else { "" }
+    $argList = "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" -NoBuild$q"
+    if ($env:CARGO_TARGET_DIR) { $argList = "-NoProfile -ExecutionPolicy Bypass -Command `"`$env:CARGO_TARGET_DIR='$env:CARGO_TARGET_DIR'; & '$PSCommandPath' -NoBuild$q`"" }
+    $p = Start-Process powershell -Verb RunAs -WindowStyle Hidden -ArgumentList $argList -Wait -PassThru
     exit $p.ExitCode
 }
 
@@ -98,11 +100,14 @@ $lnk.Description = "Dashboard, launcher, hardware control and Windows power tool
 $lnk.Save()
 
 # prove that apps Deck opens start as the normal user, not as admin
-Remove-Item "$env:TEMP\deck-launch-test.result" -ErrorAction SilentlyContinue
-Start-Process "$dir\Deck.exe" -ArgumentList "--launch-test" -Wait
-$res = Get-Content "$env:TEMP\deck-launch-test.result" -ErrorAction SilentlyContinue
-Write-Host "Launch test: $res"
+if (-not $Quiet) {
+    Remove-Item "$env:TEMP\deck-launch-test.result" -ErrorAction SilentlyContinue
+    Start-Process "$dir\Deck.exe" -ArgumentList "--launch-test" -Wait
+    $res = Get-Content "$env:TEMP\deck-launch-test.result" -ErrorAction SilentlyContinue
+    Write-Host "Launch test: $res"
+}
 
-schtasks /run /tn "\Deck\Open" | Out-Null
-Write-Host "Installed to $dir and started." -ForegroundColor Green
+# hidden, in the tray: nothing comes to the front (a game may be running)
+schtasks /run /tn "\Deck\Background" | Out-Null
+Write-Host "Installed to $dir and started in the tray." -ForegroundColor Green
 Start-Sleep 3
