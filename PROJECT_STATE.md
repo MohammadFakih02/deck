@@ -1,10 +1,26 @@
 # Deck — project state
 
-Handoff notes so work can resume later. Last updated: 2026-10-20 (v2.6.0).
+Handoff notes so work can resume later. Last updated: 2026-10-20 (v2.6.1).
 
 **Start with `DECK.md`** (full overview: features, hardware, files, build/test, status). This file is the dated history.
 
 > **RULE: before every commit, update the docs.** Add today's dated entry here, add user-visible changes to `CHANGELOG.md`, update `DECK.md` / `README.md` when facts change, and stage them in the same commit. The pre-commit hook enforces it; never bypass it. No personal data in these files (that goes in the git-ignored `PRIVATE_NOTES.md`).
+
+## 2026-10-20: v2.6.1 — teaching fixed on Khazan's real death screen; no Steam ids
+
+- **Teaching refused Khazan's death screen** ("mostly one flat colour"): the screen fades nearly black everywhere, so "cells that changed from play" was the whole picture, and its spread was flat. Now, when more than 40 % of the cells changed, the print is the cells that stand out from their 5x5 neighbourhood (>= 9) *and* lie in a row run of >= 5 (one gap allowed): the words; the figure behind them differs at every death. The flat-colour check is skipped then (>= 8 such cells are required instead). The "too close to normal play" check now ignores matches in the run of pictures around the picked one (the death screen fading in and staying).
+- **Grey thumbnails dulled red words:** `capture::thumb` is now each cell's brightest channel (`capture::colour` averages RGB); the strip previews are colour PNGs. Taught prints from before need teaching again (none existed yet; the shared library is empty).
+- **Checked on the user's real pictures:** ignored test `teaching_learns_real_pictures` (`DECK_TEACH_IMAGES`): taught after synthetic bright play, the print matches the picture 0.8x and 1.25x as bright and with the scene moved 9 cells, and refuses the scene without the words and a black screen; both pictures pass.
+- **No Steam ids (user: "forgo all Steam ids, stick to the process, and do screen detection"):** `ident` no longer reads Steam/Epic manifests (`installed_dirs`, `match_dir` and the miss cache are gone); a game is any fullscreen program or one the catalogue lists by exe, named from `boost::file_description`, else its install folder (build folders such as `Binaries\Win64`, library folders such as `steamapps\common`, and a folder named like the exe are skipped), else the title. `catalog.json` keeps only the 17 entries with exe names, without `steam` (the 302 others carried only a name and boss/run/level; the two Dark Souls II entries merged; `start_protected_game.exe` removed, it is Easy Anti-Cheat's launcher for many games). `by_steam` and `steam:` keys are gone; the library and `ingest.py` accept only `exe:` and `emu:` keys. `tools/deaths-catalog/` (SteamSpy-based) deleted; the catalogue is kept by hand.
+- Checks: 353 tests, clippy clean.
+
+## 2026-10-20: Death counter in a real game (Khazan): fixes (in v2.6.1)
+
+The user's first real test, The First Berserker: Khazan (a copy outside Steam, `BBQ-Win64-Shipping.exe`): a death wasn't counted and teaching refused ("Deck needs a few seconds of the game before the death screen").
+- **Why it wasn't counted:** (1) the catalogue knew Khazan only by its Steam number, so outside Steam it was an unknown game "KZ" with only the common words; now its exe is listed (`bbq-win64-shipping.exe`). (2) Even with the words, Windows OCR read **nothing** from the dim red banner: tried on the user's two pictures of the death screen, darkened to 0.2-0.35 as in the game (ignored test `ocr_reads_a_picture`, `DECK_OCR_IMAGE`), plain gave "" both times. `capture::middle_for_ocr` now hands OCR the brightest channel stretched (2 % black, 0.2 % white, range floor 48): "KHAZAN HAS FALLEN" and "(HAZAN HAS FALLEh". (3) The second read failed the review's no-dropped-letter rule; phrases of 12+ letters may now be off by one letter per 8 (Levenshtein), shorter ones still only by substitution.
+- **Why teaching refused:** the strip was 10 s and the user counted ~9 s after the banner, so most frames were the death screen, and "normal play" (whole-picture mean difference >= 12) found too few frames: the game is as dark as its death screen. Now a frame is also "other" when >= 24 cells differ by >= 24 (`teach::other_picture`), the strip keeps 20 s at 2 frames a second, and a print's mask takes a one-cell ring around the change (dim words are all one grey; their edges against the screen make the shape). Test `a_dark_games_death_screen_is_learned_from_a_mostly_death_strip`.
+- **The page** kept showing the generic "Deck watches..." text: watching stops while Deck itself is in front; the last status is now kept.
+- Checks: clippy clean, 352 tests.
 
 ## 2026-10-20: v2.6.0 — controller overlay, death counter, updates from GitHub, crash protection (built, tested, installed)
 

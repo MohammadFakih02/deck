@@ -267,9 +267,9 @@ fn refused(off_games: &[String], key: &str, what: &str) -> bool {
 
 // ------------------------------------------------------------------ taught death screens
 
-fn png(grey: &[u8], w: usize, h: usize) -> String {
+fn png(rgb: &[u8], w: usize, h: usize) -> String {
     let mut out = std::io::Cursor::new(Vec::new());
-    let ok = image::GrayImage::from_raw(w as u32, h as u32, grey.to_vec()).is_some_and(|img| img.write_to(&mut out, image::ImageFormat::Png).is_ok());
+    let ok = image::RgbImage::from_raw(w as u32, h as u32, rgb.to_vec()).is_some_and(|img| img.write_to(&mut out, image::ImageFormat::Png).is_ok());
     if ok {
         format!("data:image/png;base64,{}", crate::util::base64(out.get_ref()))
     } else {
@@ -529,7 +529,10 @@ fn run(sh: Arc<Shared>, rx: Receiver<()>) {
             st.front = front.clone();
             let flash = st.flash.clone().filter(|(_, _, at)| at.elapsed() < FLASH);
             let mut flashing = false;
-            st.auto = match (&tracker, &watch) {
+            // nothing watched because Deck itself is in front: keep what the page last saw
+            let keep = front.is_none() && watch.is_none();
+            let was = st.auto.take();
+            st.auto = if keep { was } else { match (&tracker, &watch) {
                 (Some(t), _) if t.proven() => Some((t.game.clone(), "save")),
                 (_, Some(w)) => Some((w.game.clone(), match w.status() {
                     screen::BLIND => "screen_blind",
@@ -539,7 +542,7 @@ fn run(sh: Arc<Shared>, rx: Receiver<()>) {
                 })),
                 (Some(t), None) => Some((t.game.clone(), if t.working() { "save" } else { "save_missing" })),
                 (None, None) => None,
-            };
+            } };
             match &front {
                 Some(f) if s.pill && counted => {
                     let text = match &flash {
@@ -594,27 +597,27 @@ mod tests {
 
     #[test]
     fn a_game_turned_off_is_not_counted_from_any_source() {
-        let off = vec!["steam:1245620".to_string()];
-        assert!(refused(&off, "steam:1245620", "death"), "the +1 shortcut");
-        assert!(refused(&off, "steam:1245620", "start"));
-        assert!(!refused(&off, "steam:1245620", "undo"), "taking a count back is fine");
-        assert!(!refused(&off, "steam:1245620", "on"), "turning it back on must work");
-        assert!(!refused(&off, "steam:1245620", "delete:3"), "editing the history too");
-        assert!(!refused(&off, "steam:999", "death"), "another game");
-        assert!(!refused(&[], "steam:1245620", "death"));
+        let off = vec!["exe:eldenring".to_string()];
+        assert!(refused(&off, "exe:eldenring", "death"), "the +1 shortcut");
+        assert!(refused(&off, "exe:eldenring", "start"));
+        assert!(!refused(&off, "exe:eldenring", "undo"), "taking a count back is fine");
+        assert!(!refused(&off, "exe:eldenring", "on"), "turning it back on must work");
+        assert!(!refused(&off, "exe:eldenring", "delete:3"), "editing the history too");
+        assert!(!refused(&off, "exe:other", "death"), "another game");
+        assert!(!refused(&[], "exe:eldenring", "death"));
     }
 
     #[test]
     fn one_death_seen_two_ways_counts_once() {
-        let last = |src: &str| Some(("steam:1".to_string(), 1_000u64, src.to_string()));
-        assert!(same_death(last("screen").as_ref(), "steam:1", 4_000, "hotkey"), "your key after the screen saw it");
-        assert!(same_death(last("manual").as_ref(), "steam:1", 4_000, "screen"), "the screen after you counted it");
-        assert!(same_death(last("save").as_ref(), "steam:1", 4_000, "pad"));
-        assert!(!same_death(last("hotkey").as_ref(), "steam:1", 4_000, "hotkey"), "two presses are two deaths");
-        assert!(!same_death(last("hotkey").as_ref(), "steam:1", 4_000, "pad"), "two ways by hand: you meant both");
-        assert!(!same_death(last("screen").as_ref(), "steam:1", 20_000, "hotkey"), "long after: another death");
-        assert!(!same_death(last("screen").as_ref(), "steam:2", 4_000, "hotkey"), "another game");
-        assert!(!same_death(last("both").as_ref(), "steam:1", 4_000, "hotkey"), "after a merge the next press counts");
-        assert!(!same_death(None, "steam:1", 4_000, "screen"));
+        let last = |src: &str| Some(("exe:game1x".to_string(), 1_000u64, src.to_string()));
+        assert!(same_death(last("screen").as_ref(), "exe:game1x", 4_000, "hotkey"), "your key after the screen saw it");
+        assert!(same_death(last("manual").as_ref(), "exe:game1x", 4_000, "screen"), "the screen after you counted it");
+        assert!(same_death(last("save").as_ref(), "exe:game1x", 4_000, "pad"));
+        assert!(!same_death(last("hotkey").as_ref(), "exe:game1x", 4_000, "hotkey"), "two presses are two deaths");
+        assert!(!same_death(last("hotkey").as_ref(), "exe:game1x", 4_000, "pad"), "two ways by hand: you meant both");
+        assert!(!same_death(last("screen").as_ref(), "exe:game1x", 20_000, "hotkey"), "long after: another death");
+        assert!(!same_death(last("screen").as_ref(), "exe:game2x", 4_000, "hotkey"), "another game");
+        assert!(!same_death(last("both").as_ref(), "exe:game1x", 4_000, "hotkey"), "after a merge the next press counts");
+        assert!(!same_death(None, "exe:game1x", 4_000, "screen"));
     }
 }

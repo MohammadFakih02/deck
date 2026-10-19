@@ -22,9 +22,10 @@ use std::time::{Duration, Instant};
 const RATE: f64 = 4.0;
 /// for any other game: half the work, still two looks at a banner that stays up a second or more
 const SLOW_RATE: f64 = 2.0;
-/// frames kept for teaching: the last 10 s (at most this many)
+/// frames kept for teaching: the last 20 s, 2 a second (people count a death a while after it)
 const KEEP: usize = 40;
-const KEEP_MS: u64 = 10_000;
+const KEEP_MS: u64 = 20_000;
+const KEEP_EVERY_MS: u64 = 450;
 /// the teaching strip's pictures (grey)
 pub const PW: usize = 160;
 pub const PH: usize = 90;
@@ -203,12 +204,12 @@ fn watch(game: &str, hwnd: isize, words: &[String], known: bool, stop: &AtomicBo
         let aspect = aspect_of(frame.w, frame.h);
         {
             let mut r = RECENT.lock();
-            if r.0 == game {
-                let t = super::now_ms();
+            let t = super::now_ms();
+            if r.0 == game && r.1.back().is_none_or(|s| t.saturating_sub(s.t) >= KEEP_EVERY_MS) {
                 while r.1.len() >= KEEP || r.1.front().is_some_and(|s| t.saturating_sub(s.t) > KEEP_MS) {
                     r.1.pop_front();
                 }
-                r.1.push_back(Shot { t, thumb: thumb.clone(), preview: capture::grey(&frame, PW, PH), aspect });
+                r.1.push_back(Shot { t, thumb: thumb.clone(), preview: capture::colour(&frame, PW, PH), aspect });
             }
         }
         if !taught.is_empty() && taught_matcher.feed(taught.iter().any(|t| t.fits(aspect) && t.matches(&thumb)), now) {
@@ -226,7 +227,7 @@ fn watch(game: &str, hwnd: isize, words: &[String], known: bool, stop: &AtomicBo
         }
         if read {
             if let Some(ocr) = &ocr {
-                let (w, h, px) = capture::middle(&frame);
+                let (w, h, px) = capture::middle_for_ocr(&frame);
                 let text = ocr.read(w, h, &px).unwrap_or_default();
                 if matcher.feed(detect::is_death_text(&text, words), now) {
                     taught_matcher.counted(now);

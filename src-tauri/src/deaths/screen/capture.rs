@@ -161,15 +161,16 @@ impl Capture {
     }
 }
 
-/// A frame as the gate's 64x36 grey thumbnail.
+/// A frame as the gate's 64x36 thumbnail: each cell's brightest colour. Plain grey makes a red
+/// death banner ("YOU DIED", "KHAZAN HAS FALLEN") a dull mid grey; this keeps it bright on black.
 pub fn thumb(f: &Frame) -> Vec<u8> {
-    grey(f, super::detect::TW, super::detect::TH)
+    colour(f, super::detect::TW, super::detect::TH).as_chunks::<3>().0.iter().map(|c| c[0].max(c[1]).max(c[2])).collect()
 }
 
-/// A frame shrunk to `tw` x `th` grey, each cell the average of its pixels.
-pub fn grey(f: &Frame, tw: usize, th: usize) -> Vec<u8> {
+/// A frame shrunk to `tw` x `th`, RGB, each cell the average of its pixels.
+pub fn colour(f: &Frame, tw: usize, th: usize) -> Vec<u8> {
     let (w, h) = (f.w, f.h);
-    let mut out = vec![0u8; tw * th];
+    let mut out = vec![0u8; tw * th * 3];
     if w == 0 || h == 0 {
         return out;
     }
@@ -177,22 +178,63 @@ pub fn grey(f: &Frame, tw: usize, th: usize) -> Vec<u8> {
         let (y0, y1) = (ty * h / th, ((ty + 1) * h / th).max(ty * h / th + 1));
         for tx in 0..tw {
             let (x0, x1) = (tx * w / tw, ((tx + 1) * w / tw).max(tx * w / tw + 1));
-            let (mut sum, mut n) = (0u32, 0u32);
+            let (mut sum, mut n) = ([0u32; 3], 0u32);
             // every other pixel each way is plenty for an average
             for y in (y0..y1.min(h)).step_by(2) {
                 for x in (x0..x1.min(w)).step_by(2) {
                     let p = &f.px[(y * w + x) * 4..];
-                    sum += (p[2] as u32 * 54 + p[1] as u32 * 183 + p[0] as u32 * 19) >> 8;
+                    sum[0] += p[2] as u32;
+                    sum[1] += p[1] as u32;
+                    sum[2] += p[0] as u32;
                     n += 1;
                 }
             }
-            out[ty * tw + tx] = (sum / n.max(1)) as u8;
+            for c in 0..3 {
+                out[(ty * tw + tx) * 3 + c] = (sum[c] / n.max(1)) as u8;
+            }
         }
     }
     out
 }
 
-/// The middle of a frame (where the gate looked), for the OCR: (w, h, BGRA).
+/// The middle of a frame for the OCR, as grey from each pixel's brightest channel, stretched so the
+/// darkest 2 % are black and the brightest 0.2 % white. OCR works on brightness, and a death banner
+/// in dark red on a darkened screen ("KHAZAN HAS FALLEN", "YOU DIED") is faint in plain grey; this
+/// makes it white on black. A flat, dark picture is not blown up into noise (the range has a floor).
+pub fn middle_for_ocr(f: &Frame) -> (usize, usize, Vec<u8>) {
+    let (w, h, mut px) = middle(f);
+    let n = (px.len() / 4) as u64;
+    if n == 0 {
+        return (w, h, px);
+    }
+    let mut hist = [0u64; 256];
+    for p in px.as_chunks::<4>().0 {
+        hist[p[0].max(p[1]).max(p[2]) as usize] += 1;
+    }
+    let at = |permille: u64| {
+        let mut acc = 0;
+        for (i, c) in hist.iter().enumerate() {
+            acc += c;
+            if acc * 1000 >= n * permille {
+                return i as u32;
+            }
+        }
+        255
+    };
+    let lo = at(20);
+    let hi = at(998).max(lo + 48);
+    for p in px.as_chunks_mut::<4>().0 {
+        let v = p[0].max(p[1]).max(p[2]) as u32;
+        let s = (v.saturating_sub(lo) * 255 / (hi - lo)).min(255) as u8;
+        p[0] = s;
+        p[1] = s;
+        p[2] = s;
+        p[3] = 255;
+    }
+    (w, h, px)
+}
+
+/// The middle of a frame (where the gate looked): (w, h, BGRA).
 pub fn middle(f: &Frame) -> (usize, usize, Vec<u8>) {
     let (x0, x1, y0, y1) = (f.w / 8, f.w - f.w / 8, f.h / 6, f.h - f.h / 6);
     let w = x1.saturating_sub(x0);
@@ -223,5 +265,23 @@ mod tests {
         assert_eq!(t[0], 0, "corner black");
         let (mw, mh, m) = middle(&f);
         assert_eq!((mw, mh, m.len()), (480, 240, 480 * 240 * 4), "the middle 3/4 across, 2/3 down");
+    }
+
+    #[test]
+    fn dark_red_words_become_white_on_black_for_the_ocr() {
+        let (w, h) = (640, 360);
+        // near-black with a dark red band (BGRA): red 90 on 12 is faint as plain grey
+        let mut px = [12u8, 12, 12, 255].repeat(w * h);
+        for y in 170..190 {
+            for x in 200..440 {
+                px[(y * w + x) * 4..(y * w + x) * 4 + 4].copy_from_slice(&[20, 18, 90, 255]);
+            }
+        }
+        let (mw, _, m) = middle_for_ocr(&Frame { w, h, px });
+        let at = |x: usize, y: usize| m[((y - 60) * mw + (x - 80)) * 4];
+        assert_eq!(at(300, 180), 255, "the words: white");
+        assert!(at(100, 100) < 20, "the screen around them: black");
+        let (_, _, flat) = middle_for_ocr(&Frame { w, h, px: [12u8, 12, 12, 255].repeat(w * h) });
+        assert!(flat.chunks(4).all(|p| p[0] < 10), "a plain dark picture stays dark, not noise");
     }
 }

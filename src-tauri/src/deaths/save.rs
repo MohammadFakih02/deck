@@ -313,7 +313,7 @@ mod tests {
         std::fs::create_dir_all(&saves).unwrap();
         let write = |n: u32| std::fs::write(saves.join("0.celeste"), format!("<SaveData><Name>M</Name><TotalDeaths>{n}</TotalDeaths></SaveData>")).unwrap();
         write(5);
-        let mut t = Tracker::new("steam:504230", "celeste", dir.to_str().unwrap());
+        let mut t = Tracker::new("exe:celeste", "celeste", dir.to_str().unwrap());
         assert_eq!(t.poll(), 0, "the first look is the baseline");
         assert!(t.healthy);
         std::thread::sleep(Duration::from_millis(30));

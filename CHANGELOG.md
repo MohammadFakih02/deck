@@ -2,6 +2,16 @@
 
 All notable changes to Deck. Setups for each version are on the [Releases](https://github.com/MohammadFakih02/deck/releases) page.
 
+## 2.6.1 — 2026-10-20
+
+### Fixed
+- **Death counter: dark death screens are read.** Windows' text recognition read nothing from a dim red banner on a dark screen ("KHAZAN HAS FALLEN"); Deck now makes the middle of the picture high-contrast before reading it, and a long phrase may have a letter or two misread. The First Berserker: Khazan is recognised outside Steam too.
+- **Teaching a death screen works in dark games and when you count late.** Deck keeps the last 20 seconds (it was 10). When the whole screen fades at death, Deck learns the words or symbol that stand out on it instead of refusing it as "one flat colour", and ignores the character and scene behind them, which differ at every death.
+- **Death screens keep their colour.** Pictures were turned grey by brightness, which made red words dull; Deck now uses each spot's brightest colour, and the teaching pictures are shown in colour.
+
+### Changed
+- **Games are known by their program only.** The death counter no longer uses Steam or Epic numbers or library lists: a game is its exe, the same in every store, named from the program's description, its install folder or its window title. Deck's list of games with their own death screens or save readers is now the 17 it knows by exe (an Easy Anti-Cheat launcher no longer counts as Elden Ring). Death screens taught under an older Steam key need teaching again.
+
 ## 2.6.0 — 2026-10-20
 
 ### Fixed

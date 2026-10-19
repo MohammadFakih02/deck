@@ -362,7 +362,7 @@ fn friendly_name(exe: &str) -> String {
     n
 }
 
-fn file_description(exe: &str) -> Option<String> {
+pub(crate) fn file_description(exe: &str) -> Option<String> {
     use windows::Win32::Storage::FileSystem::{GetFileVersionInfoSizeW, GetFileVersionInfoW, VerQueryValueW};
     unsafe {
         let path = HSTRING::from(exe);

@@ -115,6 +115,25 @@ pub fn normalize(s: &str) -> String {
     out.trim_end().to_string()
 }
 
+fn edits(a: &str, b: &str) -> usize {
+    let (a, b): (Vec<char>, Vec<char>) = (a.chars().collect(), b.chars().collect());
+    let mut row: Vec<usize> = (0..=b.len()).collect();
+    for i in 1..=a.len() {
+        let mut prev = row[0];
+        row[0] = i;
+        for j in 1..=b.len() {
+            let cur = row[j];
+            row[j] = (prev + usize::from(a[i - 1] != b[j - 1])).min(row[j] + 1).min(row[j - 1] + 1);
+            prev = cur;
+        }
+    }
+    row[b.len()]
+}
+
+/// A long phrase is long enough to tell apart from anything else with a letter or two dropped or
+/// misread (a stylised K read as "(" is dropped); a short one isn't ("YOU DID" vs "YOU DIED").
+const LONG_PHRASE: usize = 12;
+
 /// `line` is `w` with at most `slack` letters read wrong (none dropped or added).
 fn misread(line: &str, w: &str, slack: usize) -> bool {
     line.chars().count() == w.chars().count() && line.chars().zip(w.chars()).filter(|(a, b)| a != b).count() <= slack
@@ -126,9 +145,10 @@ fn fold(s: &str) -> String {
 }
 
 /// A line of the text read is one of `words` on its own (a banner). A phrase of several words
-/// may have a letter read wrong; a single word must be exact ("WASTED" is one letter from
-/// "WANTED"), and a dropped letter never passes ("YOU DID" isn't "YOU DIED"). Subtitles and menus
-/// that only contain the words don't count.
+/// may have a letter read wrong (one per 8 letters); a long one (12+ letters) may also have letters
+/// dropped or added ("(HAZAN HAS FALLEh"). A single word must be exact ("WASTED" is one letter
+/// from "WANTED"), and a short phrase never passes with a letter dropped ("YOU DID" isn't
+/// "YOU DIED"). Subtitles and menus that only contain the words don't count.
 pub fn is_death_text(text: &str, words: &[String]) -> bool {
     let wanted: Vec<String> = words.iter().map(|w| fold(&normalize(w))).filter(|w| !w.is_empty()).collect();
     text.lines().map(|l| fold(&normalize(l))).filter(|l| !l.is_empty()).any(|line| {
@@ -137,7 +157,8 @@ pub fn is_death_text(text: &str, words: &[String]) -> bool {
             if line == *w || line.replace(' ', "") == w.replace(' ', "") {
                 return true;
             }
-            w.contains(' ') && misread(&line, w, (w.chars().count() / 8).max(1))
+            let slack = (w.chars().count() / 8).max(1);
+            w.contains(' ') && (misread(&line, w, slack) || (w.chars().count() >= LONG_PHRASE && edits(&line, w) <= slack))
         })
     })
 }
@@ -277,6 +298,9 @@ mod tests {
         assert!(is_death_text("WASTED", &common));
         assert!(!is_death_text("WANTED", &common), "one word: exactly");
         assert!(!is_death_text("LASTED", &common));
+        let khazan = w(&["KHAZAN HAS FALLEN"]);
+        assert!(is_death_text("(HAZAN HAS FALLEh", &khazan), "a stylised K dropped and an N misread, as Windows OCR read it");
+        assert!(!is_death_text("HAS FALLEN", &khazan), "half of it isn't it");
         let nioh = w(&["FREED FROM THIS MORTAL COIL"]);
         assert!(is_death_text("Freed from this mortal coil", &nioh));
         assert!(!is_death_text("FREED", &nioh), "a part of the words isn't them");

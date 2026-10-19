@@ -11,7 +11,7 @@ pub fn dir() -> PathBuf {
     crate::settings::Settings::dir().join("deaths")
 }
 
-/// A game key ("steam:1245620", "epic:…", "exe:game") as a file name.
+/// A game key ("exe:eldenring", "emu:bloodborne") as a file name.
 pub fn file_name(key: &str) -> String {
     let mut s: String = key.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.' { c } else { '-' }).collect();
     s.truncate(120);
@@ -106,7 +106,7 @@ mod tests {
 
     #[test]
     fn keys_make_safe_file_names() {
-        assert_eq!(file_name("steam:1245620"), "steam-1245620.jsonl");
+        assert_eq!(file_name("exe:eldenring"), "exe-eldenring.jsonl");
         assert_eq!(file_name("exe:..\\evil"), "exe-..-evil.jsonl");
     }
 

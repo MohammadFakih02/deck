@@ -1,5 +1,5 @@
 //! Taught death screens: for games whose death screen has no words Windows can read (Sekiro's
-//! 死, a skull, a red flash), you show Deck the death screen once. Deck keeps the last 10 s of
+//! 死, a skull, a red flash), you show Deck the death screen once. Deck keeps the last 20 s of
 //! the game's frames in memory; after a death you counted yourself, you pick the frame where the
 //! death screen is clearest, and the part that differs from the game around it becomes a
 //! fingerprint, matched on every frame from then on (no OCR needed). Up to 3 per game.
@@ -21,6 +21,15 @@ const MIN_CORR: f32 = 0.85;
 const MAX_DIFF: f32 = 30.0;
 /// frames this different from the picked one are "normal play" for the comparison
 const OTHER: u32 = 12;
+/// more than this share of the screen changed (in tenths): the whole screen faded or flashed, and the
+/// death screen is what stands out within the picked picture (words, a symbol)
+const FADED_TENTHS: usize = 4;
+/// a cell stands out when it differs this much from the cells around it
+const STANDS_OUT: u8 = 9;
+/// dim words on a faded screen are a thin line in the thumbnail; the ring around them makes the print
+const MIN_WORD_CELLS: usize = 8;
+/// cells in a row that make a line of words
+const LINE: usize = 5;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Print {
@@ -102,11 +111,17 @@ fn mean_diff(a: &[u8], b: &[u8]) -> u32 {
     a.iter().zip(b).map(|(x, y)| x.abs_diff(*y) as u32).sum::<u32>() / a.len().max(1) as u32
 }
 
+/// Another picture than the picked one: different on average, or very different in enough places
+/// (a dark game's play and its death screen have nearly the same average; the banner is the change).
+fn other_picture(t: &[u8], chosen: &[u8]) -> bool {
+    mean_diff(t, chosen) >= OTHER || t.iter().zip(chosen).filter(|(x, y)| x.abs_diff(**y) >= CHANGED).count() >= MIN_CELLS
+}
+
 /// Learns the death screen in `strip[pick]` (thumbnails, oldest first) against the frames that
 /// look different from it (normal play). The error is for the page, in plain words.
 pub fn learn(strip: &[Vec<u8>], pick: usize, made: u64) -> Result<Print, String> {
     let chosen = strip.get(pick).filter(|t| t.len() == TW * TH).ok_or("That picture is gone; count the next death and try again.")?;
-    let others: Vec<&Vec<u8>> = strip.iter().filter(|t| t.len() == TW * TH && mean_diff(t, chosen) >= OTHER).collect();
+    let others: Vec<&Vec<u8>> = strip.iter().filter(|t| t.len() == TW * TH && other_picture(t, chosen)).collect();
     if others.len() < 3 {
         return Err("Deck needs a few seconds of the game before the death screen. Next time, count the death while the death screen is still up or just after.".into());
     }
@@ -118,14 +133,43 @@ pub fn learn(strip: &[Vec<u8>], pick: usize, made: u64) -> Result<Print, String>
             v[v.len() / 2]
         })
         .collect();
-    let cells: Vec<usize> = (0..TW * TH).filter(|i| chosen[*i].abs_diff(base[*i]) >= CHANGED).collect();
-    if cells.len() < MIN_CELLS {
+    let mut cells: Vec<usize> = (0..TW * TH).filter(|i| chosen[*i].abs_diff(base[*i]) >= CHANGED).collect();
+    let faded = cells.len() * 10 > TW * TH * FADED_TENTHS;
+    if faded {
+        // the game darkened (or flashed) everywhere: a print of all of it would be "a dark screen",
+        // which any loading screen is too. What makes it the death screen is what stands out in it.
+        cells = in_a_line(&stands_out(chosen));
+        if cells.len() < MIN_WORD_CELLS {
+            return Err("That picture is mostly one flat colour, which could be any dark or loading screen. Pick one where the death screen's words or symbol show.".into());
+        }
+    } else if cells.len() < MIN_CELLS {
         return Err("That picture looks too much like the game around it. Pick the one where the death screen is clearest.".into());
     }
+    // the cells around the change too: dim words on a dark screen are all about the same grey, and
+    // their edges against the screen are what tells them apart
+    let mut mask = vec![false; TW * TH];
+    for &i in &cells {
+        let (x, y) = (i % TW, i / TW);
+        mask[i] = true;
+        if x > 0 {
+            mask[i - 1] = true;
+        }
+        if x + 1 < TW {
+            mask[i + 1] = true;
+        }
+        if y > 0 {
+            mask[i - TW] = true;
+        }
+        if y + 1 < TH {
+            mask[i + TW] = true;
+        }
+    }
+    let cells: Vec<usize> = (0..TW * TH).filter(|i| mask[*i]).collect();
     let values: Vec<u8> = cells.iter().map(|i| chosen[*i]).collect();
     let mean = values.iter().map(|v| *v as f32).sum::<f32>() / values.len() as f32;
     let spread = values.iter().map(|v| (*v as f32 - mean).abs()).sum::<f32>() / values.len() as f32;
-    if spread < MIN_SPREAD {
+    // (on a faded screen the cells that stand out are the shape; the dark around them is most of it)
+    if spread < MIN_SPREAD && !faded {
         return Err("That picture is mostly one flat colour, which could be any dark or loading screen. Pick one where the death screen's words or symbol show.".into());
     }
     let mut bits = vec![0u8; TW * TH / 8];
@@ -134,10 +178,67 @@ pub fn learn(strip: &[Vec<u8>], pick: usize, made: u64) -> Result<Print, String>
     }
     let print = Print { mask: hex(&bits), values: hex(&values), made, aspect: 0 };
     let t = Taught::new(&print).ok_or("Couldn't learn that picture.")?;
-    if others.iter().any(|o| t.matches(o)) {
+    // the death screen shows in the pictures around the picked one (it fades in and stays a while);
+    // anywhere else in the strip it would be a death that didn't happen
+    let hits: Vec<bool> = strip.iter().map(|s| s.len() == TW * TH && t.matches(s)).collect();
+    let (mut a, mut b) = (pick, pick);
+    while a > 0 && (hits[a - 1] || (a > 1 && hits[a - 2])) {
+        a -= 1;
+    }
+    while b + 1 < hits.len() && (hits[b + 1] || (b + 2 < hits.len() && hits[b + 2])) {
+        b += 1;
+    }
+    if hits.iter().enumerate().any(|(i, h)| *h && (i < a || i > b)) {
         return Err("That picture is too close to normal play; Deck would count deaths that didn't happen. Pick the clearest death screen.".into());
     }
     Ok(print)
+}
+
+/// The cells that are part of a line across: words ("KHAZAN HAS FALLEN"), or a symbol's strokes. The
+/// figure and the scene behind a death screen are different at every death; those edges go.
+fn in_a_line(cells: &[usize]) -> Vec<usize> {
+    let mut on = vec![false; TW * TH];
+    for &i in cells {
+        on[i] = true;
+    }
+    let mut keep = vec![];
+    for y in 0..TH {
+        let mut x = 0;
+        while x < TW {
+            if !on[y * TW + x] {
+                x += 1;
+                continue;
+            }
+            // a run along the row, one missing cell allowed (the gap between words)
+            let start = x;
+            let mut end = x;
+            while end + 1 < TW && (on[y * TW + end + 1] || (end + 2 < TW && on[y * TW + end + 2])) {
+                end += if on[y * TW + end + 1] { 1 } else { 2 };
+            }
+            if end - start + 1 >= LINE {
+                keep.extend((start..=end).map(|x| y * TW + x).filter(|i| on[*i]));
+            }
+            x = end + 1;
+        }
+    }
+    keep
+}
+
+/// The cells of a picture that differ from the cells around them (5x5): words, a symbol, an edge.
+fn stands_out(p: &[u8]) -> Vec<usize> {
+    (0..TW * TH)
+        .filter(|i| {
+            let (x, y) = (i % TW, i / TW);
+            let (mut sum, mut n) = (0u32, 0u32);
+            for yy in y.saturating_sub(2)..(y + 3).min(TH) {
+                for xx in x.saturating_sub(2)..(x + 3).min(TW) {
+                    sum += p[yy * TW + xx] as u32;
+                    n += 1;
+                }
+            }
+            p[*i].abs_diff((sum / n) as u8) >= STANDS_OUT
+        })
+        .collect()
 }
 
 /// A share code: the game and its prints, as one line of text.
@@ -210,12 +311,101 @@ mod tests {
         assert!(learn(&strip(), 99, 1).is_err());
     }
 
+    /// A dark game (Khazan): the death screen is the darkened scene with dim words, nearly as dark as
+    /// the play before it, and most of the strip is the death screen (counted a while after).
+    /// Khazan as it really is: bright play, then the whole screen fades nearly black and dim words
+    /// fade in ("KHAZAN HAS FALLEN"); the user counts it 16 s later. A print of "everything changed"
+    /// is all black and was refused as one flat colour.
+    #[test]
+    fn a_death_screen_that_darkens_everything_is_learned_by_its_words() {
+        let bright = |i: usize| -> Vec<u8> { (0..TW * TH).map(|c| (55 + (c * 7 + i * 13) % 40) as u8).collect() };
+        let dark = |i: usize, words: u8| -> Vec<u8> {
+            let mut f: Vec<u8> = (0..TW * TH).map(|c| (8 + (c * 3 + i) % 5) as u8).collect();
+            // a faint figure in the middle and a HUD mark top right
+            for y in 14..26 {
+                f[y * TW + 32] += 6;
+            }
+            f[3 * TW + 60] += 20;
+            for x in 22..42 {
+                if x % 4 != 0 {
+                    f[17 * TW + x] += words;
+                    f[18 * TW + x] += words / 2;
+                }
+            }
+            f
+        };
+        // 24 pictures of play, 6 fading dark, 8 with the words fading in then shown
+        let strip: Vec<Vec<u8>> = (0..24).map(bright).chain((24..30).map(|i| dark(i, 0))).chain((30..38).map(|i| dark(i, (8 + (i - 30) * 4).min(24) as u8))).collect();
+        let p = learn(&strip, 36, 1).expect("learned");
+        let t = Taught::new(&p).unwrap();
+        assert!(t.matches(&dark(50, 24)), "the next death");
+        assert!(!t.matches(&dark(51, 0)), "a dark screen without the words (a loading screen)");
+        assert!(!t.matches(&bright(52)), "play");
+    }
+
+    /// Real death screens from picture files (never the screen): `DECK_TEACH_IMAGES=a.png;b.png`,
+    /// `cargo test -- --ignored teaching_learns_real_pictures`. Taught on the first, darkened as the game
+    /// shows it after bright play; every picture must then match.
+    #[test]
+    #[ignore]
+    fn teaching_learns_real_pictures() {
+        let paths = std::env::var("DECK_TEACH_IMAGES").expect("DECK_TEACH_IMAGES");
+        let thumbs: Vec<Vec<u8>> = paths
+            .split(';')
+            .map(|p| {
+                let img = image::open(p).expect("a png").to_rgba8();
+                let px: Vec<u8> = img.pixels().flat_map(|p| [p[2], p[1], p[0], 255]).collect();
+                super::super::capture::thumb(&super::super::capture::Frame { w: img.width() as usize, h: img.height() as usize, px })
+            })
+            .collect();
+        let bright = |i: usize| -> Vec<u8> { (0..TW * TH).map(|c| (60 + (c * 7 + i * 13) % 50) as u8).collect() };
+        let shot = &thumbs[0];
+        let strip: Vec<Vec<u8>> = (0..24).map(bright).chain(std::iter::repeat_n(shot.clone(), 6)).collect();
+        let p = learn(&strip, 27, 1).expect("learned");
+        let t = Taught::new(&p).unwrap();
+        let rows: std::collections::BTreeSet<usize> = t.cells.iter().map(|i| i / TW).collect();
+        println!("print: {} cells, rows {rows:?}", t.cells.len());
+        let scaled = |k: f32| -> Vec<u8> { shot.iter().map(|v| (*v as f32 * k).min(255.0) as u8).collect() };
+        assert!(t.matches(&scaled(0.8)) && t.matches(&scaled(1.25)), "a little darker or brighter");
+        // another death: the scene below and above the words is different (moved 9 cells across)
+        let words = *rows.iter().next().unwrap()..=*rows.iter().last().unwrap();
+        let other: Vec<u8> = (0..TW * TH).map(|i| if words.contains(&(i / TW)) { shot[i] } else { shot[(i / TW) * TW + (i % TW + 9) % TW] }).collect();
+        assert!(t.matches(&other), "the next death, Khazan elsewhere");
+        let gone: Vec<u8> = (0..TW * TH).map(|i| if words.contains(&(i / TW)) { shot[(words.start() - 2) * TW + i % TW] } else { shot[i] }).collect();
+        assert!(!t.matches(&gone), "the same dark scene without the words");
+        assert!(!t.matches(&vec![6u8; TW * TH]), "a black screen");
+    }
+
+    #[test]
+    fn a_dark_games_death_screen_is_learned_from_a_mostly_death_strip() {
+        let dark_play = |i: usize| -> Vec<u8> { (0..TW * TH).map(|c| (14 + (c % 7) + (i % 3)) as u8).collect() };
+        let banner = |i: usize| -> Vec<u8> {
+            let mut f = dark_play(i);
+            for y in 16..19 {
+                for x in 10..54 {
+                    if x % 3 != 0 {
+                        f[y * TW + x] = 70;
+                    }
+                }
+            }
+            f
+        };
+        let black = vec![1u8; TW * TH];
+        // 3 pictures of play, 14 of the death screen, 2 black, then the next one
+        let strip: Vec<Vec<u8>> = (0..3).map(dark_play).chain((3..17).map(banner)).chain([black.clone(), black.clone()]).chain(std::iter::once(dark_play(20))).collect();
+        let p = learn(&strip, 10, 1).expect("learned");
+        let t = Taught::new(&p).unwrap();
+        assert!(t.matches(&banner(30)), "the next death");
+        assert!(!t.matches(&dark_play(31)), "dark play");
+        assert!(!t.matches(&black), "a black loading screen");
+    }
+
     #[test]
     fn prints_survive_a_share_code() {
         let p = learn(&strip(), 27, 7).unwrap();
-        let code = share("steam:814380", "Sekiro", std::slice::from_ref(&p));
+        let code = share("exe:sekiro", "Sekiro", std::slice::from_ref(&p));
         let (game, name, prints) = unshare(&code).unwrap();
-        assert_eq!((game.as_str(), name.as_str(), prints), ("steam:814380", "Sekiro", vec![p]));
+        assert_eq!((game.as_str(), name.as_str(), prints), ("exe:sekiro", "Sekiro", vec![p]));
         assert!(unshare("hello").is_err());
         assert!(unshare("deck-death-screen:!!!").is_err());
     }
@@ -229,7 +419,7 @@ mod tests {
         };
         assert!(unshare(&code("../../x", "G")).is_err(), "not a key the library accepts");
         assert!(unshare(&code("", "G")).is_err());
-        let (_, name, _) = unshare(&code("steam:1", &"é@[x](y)".repeat(40))).unwrap();
+        let (_, name, _) = unshare(&code("exe:game1x", &"é@[x](y)".repeat(40))).unwrap();
         assert!(name.chars().count() <= 100 && !name.contains(['@', '[', ']']), "{name}");
         let (_, name, _) = unshare(&code("exe:somegame", "")).unwrap();
         assert_eq!(name, "exe:somegame", "no name: the key stands in");

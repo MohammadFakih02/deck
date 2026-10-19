@@ -294,7 +294,7 @@ function gamesTab(x) {
     importCard(),
     (x.presets || []).length ? h("div", { class: "section" }, h("h2", null, "Games with presets")) : null,
     (x.presets || []).length ? h("div", { class: "settings-card" }, x.presets.map((p) => settingRow(p.name, presetText(p), null))) : null,
-    h("p", { class: "small dim pad-foot" }, `Every game counts: Steam and Epic games by their real name, anything else by its program, and every game is watched for the common death screens ("YOU DIED", "GAME OVER", "WASTED"…). Deck knows ${x.catalog || "many"} hard games by name; the presets above add a game's own death screen or read its save file. They haven't all been checked in the real game yet.`));
+    h("p", { class: "small dim pad-foot" }, `Every game counts, known by its program wherever you got it, and every game is watched for the common death screens ("YOU DIED", "GAME OVER", "WASTED"…). For ${x.catalog || "a few"} games Deck also knows their own death screen or reads their save file; not all of these have been checked in the real game yet. For any other game, teach Deck its death screen.`));
 }
 
 // ------------------------------------------------------------------ Settings tab

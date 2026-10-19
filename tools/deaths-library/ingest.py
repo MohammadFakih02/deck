@@ -8,7 +8,7 @@ pull request for the maintainer to review).
 The checks mirror Deck's own (src-tauri/src/deaths/library.rs and screen/teach.rs): a code is
 base64 JSON {deck_death_screen: 1, game, name, prints: [{mask, values, made}]}; a print's mask is
 64*36 bits (hex), `values` holds one byte (hex) per set bit, at least 24 cells and some variation;
-a game key is steam:<digits> or epic:/exe:/emu:<name>. Nothing here runs the issue's text: it is
+a game key is exe:/emu:<name> (no store numbers). Nothing here runs the issue's text: it is
 only parsed as data.
 """
 import base64, json, os, re, sys
@@ -18,7 +18,7 @@ MIN_CELLS = 24
 MIN_SPREAD = 8.0
 # Deck uses at most this many library prints per game (MAX_PER_GAME * 2 in library.rs)
 MAX_PER_GAME = 6
-KEY = re.compile(r"^(steam:[0-9]{1,64}|(epic|exe|emu):[A-Za-z0-9._-]{1,64})$")
+KEY = re.compile(r"^(exe|emu):[A-Za-z0-9._-]{1,64}$")
 CODE = re.compile(r"deck-death-screen:([A-Za-z0-9+/=\s]+)")
 DEFAULT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "data", "death-screens", "library.json")
 
@@ -141,7 +141,7 @@ def selftest():
     for i in range(cells):
         bits[i // 8] |= 1 << (i % 8)
     good = {"mask": bits.hex(), "values": bytes(100 + i * 3 for i in range(cells)).hex(), "made": 5}
-    code = lambda **kw: "Text before\n### The code\n\ndeck-death-screen:" + base64.b64encode(json.dumps({"deck_death_screen": 1, "game": "steam:814380", "name": "Sekiro", "prints": [good], **kw}).encode()).decode() + "\n\n### Game\n\nSekiro"
+    code = lambda **kw: "Text before\n### The code\n\ndeck-death-screen:" + base64.b64encode(json.dumps({"deck_death_screen": 1, "game": "exe:sekiro", "name": "Sekiro", "prints": [good], **kw}).encode()).decode() + "\n\n### Game\n\nSekiro"
     assert (made(5), made(-1), made(10**30), made(True), made("7"), made(1.5), made(None)) == (5, 0, 0, 0, 0, 0, 0)
     assert (aspect(1777), aspect(-1), aspect(99999), aspect("x"), aspect(None)) == (1777, 0, 0, 0, 0)
     pv = preview(good).split("\n")
@@ -155,7 +155,7 @@ def selftest():
     nm = read_code(code(name="@everyone [click](http://x) `rm`"))[1]
     assert not any(c in nm for c in "@[]`<>*_#"), nm
     g, n, p = read_code(code())
-    assert (g, n, len(p)) == ("steam:814380", "Sekiro", 1)
+    assert (g, n, len(p)) == ("exe:sekiro", "Sekiro", 1)
     for bad in ("", "no code here", "deck-death-screen:!!!", code(game="../../x"), code(prints=[])):
         try:
             read_code(bad)

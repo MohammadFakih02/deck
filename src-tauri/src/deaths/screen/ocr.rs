@@ -89,4 +89,28 @@ mod tests {
         let calm = ocr.read(w, h, &banner("Site of Grace", w as i32, h as i32)).unwrap();
         assert!(!super::super::detect::is_death_text(&calm, &words), "read {calm:?}");
     }
+
+    /// A real death screen from a picture file (never the screen): `DECK_OCR_IMAGE=<png>` and
+    /// `DECK_OCR_WORDS="KHAZAN HAS FALLEN"`, `cargo test -- --ignored ocr_reads_a_picture`. It is darkened
+    /// (`DECK_OCR_DIM`, default 0.35) like the game shows it, and read plain and contrast-stretched.
+    #[test]
+    #[ignore]
+    fn ocr_reads_a_picture() {
+        crate::util::com();
+        let path = std::env::var("DECK_OCR_IMAGE").expect("DECK_OCR_IMAGE");
+        let words = vec![std::env::var("DECK_OCR_WORDS").unwrap_or_else(|_| "YOU DIED".into())];
+        let dim: f32 = std::env::var("DECK_OCR_DIM").ok().and_then(|v| v.parse().ok()).unwrap_or(0.35);
+        let img = image::open(&path).expect("a png").to_rgba8();
+        let (w, h) = (img.width() as usize, img.height() as usize);
+        let px: Vec<u8> = img.pixels().flat_map(|p| [(p[2] as f32 * dim) as u8, (p[1] as f32 * dim) as u8, (p[0] as f32 * dim) as u8, 255]).collect();
+        let f = super::super::capture::Frame { w, h, px };
+        let ocr = Ocr::new().expect("Windows OCR");
+        let (mw, mh, plain) = super::super::capture::middle(&f);
+        let (_, _, stretched) = super::super::capture::middle_for_ocr(&f);
+        let a = ocr.read(mw, mh, &plain).unwrap();
+        let b = ocr.read(mw, mh, &stretched).unwrap();
+        println!("plain:     {a:?} -> {}", super::super::detect::is_death_text(&a, &words));
+        println!("stretched: {b:?} -> {}", super::super::detect::is_death_text(&b, &words));
+        assert!(super::super::detect::is_death_text(&b, &words), "the stretched picture must read");
+    }
 }

@@ -47,12 +47,12 @@ pub struct Library {
 
 /// A game key the library accepts (the same on every PC).
 pub fn good_key(k: &str) -> bool {
-    let ok = |rest: &str, digits: bool| !rest.is_empty() && rest.len() <= 64 && rest.chars().all(|c| if digits { c.is_ascii_digit() } else { c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-' });
+    let ok = |rest: &str| !rest.is_empty() && rest.len() <= 64 && rest.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-');
     match k.split_once(':') {
-        Some(("steam", r)) => ok(r, true),
         // "exe:game" is every RPG Maker game: not the same game on every PC
-        Some(("exe", r)) => ok(r, false) && !super::ident::generic_exe(r),
-        Some(("epic" | "emu", r)) => ok(r, false),
+        Some(("exe", r)) => ok(r) && !super::ident::generic_exe(r),
+        Some(("emu", r)) => ok(r),
+        // no store numbers ("steam:…", "epic:…"): a game is its program
         _ => false,
     }
 }
@@ -279,14 +279,14 @@ mod tests {
         let lib = Library {
             version: 3,
             games: BTreeMap::from([
-                ("steam:814380".into(), Game { name: "Sekiro".into(), prints: vec![good.clone(), good.clone(), bad.clone()] }),
+                ("exe:sekiro".into(), Game { name: "Sekiro".into(), prints: vec![good.clone(), good.clone(), bad.clone()] }),
                 ("../../etc/passwd".into(), Game { name: "x".into(), prints: vec![good.clone()] }),
-                ("steam:1".into(), Game { name: "only bad".into(), prints: vec![bad] }),
+                ("exe:game1x".into(), Game { name: "only bad".into(), prints: vec![bad] }),
             ]),
         };
         let out = parse(&serde_json::to_string(&lib).unwrap()).unwrap();
         assert_eq!(out.games.len(), 1, "a bad key and a game with nothing usable are dropped");
-        assert_eq!(out.games["steam:814380"].prints, vec![good], "duplicates and invalid prints are dropped");
+        assert_eq!(out.games["exe:sekiro"].prints, vec![good], "duplicates and invalid prints are dropped");
         assert!(parse("not json").is_none());
         assert!(parse(&" ".repeat(MAX_BYTES + 1)).is_none());
     }
@@ -299,41 +299,41 @@ mod tests {
         let text = serde_json::json!({
             "version": 7,
             "games": {
-                "steam:1": { "name": "Fine", "prints": [ok.clone()] },
-                "steam:2": { "name": "Mixed", "prints": [ { "mask": p.mask, "values": p.values, "made": 1e30 }, { "mask": 5, "values": [] }, "x", ok.clone() ] },
-                "steam:3": { "name": "Bad name @[x](y)", "prints": [ok.clone()] },
-                "steam:4": "not an object"
+                "exe:game1x": { "name": "Fine", "prints": [ok.clone()] },
+                "exe:game2x": { "name": "Mixed", "prints": [ { "mask": p.mask, "values": p.values, "made": 1e30 }, { "mask": 5, "values": [] }, "x", ok.clone() ] },
+                "exe:game3x": { "name": "Bad name @[x](y)", "prints": [ok.clone()] },
+                "exe:game4x": "not an object"
             }
         })
         .to_string();
         let lib = parse(&text).expect("still a library");
         assert_eq!(lib.version, 7);
-        assert_eq!(lib.games.keys().map(String::as_str).collect::<Vec<_>>(), ["steam:1", "steam:2", "steam:3"]);
-        assert_eq!(lib.games["steam:2"].prints.len(), 1, "only the good print of the mixed game");
-        assert!(!lib.games["steam:3"].name.contains(['@', '[']), "{}", lib.games["steam:3"].name);
+        assert_eq!(lib.games.keys().map(String::as_str).collect::<Vec<_>>(), ["exe:game1x", "exe:game2x", "exe:game3x"]);
+        assert_eq!(lib.games["exe:game2x"].prints.len(), 1, "only the good print of the mixed game");
+        assert!(!lib.games["exe:game3x"].name.contains(['@', '[']), "{}", lib.games["exe:game3x"].name);
         assert_eq!(clean_name(&"é".repeat(300)).map(|n| n.chars().count()), Some(100), "cut on a character, not a byte");
         assert_eq!(clean_name("@[]"), None);
     }
 
     #[test]
     fn keys_are_the_same_on_every_pc() {
-        assert!(good_key("steam:814380") && good_key("emu:bloodborne") && good_key("epic:Min") && good_key("exe:somegame"));
-        assert!(!good_key("steam:abc") && !good_key("steam:") && !good_key("exe:a b") && !good_key("file:x") && !good_key("steam:1/2"));
+        assert!(good_key("emu:bloodborne") && good_key("exe:somegame"));
+        assert!(!good_key("steam:814380") && !good_key("epic:Min") && !good_key("exe:") && !good_key("exe:a b") && !good_key("file:x") && !good_key("exe:a/b"));
         assert!(!good_key("exe:game") && good_key("exe:tothemoon-game"), "a shared exe name only with its folder");
     }
 
     #[test]
     fn a_newer_copy_replaces_the_active_one_and_an_older_one_does_not() {
-        let mk = |v: u32| serde_json::to_string(&Library { version: v, games: BTreeMap::from([("steam:2".into(), Game { name: "G".into(), prints: vec![print()] })]) }).unwrap();
+        let mk = |v: u32| serde_json::to_string(&Library { version: v, games: BTreeMap::from([("exe:game2x".into(), Game { name: "G".into(), prints: vec![print()] })]) }).unwrap();
         *ACTIVE.write() = Some(Arc::new(Library { version: 10, games: BTreeMap::new() }));
         assert!(!adopt(&mk(9)), "older");
         assert!(adopt(&mk(10)), "the same version with more in it: a second merge from the same base");
         assert!(!adopt(&mk(10)), "the same version and the same content");
         assert!(adopt(&mk(11)));
-        assert_eq!(count("steam:2"), 1);
+        assert_eq!(count("exe:game2x"), 1);
         assert!(!set_enabled(true));
         assert!(set_enabled(false));
-        assert!(prints("steam:2").is_empty(), "off: nothing from the library is matched");
+        assert!(prints("exe:game2x").is_empty(), "off: nothing from the library is matched");
         set_enabled(true);
         *ACTIVE.write() = None;
     }
