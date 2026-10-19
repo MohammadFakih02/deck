@@ -46,6 +46,20 @@ pub fn save(key: &str, events: &[Event]) {
     }
 }
 
+fn notes_path(key: &str) -> PathBuf {
+    dir().join(file_name(key).replace(".jsonl", ".notes.json"))
+}
+
+/// Notes per boss for a game (`deaths\<key>.notes.json`), by boss key.
+pub fn load_notes(key: &str) -> BTreeMap<String, String> {
+    std::fs::read_to_string(notes_path(key)).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
+}
+
+pub fn save_notes(key: &str, notes: &BTreeMap<String, String>) -> Result<(), String> {
+    let _ = std::fs::create_dir_all(dir());
+    crate::util::write_atomic(&notes_path(key), serde_json::to_string_pretty(notes).unwrap_or_default().as_bytes()).map_err(|e| format!("Couldn't save the note: {e}"))
+}
+
 fn taught_path(key: &str) -> PathBuf {
     dir().join(file_name(key).replace(".jsonl", ".taught.json"))
 }

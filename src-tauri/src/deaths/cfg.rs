@@ -3,6 +3,38 @@
 use serde::{Deserialize, Serialize};
 
 pub const CORNERS: [&str; 6] = ["top-left", "top", "top-right", "bottom-left", "bottom", "bottom-right"];
+/// how the counter looks while you play
+pub const STYLES: [&str; 3] = ["skull", "ring", "huge"];
+/// what it counts: this boss, the whole game, or both
+pub const COUNTS: [&str; 3] = ["boss", "game", "both"];
+/// outside a fight: the game's total, or nothing
+pub const OUTSIDE: [&str; 2] = ["game", "hide"];
+
+/// The lines of the card shown after a death, each on or off.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(default)]
+pub struct CardLines {
+    /// "Try N next"
+    pub try_no: bool,
+    /// how long the try you just lost lasted
+    pub try_len: bool,
+    /// time spent on this boss
+    pub boss_time: bool,
+    /// deaths this session
+    pub session: bool,
+    /// the last 10 tries as bars
+    pub bars: bool,
+    /// "Your longest try yet", milestones
+    pub note: bool,
+    /// your own note for the boss
+    pub my_note: bool,
+}
+
+impl Default for CardLines {
+    fn default() -> Self {
+        CardLines { try_no: true, try_len: true, boss_time: true, session: true, bars: true, note: true, my_note: false }
+    }
+}
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(default)]
@@ -21,6 +53,19 @@ pub struct DeathSettings {
     pub pill_opacity: f32,
     /// show the pill in screenshots and recordings (streamers)
     pub pill_in_recordings: bool,
+    /// one of STYLES
+    pub pill_style: String,
+    /// one of COUNTS
+    pub pill_counts: String,
+    /// one of OUTSIDE
+    pub pill_outside: String,
+    /// open into the card after a death
+    pub card: bool,
+    /// how long the card stays, 2 – 10 s
+    pub card_secs: u32,
+    pub card_lines: CardLines,
+    /// the screen's edges glow red for a moment on a death
+    pub red_edge: bool,
     /// keys for +1 death and undo ("" = none); RegisterHotKey, off by default
     pub hotkey_death: String,
     pub hotkey_undo: String,
@@ -46,6 +91,13 @@ impl Default for DeathSettings {
             pill_scale: 1.0,
             pill_opacity: 0.9,
             pill_in_recordings: false,
+            pill_style: "skull".into(),
+            pill_counts: "both".into(),
+            pill_outside: "game".into(),
+            card: true,
+            card_secs: 5,
+            card_lines: CardLines::default(),
+            red_edge: false,
             hotkey_death: String::new(),
             hotkey_undo: String::new(),
             pad_combo: false,
@@ -65,6 +117,16 @@ impl DeathSettings {
         }
         self.pill_scale = if self.pill_scale.is_finite() { self.pill_scale.clamp(0.5, 2.0) } else { 1.0 };
         self.pill_opacity = if self.pill_opacity.is_finite() { self.pill_opacity.clamp(0.2, 1.0) } else { 0.9 };
+        if !STYLES.contains(&self.pill_style.as_str()) {
+            self.pill_style = "skull".into();
+        }
+        if !COUNTS.contains(&self.pill_counts.as_str()) {
+            self.pill_counts = "both".into();
+        }
+        if !OUTSIDE.contains(&self.pill_outside.as_str()) {
+            self.pill_outside = "game".into();
+        }
+        self.card_secs = self.card_secs.clamp(2, 10);
         self
     }
 }
@@ -72,6 +134,17 @@ impl DeathSettings {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn new_counter_settings_default_and_clamp() {
+        let s: DeathSettings = serde_json::from_str(r#"{"pill":true}"#).unwrap();
+        assert_eq!((s.pill_style.as_str(), s.pill_counts.as_str(), s.pill_outside.as_str(), s.card, s.card_secs, s.red_edge), ("skull", "both", "game", true, 5, false));
+        assert!(s.card_lines.bars && !s.card_lines.my_note);
+        let s: DeathSettings = serde_json::from_str(r#"{"pill_style":"neon","pill_counts":"x","pill_outside":"y","card_secs":60,"card_lines":{"bars":false}}"#).unwrap();
+        let s = s.clamped();
+        assert_eq!((s.pill_style.as_str(), s.pill_counts.as_str(), s.pill_outside.as_str(), s.card_secs), ("skull", "both", "game", 10));
+        assert!(!s.card_lines.bars && s.card_lines.try_no, "a missing line keeps its default");
+    }
 
     #[test]
     fn missing_or_bad_values_fall_back() {

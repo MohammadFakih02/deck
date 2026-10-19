@@ -14,6 +14,12 @@ pub enum Ev {
     Abandon,
     /// gives the fight another boss name
     Rename,
+    /// a play session: `t` its start, `ms` how long so far (a checkpoint is rewritten in place)
+    Play,
+}
+
+fn is_zero(v: &u64) -> bool {
+    *v == 0
 }
 
 /// One line of a game's history file.
@@ -29,11 +35,14 @@ pub struct Event {
     /// where a death came from: "manual", "hotkey", "pad", "screen"
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub src: String,
+    /// a play session's length so far
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub ms: u64,
 }
 
 impl Event {
     pub fn new(t: u64, ev: Ev) -> Event {
-        Event { t, ev, fight: String::new(), boss: String::new(), src: String::new() }
+        Event { t, ev, fight: String::new(), boss: String::new(), src: String::new(), ms: 0 }
     }
 }
 
@@ -68,8 +77,12 @@ pub struct Book {
     pub fights: Vec<Fight>,
     /// deaths with no fight open
     pub loose: u32,
-    /// each death still counted, in order: Some(fight index) or None (loose); undo takes the last
-    counted: Vec<Option<usize>>,
+    /// each death still counted, in order: (when, Some(fight index) or None (loose)); undo takes the last
+    pub deaths: Vec<(u64, Option<usize>)>,
+    /// each win: (when, fight index)
+    pub wins: Vec<(u64, usize)>,
+    /// play sessions: (start, ms), one per start (the longest line wins), by start
+    pub plays: Vec<(u64, u64)>,
 }
 
 /// Bosses are the same whatever the case or spacing.
@@ -101,20 +114,27 @@ impl Book {
                     Some(i) => self.fights[i].deaths += 1,
                     None => self.loose += 1,
                 }
-                self.counted.push(at);
+                self.deaths.push((e.t, at));
             }
-            Ev::Undo => match self.counted.pop() {
-                Some(Some(i)) => self.fights[i].deaths -= 1,
-                Some(None) => self.loose -= 1,
+            Ev::Undo => match self.deaths.pop() {
+                Some((_, Some(i))) => self.fights[i].deaths -= 1,
+                Some((_, None)) => self.loose -= 1,
                 None => {}
             },
             Ev::Win | Ev::Abandon => {
                 let won = e.ev == Ev::Win;
-                if let Some(f) = self.open_mut() {
-                    f.ended = Some(e.t);
-                    f.won = won;
+                if let Some(i) = self.open_index() {
+                    self.fights[i].ended = Some(e.t);
+                    self.fights[i].won = won;
+                    if won {
+                        self.wins.push((e.t, i));
+                    }
                 }
             }
+            Ev::Play => match self.plays.binary_search_by_key(&e.t, |p| p.0) {
+                Ok(i) => self.plays[i].1 = self.plays[i].1.max(e.ms),
+                Err(i) => self.plays.insert(i, (e.t, e.ms)),
+            },
             Ev::Rename => {
                 if let Some(f) = self.fights.iter_mut().find(|f| f.id == e.fight) {
                     f.boss = e.boss.split_whitespace().collect::<Vec<_>>().join(" ");
@@ -138,12 +158,12 @@ impl Book {
 
     /// Deaths on this game, in fights or not.
     pub fn total_deaths(&self) -> u32 {
-        self.counted.len() as u32
+        self.deaths.len() as u32
     }
 
     /// Something to undo.
     pub fn can_undo(&self) -> bool {
-        !self.counted.is_empty()
+        !self.deaths.is_empty()
     }
 
     /// Each boss, the latest fought first. `now` closes the open fight's time.
@@ -185,7 +205,23 @@ mod tests {
     use super::*;
 
     fn ev(t: u64, ev: Ev, fight: &str, boss: &str) -> Event {
-        Event { t, ev, fight: fight.into(), boss: boss.into(), src: String::new() }
+        Event { t, ev, fight: fight.into(), boss: boss.into(), ..Event::new(t, ev) }
+    }
+
+    #[test]
+    fn a_play_line_saves_its_length() {
+        let p = Event { ms: 60_000, ..Event::new(5, Ev::Play) };
+        let s = serde_json::to_string(&p).unwrap();
+        assert_eq!(s, r#"{"t":5,"ev":"play","ms":60000}"#);
+        assert_eq!(serde_json::from_str::<Event>(&s).unwrap(), p);
+        assert_eq!(serde_json::to_string(&Event::new(1, Ev::Death)).unwrap(), r#"{"t":1,"ev":"death"}"#, "no ms on a death");
+    }
+
+    #[test]
+    fn the_longest_play_line_per_start_is_kept() {
+        let play = |t: u64, ms: u64| Event { ms, ..Event::new(t, Ev::Play) };
+        let b = Book::replay(&[play(100, 300_000), play(0, 5), play(100, 600_000), play(100, 200_000)]);
+        assert_eq!(b.plays, vec![(0, 5), (100, 600_000)]);
     }
 
     #[test]

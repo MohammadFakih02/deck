@@ -2,6 +2,19 @@
 
 All notable changes to Deck. Setups for each version are on the [Releases](https://github.com/MohammadFakih02/deck/releases) page.
 
+## 2.7.0 — 2026-10-20
+
+### Added
+- **A new in-game death counter.** Pick how it looks: a skull with a big number (the default), a ring that fills toward the deaths your last boss took, or one huge number. It can count this boss, the whole game, or both side by side, and shows the game's total between fights (or nothing).
+- **The card after a death.** When you die, the counter opens into a card for a few seconds: the boss, your next try, its deaths, how long that try lasted, your time on the boss, deaths this session, bars for your last 10 tries, and a highlight like "Your longest try yet" or "100th death in this game". Every line can be switched off, and so can the card.
+- **Red edges on a death** (off by default): the screen's edges glow red for a moment.
+- **A live preview** of the counter and the card next to their settings, drawn by the same code as in the game.
+- **Play sessions.** Deck notes when you play each game; the History tab is now one card per session (how long, deaths, bosses beaten, deaths over time) with the events inside, instead of a long list. Older history gets sessions worked out from when your deaths were counted.
+- **Boss cards** instead of the table: deaths, time, longest try, which try beat it, and a line of how long each try lasted, so you can see yourself learning a fight. Each boss can have a note (a strategy, a reminder), and the card after a death can show it.
+- **Records** on the Now tab (longest try, quickest win, deadliest boss, most deaths in a session) and this session's numbers.
+- **All games together** on the Games tab: total deaths, time played, bosses beaten, deaths per week, the deadliest games and bosses.
+- **Share and export.** "Share" copies (or saves) a picture of a game's or a boss's numbers; "Export" saves a game's history, or everything, as a spreadsheet file.
+
 ## 2.6.1 — 2026-10-20
 
 ### Fixed

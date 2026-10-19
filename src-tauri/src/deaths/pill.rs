@@ -1,13 +1,22 @@
-//! The in-game pill ("Malenia · 14"): the controller overlay's layered window and pill art,
-//! click-through, topmost, never focused, on the game's monitor in the chosen corner.
+//! The in-game counter's window: the controller overlay's layered window, click-through,
+//! topmost, never focused, on the game's monitor in the chosen corner. What it shows is drawn by
+//! `look.rs`; this only puts a picture on screen, fades it in, and hides it.
 
 use super::cfg::DeathSettings;
-use crate::pad::{art, place, window::Layered};
+use crate::pad::raster::Img;
+use crate::pad::{place, window::Layered};
+use std::time::{Duration, Instant};
+
+/// A new picture fades in over this long.
+pub const FADE: Duration = Duration::from_millis(150);
 
 pub struct Pill {
     win: Option<Layered>,
-    /// what's drawn now: (text, accent, scale, theme)
-    drawn: Option<(String, bool, u32, String)>,
+    /// what's drawn now (a key the caller makes from everything that changes the picture)
+    drawn: Option<String>,
+    /// when the current kind of picture (counter, card, label) came up, for the fade-in
+    since: Option<Instant>,
+    kind: String,
 }
 
 /// Where a pill of `size` goes on a monitor `(l, t, r, b)` in `corner`, `margin` px in.
@@ -22,9 +31,19 @@ pub fn position(corner: &str, mon: (i32, i32, i32, i32), size: (i32, i32), margi
     (x, y)
 }
 
+/// The monitor's DPI scale.
+pub fn dpi(mon: (i32, i32, i32, i32)) -> f32 {
+    place::monitors().into_iter().find(|m| m.rect == mon).map(|m| m.dk()).unwrap_or(1.0)
+}
+
+/// How far a fade-in is, 0 – 1.
+pub fn faded_in(since: Duration) -> f32 {
+    (since.as_secs_f32() / FADE.as_secs_f32()).clamp(0.0, 1.0)
+}
+
 impl Pill {
     pub fn new() -> Pill {
-        Pill { win: None, drawn: None }
+        Pill { win: None, drawn: None, since: None, kind: String::new() }
     }
 
     pub fn hide(&mut self) {
@@ -33,31 +52,35 @@ impl Pill {
                 w.set_alpha(0.0);
             }
         }
+        self.kind.clear();
     }
 
-    /// Shows `text` on the monitor `mon` (accent = a death or undo just happened).
-    pub fn show(&mut self, text: &str, accent: bool, mon: (i32, i32, i32, i32), s: &DeathSettings, theme: &str) {
+    /// Shows the picture `draw` makes (called only when `key` changed) on monitor `mon`. A new
+    /// `kind` ("counter", "card", "label") fades in. Returns true while it is still fading.
+    pub fn show(&mut self, kind: &str, key: &str, draw: impl FnOnce() -> Img, mon: (i32, i32, i32, i32), s: &DeathSettings) -> bool {
         if self.win.is_none() {
             self.win = Layered::new("Deck death counter");
         }
-        let Some(w) = self.win.as_mut() else { return };
-        let dpi = place::monitors().into_iter().find(|m| m.rect == mon).map(|m| m.dk()).unwrap_or(1.0);
-        let k = s.pill_scale * dpi;
-        let key = (text.to_string(), accent, (k * 100.0) as u32, theme.to_string());
-        if self.drawn.as_ref() != Some(&key) {
-            let t = art::theme(theme);
-            let img = art::pill(&[(text, 15.0, "semibold", t.text)], t, k, accent.then_some(t.accent));
-            w.set_image(&img);
-            self.drawn = Some(key);
+        let Some(w) = self.win.as_mut() else { return false };
+        if self.drawn.as_deref() != Some(key) {
+            w.set_image(&draw());
+            self.drawn = Some(key.to_string());
+        }
+        if self.kind != kind {
+            self.kind = kind.to_string();
+            self.since = Some(Instant::now());
         }
         w.exclude_from_capture(!s.pill_in_recordings);
-        let (x, y) = position(&s.pill_corner, mon, w.size, (14.0 * dpi) as i32);
+        let (x, y) = position(&s.pill_corner, mon, w.size, (14.0 * dpi(mon)) as i32);
         w.move_to(x, y);
         w.styles(true);
-        if (w.alpha - s.pill_opacity).abs() > 0.001 {
-            w.set_alpha(s.pill_opacity);
+        let part = self.since.map_or(1.0, |t| faded_in(t.elapsed()));
+        let a = s.pill_opacity * part;
+        if (w.alpha - a).abs() > 0.001 {
+            w.set_alpha(a);
         }
         w.topmost();
+        part < 1.0
     }
 }
 
@@ -71,5 +94,12 @@ mod tests {
         assert_eq!(position("top", mon, (200, 40), 14), (1920 + 860, 14));
         assert_eq!(position("top-left", mon, (200, 40), 14), (1934, 14));
         assert_eq!(position("bottom-right", mon, (200, 40), 14), (3840 - 214, 1080 - 54));
+    }
+
+    #[test]
+    fn a_new_picture_fades_in() {
+        assert_eq!(faded_in(Duration::ZERO), 0.0);
+        assert!((faded_in(FADE / 2) - 0.5).abs() < 0.01);
+        assert_eq!(faded_in(FADE * 3), 1.0);
     }
 }

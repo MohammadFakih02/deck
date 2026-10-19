@@ -61,7 +61,7 @@
   const DEFAULT_CURVES = [["Silent", [[20, 20], [50, 25], [70, 40], [85, 70], [100, 100]]], ["Balanced", [[20, 25], [45, 30], [65, 50], [80, 80], [100, 100]]], ["Performance", [[20, 35], [40, 45], [60, 70], [75, 100], [100, 100]]]];
   const settings = {
     mode: "app", accent: "#4f8cff", theme_picked: true, look_picked: true, setup_picked: true, open_anim: "zoom", low_spec: false, pc_cards: ["cpu", "ram", "gpu"], pc_drives: true, remote_screen: "control", remote_screen_quality: "balanced", remote_screen_fps: 60, remote_screen_kbps: 0, remote_screen_priority: "smooth", remote_screen_codec: "auto", nav_folded: [], nav_width: 0, panels: {}, ping_hosts: ["1.1.1.1", "8.8.8.8", "google.com"],
-    pad: { on: true, anchor_h: "right", anchor_v: "bottom", off_x: 24, off_y: 24, monitor: "auto", scale: 1, opacity: 0.88, theme: "ds4", style: "glass", layout: "controller", labels: "playstation", fade: true, hide_no_pad: true, mode: "controller", keys: ["1", "2", "3", "4", "tab", "q", "w", "e", "r", "shift", "a", "s", "d", "f", "ctrl", "space"], mouse: true, capture_hidden: true, battery_tray: true, battery_warn: true }, pad_imported: true, deaths: { on: true, pill: true, pill_always: false, pill_corner: "top", pill_scale: 1, pill_opacity: 0.9, pill_in_recordings: false, hotkey_death: "Ctrl+F9", hotkey_undo: "", pad_combo: false, auto_save: true, auto_screen: true, community_library: true, off_games: [] },
+    pad: { on: true, anchor_h: "right", anchor_v: "bottom", off_x: 24, off_y: 24, monitor: "auto", scale: 1, opacity: 0.88, theme: "ds4", style: "glass", layout: "controller", labels: "playstation", fade: true, hide_no_pad: true, mode: "controller", keys: ["1", "2", "3", "4", "tab", "q", "w", "e", "r", "shift", "a", "s", "d", "f", "ctrl", "space"], mouse: true, capture_hidden: true, battery_tray: true, battery_warn: true }, pad_imported: true, deaths: { on: true, pill: true, pill_always: false, pill_corner: "top", pill_scale: 1, pill_opacity: 0.9, pill_in_recordings: false, pill_style: "skull", pill_counts: "both", pill_outside: "game", card: true, card_secs: 5, card_lines: { try_no: true, try_len: true, boss_time: true, session: true, bars: true, note: true, my_note: false }, red_edge: false, hotkey_death: "Ctrl+F9", hotkey_undo: "", pad_combo: false, auto_save: true, auto_screen: true, community_library: true, off_games: [] },
     osd_on: true, osd_items: ["gpu_temp", "gpu_usage", "gpu_mem", "gpu_clock", "gpu_power", "cpu_temp", "cpu_usage", "cpu_clock", "ram", "fps", "frametime", "fps_1low"], osd_hotkey: "Ctrl+Alt+O", osd_reset_hotkey: "", osd_ms: 500, rtss_autostart: true, mahm_on: false,
     breaks_on: false, theme_auto: false, theme_mode: "times", light_at: "07:00", dark_at: "19:00",
     remote_on: true, // remote_info says the phone server is running
@@ -113,19 +113,39 @@
     }),
     pad_action: () => null,
     deaths_state: ({ game } = {}) => {
-      const t = Date.now();
-      const er = { key: "steam:1245620", name: "ELDEN RING", kind: "boss", known: true, total: 52, loose: 6, off: false, can_undo: true,
-        open: { boss: "Malenia, Blade of Miquella", deaths: 14, started: t - 47 * 60000 },
-        bosses: [{ boss: "Malenia, Blade of Miquella", attempts: 14, deaths: 14, wins: 0, deaths_to_first_win: null, time_ms: 47 * 60000, fighting: true },
-          { boss: "Mohg, Lord of Blood", attempts: 9, deaths: 8, wins: 1, deaths_to_first_win: 8, time_ms: 31 * 60000, fighting: false },
-          { boss: "Margit, the Fell Omen", attempts: 25, deaths: 24, wins: 1, deaths_to_first_win: 24, time_ms: 96 * 60000, fighting: false }],
-        names: ["Malenia, Blade of Miquella", "Mohg, Lord of Blood", "Margit, the Fell Omen"],
-        auto: "screen", strip: t - 20000, taught: [t - 3 * 86400000], library: 2, can_submit: true, history: [{ i: 61, t: t - 30000, ev: "death", boss: "", src: "screen" }, { i: 60, t: t - 60000, ev: "death", boss: "", src: "hotkey" }, { i: 59, t: t - 180000, ev: "death", boss: "", src: "manual" }, { i: 58, t: t - 47 * 60000, ev: "fight_start", boss: "Malenia, Blade of Miquella", src: "" }, { i: 57, t: t - 50 * 60000, ev: "win", boss: "", src: "" }] };
-      const hades = { key: "steam:1145360", name: "Hades", kind: "run", known: true, total: 3, loose: 3, off: false, can_undo: true, open: null, bosses: [], names: [], history: [{ i: 2, t: t - 86400000, ev: "death", boss: "", src: "manual" }] };
-      return { running: true, settings: S.state.settings.deaths, front: { key: er.key, name: er.name, known: true }, game: game === hades.key ? hades : er, catalog: 320, library: { games: 4, prints: 6, issue_url: "https://github.com/MohammadFakih02/deck/issues/new?template=death_screen.yml" },
+      const t = Date.now(), M = 60000, H = 60 * M, D = 24 * H;
+      const ev = (i, dt, e, boss, src, extra) => ({ i, t: t - dt, ev: e, boss: boss || "", src: src || "", deaths: 0, ms: 0, ...(extra || {}) });
+      const mal = "Malenia, Blade of Miquella";
+      const tonight = { start: t - 3 * H, end: t, estimated: false, deaths: 23, fought: [mal, "Mohg, Lord of Blood"], beaten: ["Mohg, Lord of Blood"], per15: [1, 2, 0, 3, 2, 4, 1, 2, 3, 2, 1, 2, 0],
+        events: [ev(80, 30000, "death", mal, "screen"), ev(79, 3 * M, "death", mal, "hotkey"), ev(78, 6 * M, "death", mal, "screen"), ev(77, 9 * M, "death", mal, "screen"), ev(76, 12 * M, "death", mal, "screen"), ev(75, 15 * M, "death", mal, "screen"), ev(74, 18 * M, "death", mal, "screen"), ev(73, 21 * M, "undo", mal, "manual"),
+          ev(72, 47 * M, "fight_start", mal), ev(71, 50 * M, "win", "Mohg, Lord of Blood", "", { deaths: 8, ms: 31 * M }), ev(70, 70 * M, "death", "Mohg, Lord of Blood", "screen"), ev(69, 81 * M, "fight_start", "Mohg, Lord of Blood")] };
+      const yesterday = { start: t - D - 2 * H, end: t - D - H, estimated: false, deaths: 8, fought: ["Margit, the Fell Omen"], beaten: [], per15: [2, 3, 1, 2], events: [ev(40, D + H, "death", "Margit, the Fell Omen", "screen"), ev(39, D + 2 * H, "fight_start", "Margit, the Fell Omen")] };
+      const old = { start: t - 6 * D, end: t - 6 * D + 4 * H, estimated: true, deaths: 21, fought: ["Margit, the Fell Omen"], beaten: ["Margit, the Fell Omen"], per15: Array.from({ length: 16 }, (_, i) => (i * 7) % 4), events: [ev(10, 6 * D - 3 * H, "win", "Margit, the Fell Omen", "", { deaths: 24, ms: 96 * M })] };
+      const tries = (n, base) => Array.from({ length: n }, (_, i) => Math.round((base + i * 9 + ((i * 37) % 23)) * 1000));
+      const er = { key: "exe:eldenring", name: "ELDEN RING", kind: "boss", known: true, total: 52, loose: 6, off: false, can_undo: true,
+        open: { boss: mal, deaths: 14, started: t - 47 * M },
+        bosses: [{ boss: mal, attempts: 14, deaths: 14, wins: 0, deaths_to_first_win: null, time_ms: 47 * M, fighting: true, best_try_ms: 161000, tries_ms: tries(14, 40), won_on: null, won_at: null, last: t - 30000, note: "Waterfowl: run left, then jump the third wave." },
+          { boss: "Mohg, Lord of Blood", attempts: 9, deaths: 8, wins: 1, deaths_to_first_win: 8, time_ms: 31 * M, fighting: false, best_try_ms: 245000, tries_ms: tries(9, 90), won_on: 9, won_at: t - 50 * M, last: t - 50 * M, note: "" },
+          { boss: "Margit, the Fell Omen", attempts: 25, deaths: 24, wins: 1, deaths_to_first_win: 24, time_ms: 96 * M, fighting: false, best_try_ms: 198000, tries_ms: tries(25, 30), won_on: 25, won_at: t - 6 * D + 3 * H, last: t - D - H, note: "" }],
+        names: [mal, "Mohg, Lord of Blood", "Margit, the Fell Omen"],
+        tries: tries(10, 60), session: { start: t - 3 * H, ms: 3 * H, deaths: 23, bosses: 2, beaten: 1, pace_ms: 8 * M, deadliest: mal, estimated: false, live: true },
+        sessions: [tonight, yesterday, old],
+        records: { longest_try_ms: 245000, longest_try_boss: "Mohg, Lord of Blood", fewest_to_win: ["Mohg, Lord of Blood", 8], deadliest: ["Margit, the Fell Omen", 24], most_in_session: 23 },
+        auto: "screen", strip: t - 20000, taught: [t - 3 * D], library: 2, can_submit: true };
+      const hades = { key: "exe:hades", name: "Hades", kind: "run", known: true, total: 3, loose: 3, off: false, can_undo: true, open: null, bosses: [], names: [], tries: [0, 420000, 380000], session: null, records: { longest_try_ms: 420000, longest_try_boss: null, fewest_to_win: null, deadliest: null, most_in_session: 3 },
+        sessions: [{ start: t - D - H, end: t - D, estimated: true, deaths: 3, fought: [], beaten: [], per15: [1, 1, 0, 1], events: [ev(2, D, "death", "", "manual")] }] };
+      return { running: true, settings: S.state.settings.deaths, front: { key: er.key, name: er.name, known: true }, game: game === hades.key ? hades : er, catalog: 17, library: { games: 4, prints: 6, issue_url: "https://github.com/MohammadFakih02/deck/issues/new?template=death_screen.yml" },
         presets: [{ name: "Celeste", save: "celeste", words: [], verified: false }, { name: "ELDEN RING", save: "", words: ["YOU DIED"], verified: false }, { name: "Nioh 2 – The Complete Edition", save: "", words: ["FREED FROM THIS MORTAL COIL"], verified: false }],
-        games: [{ key: er.key, name: er.name, last: t - 60000, deaths: 52, fighting: true, off: false }, { key: hades.key, name: "Hades", last: t - 86400000, deaths: 3, fighting: false, off: false }] };
+        games: [{ key: er.key, name: er.name, last: t - 60000, deaths: 52, fighting: true, off: false }, { key: hades.key, name: "Hades", last: t - D, deaths: 3, fighting: false, off: false }],
+        overall: { deaths: 55, played_ms: 41 * H, beaten: 2, weeks: [0, 0, 0, 0, 0, 0, 0, 3, 0, 11, 21, 31], games: [{ key: er.key, name: er.name, deaths: 52 }, { key: hades.key, name: "Hades", deaths: 3 }], bosses: [{ game: "ELDEN RING", boss: "Margit, the Fell Omen", deaths: 24 }, { game: "ELDEN RING", boss: mal, deaths: 14 }, { game: "ELDEN RING", boss: "Mohg, Lord of Blood", deaths: 8 }] } };
     },
+    deaths_note: () => null,
+    deaths_preview: () => {
+      const pic = (w, h, label) => { const c = document.createElement("canvas"); c.width = w; c.height = h; const x = c.getContext("2d"); x.fillStyle = "rgba(14,14,16,.85)"; x.fillRect(0, 0, w, h); x.fillStyle = "#ff6a6a"; x.font = "bold 22px sans-serif"; x.fillText(label, 12, h / 2 + 8); return c.toDataURL(); };
+      return { counter: pic(180, 52, "14  Malenia"), card: pic(250, 170, "15 deaths") };
+    },
+    deaths_share: ({ save }) => (save ? "Malenia.png" : null),
+    deaths_export: () => "deaths.csv",
     deaths_act: () => null,
     update_state: () => ({ current: "2.5.10", state: "available", latest: "2.6.0", notes: "- Updates from GitHub\n- Deck comes back after a crash", checked: Date.now() / 1000, error: null, waiting: false, silent: true }),
     update_check: () => ({ current: "2.5.10", state: "uptodate", latest: null, notes: "", checked: Date.now() / 1000, error: null, waiting: false, silent: true }),

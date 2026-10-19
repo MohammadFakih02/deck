@@ -1,10 +1,22 @@
 # Deck — project state
 
-Handoff notes so work can resume later. Last updated: 2026-10-20 (v2.6.1).
+Handoff notes so work can resume later. Last updated: 2026-10-20 (v2.7.0).
 
 **Start with `DECK.md`** (full overview: features, hardware, files, build/test, status). This file is the dated history.
 
 > **RULE: before every commit, update the docs.** Add today's dated entry here, add user-visible changes to `CHANGELOG.md`, update `DECK.md` / `README.md` when facts change, and stage them in the same commit. The pre-commit hook enforces it; never bypass it. No personal data in these files (that goes in the git-ignored `PRIVATE_NOTES.md`).
+
+## 2026-10-20: v2.7.0 — death counter: new in-game look, sessions, boss cards, records
+
+The user found the counter "very underwhelming" and the History tab bad. Designed with them from browser mockups (spec `docs/superpowers/specs/2026-10-20-death-counter-look-design.md`, plan `docs/superpowers/plans/2026-10-20-death-counter-look.md`): "B while you play, C after you die", plus ring and huge-number styles, an optional red edge, everything switchable; then "do whatever you think is best" for the page.
+- **History model:** `Ev::Play` with `Event.ms` (a play session's length; one line per start, rewritten in place every 5 min by `put_play`); `Book.deaths` now keeps each death's time, `Book.wins`, `Book.plays`. Old Deck versions skip the play lines (unknown lines are skipped on load).
+- **`deaths/stats.rs`:** tries (fight start or last death/win to a death/win; > 30 min = unknown), sessions (play lines < 15 min apart merge; history before the first play line is estimated, split at 1 h gaps), records, `death_note` (milestones 1, 10, 50, 100, every 100th; "Your longest try yet" from 3 tries).
+- **Sessions are recorded** by `session_step` in the counter's loop (the counted game in front; another game ends it at once; nothing in front for 15 min ends it).
+- **`deaths/view.rs`:** the page's JSON (`tries`, `session`, `bosses` with `best_try_ms`/`tries_ms`/`won_on`/`note`, `sessions` with events, `records`) and `overall` (cached 10 s in `St`), the CSV export (`local_iso`, a civil-date function; no date crate). A 40,000-event history once took 2.3 s (a boss list re-keyed per death): a test pins it.
+- **Overlay:** `deaths/look.rs` draws the counter (skull / ring / huge; boss, game or both), the card, labels and the 600x315 share picture with the overlay's SVG rasteriser; `pill.rs` shows any picture with a 150 ms fade-in; `edge.rs` four click-through strips glowing red for 800 ms. The loop: label > card (for `card_secs`) > counter; the counter pops (x1.15 for 120 ms) when its number changes; ticks 33 ms only while animating. A death no longer flashes "+1 · …" text.
+- **Settings:** `pill_style`, `pill_counts`, `pill_outside`, `card`, `card_secs`, `card_lines` (`CardLines`), `red_edge`. Commands `deaths_note`, `deaths_preview`, `deaths_share` (clipboard via `clipboard::set_png`, or a save dialog), `deaths_export`.
+- **Page:** Now (both counters, last tries, session tiles, records, share), Bosses (cards with a try-length line and notes), History (session cards, timeline with folded runs and a "⋯" menu to delete a line), Games (all games, export), Settings (new rows, card section, live preview). Charts in `ui/js/deathcharts.js` (inline SVG; bars use `.dc-b` because the global `.bar` sets `height`, which overrides SVG rect heights).
+- **Checks:** clippy clean; 391 Rust tests; UI `regress.mjs` 40/40, `a11y.mjs` clean on every Deaths tab. Drawn samples checked by eye (`look::tests::draw_samples`, `DECK_LOOK_DIR`). **Not checked in a game yet:** the card, the fade and pop, the red edge, session recording.
 
 ## 2026-10-20: v2.6.1 — teaching fixed on Khazan's real death screen; no Steam ids
 
