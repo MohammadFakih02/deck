@@ -70,6 +70,10 @@ pub struct Cpu {
     /// each logical processor's (MPERF, APERF) at the last tick; empty when the driver can't read them
     cycles: Vec<Option<(u64, u64)>>,
     cycles_ok: bool,
+    /// bus clock (Intel, `bus_mhz`); 0 when unknown
+    bus: f64,
+    /// this tick's Afterburner-style clock of every logical processor (`ratio_mhz`); empty without it
+    pub ratio_clocks: Vec<Option<f32>>,
 }
 
 /// A core's live clock: the fastest of its threads (`mask` = its logical processors).
@@ -100,6 +104,22 @@ pub fn counted_mhz(tsc_mhz: f64, before: (u64, u64), now: (u64, u64)) -> Option<
     let dm = now.0.wrapping_sub(before.0);
     let da = now.1.wrapping_sub(before.1);
     (tsc_mhz > 0.0 && dm as f64 >= tsc_mhz * 1000.0 && da > 0).then(|| (tsc_mhz * da as f64 / dm as f64).round() as f32)
+}
+
+/// A thread's clock the way MSI Afterburner shows it: the ratio its core runs at now (IA32_PERF_STATUS
+/// bits 15:8) times the bus clock. It holds at the turbo step while the core works (5292 = 53 x 99.85
+/// on an i5-14600KF) and drops to the lowest ratio (8 x = 799) while it sleeps, where the cycle
+/// counters give the average over the second (4.8-5.2 GHz). None without a ratio or bus clock.
+pub fn ratio_mhz(bus_mhz: f64, perf_status: u64) -> Option<f32> {
+    let ratio = (perf_status >> 8) & 0xFF;
+    (bus_mhz > 0.0 && ratio > 0).then(|| (ratio as f64 * bus_mhz).round() as f32)
+}
+
+/// The bus clock in MHz: the TSC's rate over the base ratio (IA32_PLATFORM_INFO bits 15:8),
+/// 99.85 rather than a flat 100 on most boards; 0 when the ratio is unknown.
+pub fn bus_mhz(tsc_mhz: f64, platform_info: u64) -> f64 {
+    let base = (platform_info >> 8) & 0xFF;
+    if base == 0 || tsc_mhz <= 0.0 { 0.0 } else { tsc_mhz / base as f64 }
 }
 
 /// Each thread's counted clock, else Windows' estimate of it.
@@ -267,7 +287,10 @@ impl Cpu {
             },
             _ => (CpuTemp::None, Some(format!("CPU temperature not supported for this CPU ({})", brand))),
         };
-        let mut c = Cpu { t, prev: None, brand, error, cores: crate::hw::sysmon::cores(), energy_unit: 0.0, last_energy: None, threads: crate::hw::sysmon::ThreadLoad::new(), clk: pdh_open(r"\Processor Information(*)\% Processor Performance"), mhz: vec![], cycles: vec![], cycles_ok: true };
+        let mut c = Cpu { t, prev: None, brand, error, cores: crate::hw::sysmon::cores(), energy_unit: 0.0, last_energy: None, threads: crate::hw::sysmon::ThreadLoad::new(), clk: pdh_open(r"\Processor Information(*)\% Processor Performance"), mhz: vec![], cycles: vec![], cycles_ok: true, bus: 0.0, ratio_clocks: vec![] };
+        if matches!(c.t, CpuTemp::Intel { .. }) {
+            c.bus = c.msr(0xCE).map_or(0.0, |pi| bus_mhz(tsc_mhz(), pi));
+        }
         // RAPL energy unit (Intel 0x606, AMD 0xC0010299): joules = count / 2^bits[12:8]
         let unit_msr = match &c.t {
             CpuTemp::Intel { m, .. } => m.exec("ioctl_read_msr", &[0x606], 1).ok(),
@@ -399,9 +422,18 @@ impl Cpu {
             return vec![];
         }
         let n = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1).min(64);
-        let now: Vec<Option<(u64, u64)>> = (0..n).map(|i| on_cpu(i as u32, || Some((self.msr(mperf)?, self.msr(aperf)?)))).collect();
+        let intel = self.bus > 0.0;
+        let read: Vec<(Option<(u64, u64)>, Option<u64>)> = (0..n)
+            .map(|i| on_cpu(i as u32, || ((|| Some((self.msr(mperf)?, self.msr(aperf)?)))(), if intel { self.msr(0x198) } else { None })))
+            .collect();
+        self.ratio_clocks = if intel { read.iter().map(|r| r.1.and_then(|v| ratio_mhz(self.bus, v))).collect() } else { vec![] };
+        if self.ratio_clocks.iter().all(|c| c.is_none()) {
+            self.ratio_clocks.clear();
+        }
+        let now: Vec<Option<(u64, u64)>> = read.into_iter().map(|r| r.0).collect();
         if now.iter().all(|c| c.is_none()) {
             self.cycles_ok = false; // the driver won't read them: Windows' clocks from now on
+            self.ratio_clocks.clear();
             return vec![];
         }
         let tsc = tsc_mhz();
@@ -669,6 +701,19 @@ mod clock_tests {
         assert_eq!(counted_mhz(3494.75, (0, 0), (3_000, 6_000)), None, "under a millisecond of running");
         assert_eq!(counted_mhz(3494.75, (5, 5), (5, 5)), None);
         assert_eq!(counted_mhz(0.0, (0, 0), (1 << 32, 1 << 33)), None);
+    }
+
+    /// The same i5-14600KF: Afterburner's 5292 / 3994 / 799 are whole ratios times the 99.85 MHz bus
+    /// (TSC 3494.75 over the base ratio 35), read from IA32_PERF_STATUS, not counted cycles.
+    #[test]
+    fn afterburner_clock_is_the_ratio_times_the_bus() {
+        let bus = bus_mhz(3494.75, 35 << 8);
+        assert_eq!(ratio_mhz(bus, 53 << 8), Some(5292.0), "P-core at 53x");
+        assert_eq!(ratio_mhz(bus, (0x1234u64 << 32) | (40 << 8)), Some(3994.0), "E-core at 40x, voltage bits ignored");
+        assert_eq!(ratio_mhz(bus, 8 << 8), Some(799.0), "a sleeping core");
+        assert_eq!(ratio_mhz(bus, 0), None);
+        assert_eq!(bus_mhz(3494.75, 0), 0.0, "no base ratio: no bus clock");
+        assert_eq!(ratio_mhz(0.0, 53 << 8), None);
     }
 
     #[test]

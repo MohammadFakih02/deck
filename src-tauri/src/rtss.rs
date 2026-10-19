@@ -23,6 +23,7 @@ pub use crate::osd::OsdStyle;
 pub struct Snap {
     pub gpu_temp: Option<f32>,
     pub gpu_usage: Option<f32>,
+    pub gpu_fb: Option<f32>,
     pub gpu_mem_mb: Option<f32>,
     pub gpu_mem_total_mb: Option<f32>,
     pub gpu_clock: Option<f32>,
@@ -967,13 +968,22 @@ pub fn status() -> Value {
     })
 }
 
+/// Each core's name ("P-core 0") and its logical processors, read once.
+fn core_masks() -> &'static [(String, u64)] {
+    static MASKS: std::sync::OnceLock<Vec<(String, u64)>> = std::sync::OnceLock::new();
+    MASKS.get_or_init(crate::hw::sysmon::cores)
+}
+
 /// Gathers the readings from Deck's GPU engine, the hardware engine and Windows.
 fn snapshot(app: &App, sys: &mut sysinfo::System, clocks: &crate::hw::sensors::ThreadClocks, rt: Option<&View>) -> (Snap, Option<String>) {
     let mut s = Snap::default();
+    // the clocks MSI Afterburner shows (ratio x bus), so both overlays agree; empty without the driver
+    let mut ratio: Vec<Option<f32>> = vec![];
     if let Some(g) = app.gpu_engine() {
         let l = g.nvml.live();
         s.gpu_temp = l.temp_c.map(|v| v as f32);
         s.gpu_usage = l.util.map(|v| v as f32);
+        s.gpu_fb = l.mem_util.map(|v| v as f32);
         s.gpu_mem_mb = l.mem_used_mb.map(|v| v as f32);
         s.gpu_mem_total_mb = l.mem_total_mb.map(|v| v as f32);
         s.gpu_clock = l.core_mhz.map(|v| v as f32);
@@ -991,6 +1001,10 @@ fn snapshot(app: &App, sys: &mut sysinfo::System, clocks: &crate::hw::sensors::T
             s.cpu_temp = l.cpu_t;
             s.cpu_usage = l.cpu_l;
             s.cpu_clock = l.cpu_mhz.map(|v| v as f32);
+            ratio = l.thread_ratio_mhz.clone();
+            if let Some(m) = ratio.iter().flatten().copied().reduce(f32::max) {
+                s.cpu_clock = Some(m);
+            }
         }
         if let (Ok(l), Ok(i)) = (h.live.lock(), h.hw.lock()) {
             for (k, name) in i.fan_names.iter().enumerate() {
@@ -1039,6 +1053,15 @@ fn snapshot(app: &App, sys: &mut sysinfo::System, clocks: &crate::hw::sensors::T
                     }
                 }
             }
+            if !ratio.is_empty() {
+                for c in &mut cores {
+                    if let Some((_, m)) = core_masks().iter().find(|(l, _)| *l == c.name) {
+                        if let Some(v) = crate::hw::sensors::core_mhz(*m, &ratio) {
+                            c.clock = Some(v);
+                        }
+                    }
+                }
+            }
             s.core_reads = cores;
         }
     }
@@ -1047,8 +1070,21 @@ fn snapshot(app: &App, sys: &mut sysinfo::System, clocks: &crate::hw::sensors::T
     if s.cpu_usage.is_none() {
         s.cpu_usage = Some(sys.global_cpu_usage());
     }
+    // a core's load is its busiest thread's: the average of a P-core's two threads hid a game's main
+    // thread at 100 % (shown as 50 %), the sign of a CPU-bound game
+    let loads: Vec<Option<f32>> = s.cores.iter().map(|v| Some(*v)).collect();
+    for c in &mut s.core_reads {
+        if let Some((_, m)) = core_masks().iter().find(|(l, _)| *l == c.name) {
+            if let Some(v) = crate::hw::sensors::core_mhz(*m, &loads) {
+                c.load = Some(v);
+            }
+        }
+    }
     // not sysinfo's frequency(): on Windows that is each core's nominal clock, never the live one
-    let mhz = clocks.read();
+    let mut mhz = clocks.read();
+    if ratio.len() >= s.cores.len() && !ratio.is_empty() {
+        mhz = ratio;
+    }
     s.thread_reads = sys
             .cpus()
             .iter()

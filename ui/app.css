@@ -1028,6 +1028,8 @@ body.mode-app .top .pin, body.mode-app .top .close-x { display: none; }
 .ov-theme .sw { display: inline-flex; } .ov-theme .sw i { width: 12px; height: 18px; } .ov-theme .sw i:first-child { border-radius: 5px 0 0 5px; } .ov-theme .sw i:last-child { border-radius: 0 5px 5px 0; }
 /* RivaTuner draws small units at 62 % size, raised (<S0=62>) */
 .ov-u.small { font-size: .62em; vertical-align: text-top; }
+.ov-subn { font-size: .5em; vertical-align: sub; }
+.ov-ln.sm, .ov-p.sm .ov-v { font-size: .62em; }
 .ov-pad { position: absolute; z-index: 1; width: 24px; height: 24px; padding: 0; border-radius: 6px; border: 1px dashed #ffffff44; background: #ffffff0c; opacity: 0; transition: opacity .15s; }
 .ov-screen:hover .ov-pad, .ov-pad:focus-visible { opacity: 1; }
 .ov-pad.on { opacity: 1; border-style: solid; border-color: var(--acc); background: var(--acc-soft); }

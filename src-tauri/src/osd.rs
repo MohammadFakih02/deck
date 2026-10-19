@@ -33,7 +33,7 @@ pub const CATS: &[(&str, &str)] = &[
 /// (group, label in front of the line)
 const GROUPS: &[(&str, &str)] = &[
     ("gpu", "GPU"), ("cpu", "CPU"), ("cores", "CPU%"), ("coreclk", "MHz"), ("coretmp", "°C"), ("coretab", ""), ("threadtab", ""), ("vram", "MEM"),
-    ("ram", "RAM"), ("app", "APP"), ("fps", "FPS"), ("net", "NET"), ("fan", "FAN"), ("btemp", "TEMP"), ("title", ""), ("info", ""),
+    ("ram", "RAM"), ("app", "APP"), ("fps", "FPS"), ("net", "NET"), ("fan", "FAN"), ("btemp", "TEMP"), ("title", ""), ("info", ""), ("fttitle", ""), ("ftgraph", ""),
 ];
 
 const fn d(id: &'static str, label: &'static str, short: &'static str, cat: &'static str, group: &'static str) -> ItemDef {
@@ -46,6 +46,7 @@ pub const ITEMS: &[ItemDef] = &[
     d("gpu_usage", "Usage", "GPU load", "gpu", "gpu"),
     d("gpu_mem", "Memory used", "VRAM", "gpu", "vram"),
     d("gpu_mem_pct", "Memory used (%)", "VRAM %", "gpu", "vram"),
+    d("gpu_fb", "Memory controller load", "GPU FB", "gpu", "gpu"),
     d("gpu_clock", "Core clock", "GPU clock", "gpu", "gpu"),
     d("gpu_memclock", "Memory clock", "VRAM clock", "gpu", "vram"),
     d("gpu_power", "Power", "GPU power", "gpu", "gpu"),
@@ -207,6 +208,13 @@ pub struct OsdStyle {
     pub int_fps: bool,
     /// also change every game profile RivaTuner has made (a game with its own profile ignores the global one)
     pub all_games: bool,
+    /// the framerate number and its unit in a colour of their own ("" = like the other numbers;
+    /// MSI Afterburner's is white)
+    pub fps_value_color: String,
+    /// the thread table's numbers small and low, as MSI Afterburner writes them (CPU₁)
+    pub sub_numbers: bool,
+    /// MSI Afterburner's graph: a small "Frametime" above it and the frametime, small, after it
+    pub graph_title: bool,
     /// items the user put on a line of their own: item id -> that line's label
     pub groups: std::collections::BTreeMap<String, String>,
 
@@ -268,6 +276,9 @@ impl Default for OsdStyle {
             fit: false,
             int_fps: true,
             all_games: true,
+            fps_value_color: String::new(),
+            sub_numbers: false,
+            graph_title: false,
             groups: Default::default(),
             ghz: false,
             fahrenheit: false,
@@ -296,6 +307,10 @@ pub struct Part {
     pub pre: String,
     /// where the frametime graph goes (the modern graph's line): `<OBJ>` on the overlay
     pub graph: bool,
+    /// a colour slot of its own for the number and its unit (C9: `fps_value_color`)
+    pub color: Option<u8>,
+    /// drawn small (the frametime after Afterburner's graph)
+    pub small: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -379,6 +394,7 @@ fn value(id: &str, s: &Snap, st: &OsdStyle, app: &str) -> Option<Part> {
             let pct = s.gpu_mem_mb? / s.gpu_mem_total_mb.filter(|t| *t > 0.0)? * 100.0;
             with(part(num(pct, 0), "%"), tone("mem", pct, 0, st))
         }
+        "gpu_fb" => with(one(s.gpu_fb, "%")?, tone("load", s.gpu_fb?, 0, st)),
         "gpu_clock" => mhz(s.gpu_clock)?,
         "gpu_memclock" => mhz(s.gpu_memclock)?,
         "gpu_power" => one(s.gpu_power_w, "W")?,
@@ -401,6 +417,9 @@ fn value(id: &str, s: &Snap, st: &OsdStyle, app: &str) -> Option<Part> {
             let mut p = rate(s.fps)?;
             p.rtss = Some("<FR>");
             p.tone = if st.warn && st.warn_fps > 0 && s.fps.map(|v| v < st.warn_fps as f32).unwrap_or(false) { 2 } else { 0 };
+            if !hex(&st.fps_value_color, "").is_empty() {
+                p.color = Some(9);
+            }
             p
         }
         "frametime" => {
@@ -633,20 +652,30 @@ pub fn lines(items: &[String], st: &OsdStyle, s: &Snap, app: &str) -> Vec<Line> 
     // the modern frametime graph: a line built like the others, so it lines up with them: the live
     // frametime (unless the overlay already shows it) in the first value column, then the graph
     if st.graph && !out.is_empty() {
-        let mut parts = vec![];
-        if !items.iter().any(|i| i == "frametime") {
-            parts.extend(value("frametime", s, st, app));
+        let ft = if items.iter().any(|i| i == "frametime") { None } else { value("frametime", s, st, app) };
+        if st.graph_title {
+            // Afterburner's: the name small above the graph, the frametime small after it
+            out.push(Line { label: "Frametime".into(), group: "fttitle", parts: vec![] });
+            let mut parts = vec![Part { graph: true, ..Default::default() }];
+            parts.extend(ft.map(|mut p| {
+                p.small = true;
+                p.color = st.group_colors.then_some(group_slot("fps"));
+                p
+            }));
+            out.push(Line { label: String::new(), group: "ftgraph", parts });
+        } else {
+            let mut parts: Vec<Part> = ft.into_iter().collect();
+            parts.push(Part { graph: true, ..Default::default() });
+            out.push(Line { label: "FT".into(), group: "fps", parts });
         }
-        parts.push(Part { graph: true, ..Default::default() });
-        out.push(Line { label: "FT".into(), group: "fps", parts });
     }
     if st.columns && st.layout != "line" {
         // numbers right-aligned, units left-aligned, one column per position (monospace fonts line up)
-        let cols = out.iter().map(|l| l.parts.len()).max().unwrap_or(0);
+        let cols = out.iter().filter(|l| !free(l)).map(|l| l.parts.len()).max().unwrap_or(0);
         for c in 0..cols {
-            let w = out.iter().filter_map(|l| l.parts.get(c)).map(|p| p.text.trim().chars().count()).max().unwrap_or(0);
-            let uw = out.iter().filter_map(|l| l.parts.get(c)).map(|p| p.unit.chars().count()).max().unwrap_or(0);
-            for l in &mut out {
+            let w = out.iter().filter(|l| !free(l)).filter_map(|l| l.parts.get(c)).map(|p| p.text.trim().chars().count()).max().unwrap_or(0);
+            let uw = out.iter().filter(|l| !free(l)).filter_map(|l| l.parts.get(c)).map(|p| p.unit.chars().count()).max().unwrap_or(0);
+            for l in out.iter_mut().filter(|l| !free(l)) {
                 if let Some(p) = l.parts.get_mut(c) {
                     // a figure RivaTuner fills in itself gets the spaces its current value needs
                     p.text = format!("{:>w$}", p.text.trim(), w = w);
@@ -666,15 +695,38 @@ pub fn lines(items: &[String], st: &OsdStyle, s: &Snap, app: &str) -> Vec<Line> 
         }
     }
     if st.align && st.layout != "line" {
-        let w = out.iter().map(|l| l.label.chars().count()).max().unwrap_or(0);
-        for l in &mut out {
+        let w = out.iter().filter(|l| !free(l)).map(|l| label_width(l, st)).max().unwrap_or(0);
+        for l in out.iter_mut().filter(|l| !free(l)) {
             if !l.label.is_empty() {
-                let pad = w - l.label.chars().count();
+                let pad = w - label_width(l, st);
                 l.label.push_str(&" ".repeat(pad));
             }
         }
     }
     out
+}
+
+/// Lines outside the columns: Afterburner's graph title and graph.
+fn free(l: &Line) -> bool {
+    matches!(l.group, "fttitle" | "ftgraph")
+}
+
+/// A label as (name, its number when drawn small (`sub_numbers`, thread table only), the spaces after it).
+fn label_parts<'a>(l: &'a Line, st: &OsdStyle) -> (&'a str, &'a str, usize) {
+    let t = l.label.trim_end();
+    let pad = l.label.len() - t.len();
+    if st.sub_numbers && l.group == "threadtab" {
+        let name = t.trim_end_matches(|c: char| c.is_ascii_digit());
+        return (name, &t[name.len()..], pad);
+    }
+    (t, "", pad)
+}
+
+/// How many characters a label takes on screen: small numbers are half a character each, drawn in
+/// whole characters (padded with small spaces) so the columns still line up.
+fn label_width(l: &Line, st: &OsdStyle) -> usize {
+    let (name, digits, pad) = label_parts(l, st);
+    name.chars().count() + digits.len().div_ceil(2) + pad
 }
 
 /// The colour slot of a group: C4 GPU, C5 CPU, C6 memory, C7 framerate, C8 the rest.
@@ -683,7 +735,7 @@ fn group_slot(g: &str) -> u8 {
         "gpu" | "vram" => 4,
         "cpu" | "cores" | "coreclk" | "coretmp" | "coretab" | "threadtab" => 5,
         "ram" | "app" => 6,
-        "fps" => 7,
+        "fps" | "fttitle" | "ftgraph" => 7,
         _ => 8,
     }
 }
@@ -702,17 +754,18 @@ fn render_part(p: &Part, g: &str, st: &OsdStyle) -> String {
     let c = match p.tone {
         2 => 2,
         1 => 3,
-        _ => base,
+        _ => p.color.unwrap_or(base),
     };
+    let uc = p.color.unwrap_or(0);
     let lead = p.text.len() - p.text.trim_start().len();
     let v = p.rtss.map(|t| format!("{}{t}", " ".repeat(lead))).unwrap_or_else(|| p.text.clone());
-    o += &format!("<C{c}>{v}<C>");
+    o += &if p.small { format!("<C{c}><S0>{v}<S><C>") } else { format!("<C{c}>{v}<C>") };
     if !p.unit.is_empty() {
         match st.units.as_str() {
             "off" => {}
-            "normal" => o += &format!("<C0> {}<C>", p.unit),
+            "normal" if !p.small => o += &format!("<C{uc}> {}<C>", p.unit),
             // a small gap (a space at the unit's size) so the unit doesn't touch the number
-            _ => o += &format!("<C0><S0> {}<S><C>", p.unit),
+            _ => o += &format!("<C{uc}><S0> {}<S><C>", p.unit),
         }
     }
     o
@@ -734,15 +787,29 @@ pub fn render(ls: &[Line], st: &OsdStyle) -> String {
         hex(&st.ram_color, "C77DFF"),
         hex(&st.fps_color, "FFD60A"),
         hex(&st.info_color, "9AA3B5"),
-        if st.units == "small" { "<S0=62>" } else { "" }
+        if st.units == "small" || st.graph_title { "<S0=62>" } else { "" }
     );
+    let mut head = head;
+    if st.sub_numbers {
+        head += "<S1=-50>"; // negative: small and low (subscript)
+    }
+    let fpsc = hex(&st.fps_value_color, "");
+    if !fpsc.is_empty() {
+        head += &format!("<C9={fpsc}>");
+    }
     let body: Vec<String> = ls
         .iter()
         .map(|l| {
             let mut s = String::new();
             if !l.label.is_empty() {
                 let c = if st.group_colors { group_slot(l.group) } else { 0 };
-                s += &format!("<C{c}>{}<C>  ", l.label);
+                if l.group == "fttitle" {
+                    s += &format!("<C{c}><S0>{}<S><C>", l.label.trim_end());
+                } else {
+                    let (name, digits, pad) = label_parts(l, st);
+                    let small = if digits.is_empty() { String::new() } else { format!("<S1>{:<w$}<S>", digits, w = digits.len().div_ceil(2) * 2) };
+                    s += &format!("<C{c}>{name}{small}{}<C>  ", " ".repeat(pad));
+                }
             }
             s += &l.parts.iter().map(|p| render_part(p, l.group, st)).collect::<Vec<_>>().join("  ");
             s
@@ -761,7 +828,7 @@ pub fn text_width(ls: &[Line], st: &OsdStyle) -> usize {
     let n = |s: &str| s.chars().count();
     ls.iter()
         .map(|l| {
-            let label = if l.label.is_empty() { 0 } else { n(&l.label) + 2 };
+            let label = if l.label.is_empty() { 0 } else { label_width(l, st) + 2 };
             let parts: usize = l
                 .parts
                 .iter()
@@ -827,12 +894,18 @@ pub fn graph_object(st: &OsdStyle, width: usize, avg_fps: Option<f32>) -> Vec<u8
 /// For the Sensors page's preview.
 pub fn preview(items: &[String], st: &OsdStyle, s: &Snap, app: &str) -> Value {
     let ls = lines(items, st, s, app);
-    json!(ls.iter().map(|l| json!({
-        "label": l.label,
-        "group": l.group,
-        "slot": group_slot(l.group),
-        "parts": l.parts.iter().map(|p| json!({"t": p.text, "u": if st.units == "off" { "" } else { p.unit.as_str() }, "tone": p.tone, "pre": p.pre, "g": p.graph})).collect::<Vec<_>>(),
-    })).collect::<Vec<_>>())
+    json!(ls.iter().map(|l| {
+        let (name, digits, pad) = label_parts(l, st);
+        json!({
+            "label": if digits.is_empty() { l.label.clone() } else { name.to_string() },
+            "sub": digits,
+            "pad": if digits.is_empty() { 0 } else { pad },
+            "small": l.group == "fttitle",
+            "group": l.group,
+            "slot": group_slot(l.group),
+            "parts": l.parts.iter().map(|p| json!({"t": p.text, "u": if st.units == "off" { "" } else { p.unit.as_str() }, "tone": p.tone, "pre": p.pre, "g": p.graph, "c": p.color, "sm": p.small})).collect::<Vec<_>>(),
+        })
+    }).collect::<Vec<_>>())
 }
 
 // ---------------------------------------------------------------------------- frame statistics
@@ -1179,6 +1252,25 @@ mod tests {
         assert_eq!(ls[0].parts[0].text.trim(), "92");
         let text = render(&ls, &st);
         assert!(text.contains("<C0>CPU1"), "{text}");
+    }
+
+    /// MSI Afterburner's look as it draws it: CPU₁ (small number, columns still in line), a white
+    /// framerate with its unit, "Frametime" small above the graph and the frametime small after it.
+    #[test]
+    fn afterburner_numbers_framerate_and_graph() {
+        let st = OsdStyle { columns: true, group_colors: true, sub_numbers: true, fps_value_color: "FFFFFF".into(), graph: true, graph_title: true, ..Default::default() };
+        let ls = lines(&items(&["cpu_temp", "thread_table", "fps", "gpu_temp"]), &st, &snap(), "");
+        let groups: Vec<&str> = ls.iter().map(|l| l.group).collect();
+        assert_eq!(groups, ["cpu", "threadtab", "threadtab", "fps", "gpu", "fttitle", "ftgraph"]);
+        assert!(ls[..5].iter().all(|l| label_width(l, &st) == label_width(&ls[0], &st)), "labels line up");
+        let text = render(&ls, &st);
+        assert!(text.contains("<S1=-50>") && text.contains("<C5>CPU<S1>1 <S>"), "{text}");
+        assert!(text.contains("<C9=FFFFFF>") && text.contains("<C9><FR><C><C9><S0> FPS<S><C>"), "{text}");
+        assert!(text.contains("<C7><S0>Frametime<S><C>\n<C7><OBJ=00000000><C>  <C7><S0><FT><S><C>"), "{text}");
+        assert_eq!(text.matches("<FT>").count(), 1, "the frametime once");
+        // the other looks: nothing of it
+        let plain = render(&lines(&items(&["thread_table", "fps"]), &OsdStyle::default(), &snap(), ""), &OsdStyle::default());
+        assert!(!plain.contains("<S1") && !plain.contains("<C9"), "{plain}");
     }
 
     #[test]

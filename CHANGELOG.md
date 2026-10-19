@@ -2,6 +2,19 @@
 
 All notable changes to Deck. Setups for each version are on the [Releases](https://github.com/MohammadFakih02/deck/releases) page.
 
+## Unreleased
+
+### Fixed
+- **The overlay's CPU clocks now really match MSI Afterburner.** 2.5.10 measured the average clock each core ran at, which comes out a few % below Afterburner's on a boosting CPU (5.1 GHz against 5.29), and the thread lines still used Windows' estimate. Afterburner shows each core's current speed step times the bus clock; the overlay now reads the same (Intel), so the CPU clock, every thread line and the core table show the same figures as Afterburner. The CPU page keeps the measured average.
+- **A core's load in the overlay's core table is its busiest thread's.** The average of a P-core's two threads showed a game's main thread at 100 % as 50 %, hiding a CPU-bound game.
+
+### Changed
+- **"Like MSI Afterburner" looks like MSI Afterburner:** its layout (clock, CPU, a line per thread, RAM, FPS, GPU, MEM, then the frametime graph), its default colours, a white framerate, small thread numbers (CPU₁) and a small "Frametime" above the graph with the frametime after it. The framerate figures (min, average, lows) are left off, as Afterburner shows them only while benchmarking; add them back in Items.
+- New look options: **Small thread numbers** (Layout), **Afterburner layout** for the graph (Graph), and a colour of its own for the framerate number.
+
+### Added
+- **GPU memory controller load** ("FB usage" in Afterburner) as an overlay item (NVIDIA).
+
 ## 2.5.10 — 2026-10-19
 
 ### Fixed

@@ -16,6 +16,7 @@ export const OV_DEF = {
   warn: true, warn_gpu_temp: 85, warn_cpu_temp: 90, warn_fps: 0, cores_per_row: 8, mem_unit: "MB", stats_secs: 60,
   corner: "tr", margin_x: 1, margin_y: 1, zoom: 2, shadow: true, box_on: false, box_opacity: 50, font: "Unispace", bold: false,
   graph: false, graph_w: 32, graph_h: 4, graph_style: 0, graph_max: 0, graph_fit: true, color_bar: false, fit: false, int_fps: true, all_games: true,
+  fps_value_color: "", sub_numbers: false, graph_title: false,
 };
 
 export const OV_FONTS = ["Unispace", "Consolas", "Lucida Console", "Courier New", "Cascadia Mono", "Segoe UI", "Tahoma", "Arial", "Verdana", "Calibri"];
@@ -40,19 +41,25 @@ export const OV_PRESETS = [
   ["Everything", null],
 ];
 
+/** What only the Afterburner look turns on; the other looks put it back. */
+const NOT_AB = { fps_value_color: "", sub_numbers: false, graph_title: false };
+
 /** One click: the items and the style together. */
 export const OV_LOOKS = [
-  ["Like MSI Afterburner", "Clock, a line per thread, framerate stats, graph",
-    ["time", "cpu_temp", "cpu_usage", "cpu_clock", "cpu_power", "thread_table", "ram", "proc_ram", "commit", "fps", "fps_min", "fps_avg", "fps_max", "fps_1low", "fps_01low", "gpu_temp", "gpu_usage", "gpu_power_pct", "gpu_clock", "gpu_power", "gpu_fan", "gpu_mem", "gpu_memclock", "frametime"],
-    { layout: "grouped", labels: true, align: true, units: "small", columns: true, fps_lines: true, group_colors: true, group_values: false, heat: false,
-      label_color: "FF8A1E", value_color: "FF8A1E", warm_color: "FFC85A", warn_color: "FF4D4D", cpu_color: "1E90FF", ram_color: "1E90FF", gpu_color: "2ECC71", fps_color: "E0707A", info_color: "FF8A1E",
-      clock_12h: true, clock_secs: true, graph: true, graph_w: 48, graph_h: 2, shadow: true, box_on: false, zoom: 2, corner: "tr", margin_x: 8, margin_y: 8, font: "Unispace", bold: false }],
+  // MSI Afterburner's own layout and default colours (checked against its overlay in a game):
+  // clock, CPU, a line per thread, RAM, FPS in white, GPU, MEM, then the frametime graph
+  ["Like MSI Afterburner", "Clock, a line per thread, FPS, GPU, frametime graph",
+    ["time", "cpu_temp", "cpu_usage", "cpu_clock", "cpu_power", "thread_table", "ram", "proc_ram", "commit", "fps", "gpu_temp", "gpu_usage", "gpu_fb", "gpu_clock", "gpu_power_pct", "gpu_power", "gpu_fan", "gpu_mem", "gpu_memclock"],
+    { layout: "grouped", labels: true, align: true, units: "small", columns: true, fps_lines: false, group_colors: true, group_values: false, heat: false,
+      label_color: "FF8000", value_color: "FF8000", warm_color: "FFC85A", warn_color: "FF4D4D", cpu_color: "0080C0", ram_color: "0080C0", gpu_color: "008040", fps_color: "C08080", info_color: "FF8000",
+      fps_value_color: "FFFFFF", sub_numbers: true, graph_title: true, graph_style: 0, graph_max: 0,
+      clock_12h: true, clock_secs: true, graph: true, graph_fit: false, graph_w: 48, graph_h: 2, shadow: true, box_on: false, zoom: 2, corner: "tl", margin_x: 8, margin_y: 8, font: "Unispace", bold: false }],
   ["Just the framerate", "A big FPS number in the corner",
-    ["fps"], { layout: "line", labels: false, units: "small", columns: false, group_colors: false, heat: false, zoom: 4, corner: "tl", margin_x: 12, margin_y: 12, graph: false, box_on: true, box_opacity: 45 }],
+    ["fps"], { layout: "line", labels: false, units: "small", columns: false, group_colors: false, heat: false, zoom: 4, corner: "tl", margin_x: 12, margin_y: 12, graph: false, box_on: true, box_opacity: 45, ...NOT_AB }],
   ["Compact row", "GPU, CPU, memory and FPS on one line",
-    ["gpu_temp", "gpu_usage", "cpu_temp", "cpu_usage", "ram", "fps", "frametime"], { layout: "line", labels: true, units: "small", columns: false, group_colors: true, group_values: false, zoom: 2, corner: "tl", margin_x: 10, margin_y: 10, graph: false, box_on: true, box_opacity: 55 }],
+    ["gpu_temp", "gpu_usage", "cpu_temp", "cpu_usage", "ram", "fps", "frametime"], { layout: "line", labels: true, units: "small", columns: false, group_colors: true, group_values: false, zoom: 2, corner: "tl", margin_x: 10, margin_y: 10, graph: false, box_on: true, box_opacity: 55, ...NOT_AB }],
   ["Every core", "Each core's usage, clock and temperature",
-    ["cpu_usage", "cpu_temp", "core_table", "gpu_temp", "gpu_usage", "fps"], { layout: "grouped", labels: true, columns: true, fps_lines: false, group_colors: true, group_values: false, heat: true, zoom: 2, corner: "tr", margin_x: 8, margin_y: 8 }],
+    ["cpu_usage", "cpu_temp", "core_table", "gpu_temp", "gpu_usage", "fps"], { layout: "grouped", labels: true, columns: true, fps_lines: false, group_colors: true, group_values: false, heat: true, zoom: 2, corner: "tr", margin_x: 8, margin_y: 8, ...NOT_AB }],
 ];
 
 export const OV_CORNERS = [["tl", "Top left"], ["tr", "Top right"], ["bl", "Bottom left"], ["br", "Bottom right"]];
@@ -158,6 +165,7 @@ export function ovScreen(st) {
   const col = (key) => "#" + (/^#?[0-9a-f]{6}$/i.test(st[key] || "") ? st[key].replace("#", "") : OV_DEF[key]);
   v("--lc", col("label_color")); v("--vc", col("value_color")); v("--wc", col("warn_color")); v("--w1", col("warm_color"));
   Object.entries(OV_SLOT_COLOR).forEach(([slot, key]) => v("--g" + slot, col(key)));
+  if (/^#?[0-9a-f]{6}$/i.test(st.fps_value_color || "")) v("--c9", "#" + st.fps_value_color.replace("#", ""));
   v("--z", st.zoom);
   v("--mx", Math.max(3, st.margin_x / 4) + "px");
   v("--my", Math.max(3, st.margin_y / 4) + "px");
@@ -172,12 +180,18 @@ export function ovScreen(st) {
       g.innerHTML = ovGraphSvg(st);
       return g;
     };
-    const nodes = lines.map((l) => h("div", { class: "ov-ln" + (gc ? " g" + l.slot : "") + (l.parts.some((p) => p.g) ? " ov-gline" + (st.graph_fit ? " fit" : "") : "") },
-      l.label ? h("span", { class: "ov-l" }, l.label + "  ") : null,
-      l.parts.map((p, i) => p.g ? graphPart() : h("span", { class: "ov-p t" + p.tone },
+    // a number in a colour slot of its own (C9 the framerate's, C4-C8 a part's), units with it
+    const own = (p) => p.c != null && !p.tone ? { color: `var(--${p.c === 9 ? "c9" : "g" + p.c})` } : null;
+    // a thread's number small and low (CPU₁), padded to whole characters like on the overlay
+    const label = (l) => l.sub
+      ? h("span", { class: "ov-l" }, l.label, h("span", { class: "ov-subn" }, l.sub.padEnd(Math.ceil(l.sub.length / 2) * 2, " ")), " ".repeat(l.pad) + "  ")
+      : h("span", { class: "ov-l" }, l.label + (l.small ? "" : "  "));
+    const nodes = lines.map((l) => h("div", { class: "ov-ln" + (gc ? " g" + l.slot : "") + (l.small ? " sm" : "") + (l.parts.some((p) => p.g) ? " ov-gline" + (st.graph_fit ? " fit" : "") : "") },
+      l.label ? label(l) : null,
+      l.parts.map((p, i) => p.g ? graphPart() : h("span", { class: "ov-p t" + p.tone + (p.sm ? " sm" : "") },
         p.pre ? h("span", { class: "ov-pre" }, p.pre + " ") : null,
-        h("span", { class: "ov-v" }, p.t),
-        p.u ? h("span", { class: "ov-u " + st.units }, " " + p.u) : null,
+        h("span", { class: "ov-v", style: own(p) }, p.t),
+        p.u ? h("span", { class: "ov-u " + (p.sm ? "small" : st.units), style: own(p) }, " " + p.u) : null,
         i < l.parts.length - 1 ? "  " : null))));
     body.replaceChildren(...(nodes.length ? nodes : [h("div", { class: "ov-ln ov-l" }, "Nothing selected yet")]));
     // a tall overlay shrinks to fit the little screen (the real one is drawn at full size)
@@ -381,6 +395,7 @@ export function ovLayoutTab(st, s) {
     st.labels && st.layout !== "line" ? ovSwitch("Line up the values", "The numbers start in one column", st.align, (v) => ovStyle({ align: v })) : null,
     st.layout !== "line" ? ovSwitch("Tidy columns", "Numbers line up under each other (best with a monospace font)", st.columns, (v) => ovStyle({ columns: v }), "ov.columns") : null,
     st.layout === "grouped" ? ovSwitch("Framerate figures on their own lines", "FPS, Min, Avg, Max and the lows each get a line", st.fps_lines, (v) => ovStyle({ fps_lines: v }), "ov.fps_lines") : null,
+    items.includes("thread_table") && ovSwitch("Small thread numbers", "CPU₁ instead of CPU1 in the thread table, as MSI Afterburner writes them", st.sub_numbers, (v) => ovStyle({ sub_numbers: v })),
     hasCores ? ovRow("Cores per row", seg([4, 6, 8, 10, 12, 16].map((n) => [n, String(n)]), st.cores_per_row, (v) => ovStyle({ cores_per_row: v }))) : null,
     ovSub("Numbers"),
     ovRow("Units", seg([["small", "Small"], ["normal", "Normal"], ["off", "None"]], st.units, (v) => ovStyle({ units: v })), "°C, %, MHz after each number"),
@@ -461,6 +476,7 @@ export function ovGraphTab(st) {
       sliderRow("Height", st.graph_h, 1, 24, 1, " lines", (v) => put({ graph_h: v })),
       ovRow("Style", seg([[0, "Lines"], [1, "Filled"], [2, "Bars"]], st.graph_style === 3 ? 0 : st.graph_style, (v) => put({ graph_style: v }))),
       ovTopRow(st, (v) => put({ graph_max: v })),
+      ovSwitch("Afterburner layout", "A small \"Frametime\" above the graph and the frametime after it, as MSI Afterburner draws it", st.graph_title, (v) => put({ graph_title: v })),
     ] : null,
     ovSub("Screen edge"),
     ovSwitch("Frame time bar", "A strip along the screen edge that changes colour on every frame", st.color_bar, (v) => put({ color_bar: v }), "ov.color_bar"),

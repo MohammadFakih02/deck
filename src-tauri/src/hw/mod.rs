@@ -59,6 +59,8 @@ pub struct Live {
     pub cpu_board: Option<f32>,
     pub cpu_l: Option<f32>,
     pub cpu_mhz: Option<u32>,
+    /// each logical processor's clock as MSI Afterburner shows it (ratio x bus; Intel with the driver), else empty
+    pub thread_ratio_mhz: Vec<Option<f32>>,
     pub gpu_t: Option<f32>,
     pub gpu_l: Option<f32>,
     pub fan_pct: Vec<Option<f32>>,
@@ -357,6 +359,7 @@ pub fn spawn_all(sh: &Arc<Shared>) -> Workers {
                 l.cpu_t = ct.or(l.cpu_board);
                 l.cpu_l = cl;
                 l.cpu_mhz = mhz;
+                l.thread_ratio_mhz = cpu.ratio_clocks.clone();
                 l.gpu_t = gt;
                 l.gpu_l = gl;
                 l.clone()

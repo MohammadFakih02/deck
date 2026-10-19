@@ -138,6 +138,8 @@ pub struct Live {
     pub power_w: Option<f32>,
     pub temp_c: Option<u32>,
     pub util: Option<u32>,
+    /// memory controller load (Afterburner's "FB usage")
+    pub mem_util: Option<u32>,
     pub mem_used_mb: Option<u64>,
     pub mem_total_mb: Option<u64>,
     pub fan_pct: Vec<u32>,
@@ -348,6 +350,7 @@ impl Nvml {
             let mut u = Util::default();
             if call(self.f.nvmlDeviceGetUtilizationRates.map(|g| g(self.dev, &mut u))).is_ok() {
                 l.util = Some(u.gpu);
+                l.mem_util = Some(u.memory);
             }
             let mut m = MemInfo::default();
             if call(self.f.nvmlDeviceGetMemoryInfo.map(|g| g(self.dev, &mut m))).is_ok() {
