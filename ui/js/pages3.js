@@ -172,6 +172,75 @@ export function screenCard(r) {
     mode !== "off" ? h("div", { class: "faint", style: { fontSize: "12px" } }, "Video: H.264 needs far less data (a 1 Mb/s line can show 30 fps), so it is the default; JPEG is the plain fallback. Picture size: Full keeps small text readable. Auto bitrate measures the connection and follows it (down to slow DSL); a fixed one never goes over. Nothing is sent while the screen doesn't change.") : null);
 }
 
+/** Phone page: the phone as this PC's speaker and mic (the mic through VB-CABLE). */
+export function spkMicCard(r) {
+  const s = S.state.settings;
+  const mic = S.cache.phoneMic;
+  const busy = S.cache.phoneMicBusy;
+  const act = async (what, ok) => {
+    S.cache.phoneMicBusy = what; render();
+    try { S.cache.phoneMic = await run("phone_mic_do", { what }, ok); } catch { /* run() showed it */ }
+    S.cache.phoneMicBusy = null; render();
+  };
+  const sw = (label, sub, key, then) => h("label", { class: "rd-row" }, h("span", { class: "grow" }, h("div", null, label), sub ? h("div", { class: "faint", style: { fontSize: "12px" } }, sub) : null),
+    toggle(!!s[key], (v) => setSetting(key, v).then(() => (then ? then(v) : null)).then(render)));
+  const n = r.mics || 0;
+  let cable = null;
+  if (s.remote_mic) {
+    const st = mic?.state;
+    cable = !mic ? h("div", { class: "faint" }, "Checking VB-CABLE…")
+      : st === "ready" && mic.cable_is_speakers ? h("div", { class: "col", style: { gap: "6px" } },
+        h("div", { class: "dim" }, I("alert", "sm"), " VB-CABLE became this PC's speakers (its setup does that), so the PC's sound goes into the cable and you hear nothing. Pick your speakers again:"),
+        h("div", { class: "row wrap" }, (mic.outputs || []).map((o) => h("button", { class: "btn sm", onclick: async () => { await run("set_output", { id: o.id }, `Sound plays on ${o.name}`); S.cache.phoneMic = await invoke("phone_mic_state"); render(); } }, I("volume", "sm"), o.name))))
+      : st === "ready" ? h("div", { class: "row wrap" }, h("span", { class: "chip good" }, I("check", "sm"), "VB-CABLE ready"), h("span", { class: "faint", style: { fontSize: "12px" } }, "Apps hear the phone on “CABLE Output”."))
+      : st === "off" ? h("div", { class: "col", style: { gap: "6px" } }, h("div", { class: "dim" }, "VB-CABLE is installed but turned off in Device Manager."),
+        h("div", { class: "row wrap" },
+          h("button", { class: "btn" + (mic.enable_failed ? "" : " primary"), disabled: !!busy || !mic.admin, title: mic.admin ? "" : "Needs Deck's admin rights", onclick: () => act("enable", "VB-CABLE is on") }, I("power"), busy === "enable" ? "Turning on…" : "Turn VB-CABLE on"),
+          h("button", { class: "btn" + (mic.enable_failed ? " primary" : ""), disabled: !!busy, onclick: () => act("get", "VB-CABLE's setup is open: click Install Driver, then restart the PC") }, I("download"), busy === "get" ? "Downloading…" : "Get the current VB-CABLE")))
+      : st === "restart" ? h("div", { class: "dim" }, "Restart the PC to finish installing VB-CABLE.")
+      : h("div", { class: "col", style: { gap: "6px" } },
+        h("div", { class: "dim" }, "The phone mic needs VB-CABLE, VB-Audio's free virtual cable: Windows lists a microphone only when a driver makes one. Deck downloads it from vb-audio.com and opens its setup: click ", h("b", null, "Install Driver"), ", then restart the PC."),
+        h("div", { class: "row" }, h("button", { class: "btn primary", disabled: !!busy, onclick: () => act("get", "VB-CABLE's setup is open") }, I("download"), busy === "get" ? "Downloading…" : "Get VB-CABLE"),
+          h("button", { class: "btn ghost", onclick: () => invoke("open_url", { url: "https://vb-audio.com/Cable/", keep: true }) }, I("external"), "vb-audio.com")));
+  }
+  return h("div", { class: "card col" },
+    h("div", { class: "tile-head" }, I("smartphone"), h("span", null, "Speaker and mic on your phone"), h("span", { class: "grow" }),
+      n ? h("span", { class: "chip good" }, I("mic", "sm"), `${n} talking`) : null),
+    h("div", { class: "dim" }, "Turn your phone into this PC's speaker or microphone, in the phone remote. Over Wi-Fi: about a tenth of a second late, fine for music, videos and calls."),
+    sw("Phone as speaker", "The phone plays this PC's sound. It can turn the PC's own speakers off while it plays; they come back when it stops.", "remote_speaker"),
+    sw("Phone as mic", "The phone's mic becomes a mic on this PC. Phones allow the mic only on a secure page: the phone remote opens Deck's https page for it, and the phone warns once about Deck's own certificate.", "remote_mic",
+      (v) => v ? invoke("phone_mic_state").then((m) => { S.cache.phoneMic = m; }) : null),
+    cable,
+    s.remote_mic ? sw("Make it the default mic while the phone talks", "Discord, games and calls use the phone without changing their settings; your mic comes back when the phone stops.", "remote_mic_default") : null,
+    spkMicHelp());
+}
+
+/** Phone page: how to use the phone as speaker and mic, and what to do when something doesn't work. */
+function spkMicHelp() {
+  const ol = (...items) => h("ol", { class: "dim", style: { margin: "4px 0 0", paddingLeft: "18px", lineHeight: 1.7 } }, items.map((x) => h("li", null, x)));
+  const ul = (...items) => h("ul", { class: "dim", style: { margin: "4px 0 0", paddingLeft: "18px", lineHeight: 1.7 } }, items.map((x) => h("li", null, x)));
+  const b = (t) => h("b", null, t);
+  return h("details", { class: "fold-card" },
+    h("summary", { style: { cursor: "pointer", fontWeight: 600 } }, "How to use it"),
+    h("div", { style: { fontWeight: 600, marginTop: "8px" } }, "Speaker"),
+    ol(["Turn on ", b("Phone as speaker"), " here."],
+      ["On the phone, open the phone remote (scan the code on the left) and tap ", b("Phone as speaker"), " in the ", b("Speaker and mic"), " card."],
+      [b("PC speakers off while playing"), " (on the phone) mutes this PC while the phone plays; the PC's sound comes back a few seconds after the phone stops."]),
+    h("div", { style: { fontWeight: 600, marginTop: "8px" } }, "Microphone"),
+    ol(["Turn on ", b("Phone as mic"), " here and set up VB-CABLE when Deck asks (install, then restart the PC once)."],
+      ["On the phone, tap ", b("Mic: open the secure page"), ". The phone warns that the connection isn't private: tap ", b("Advanced"), ", then ", b("Proceed"), " (it's Deck's own certificate; it asks once)."],
+      ["Tap ", b("Phone as mic"), " and allow the microphone. The bar moves when you talk."],
+      ["In Discord, the game or the call app pick ", b("CABLE Output"), " as the microphone, or turn on ", b("Make it the default mic"), " above."]),
+    h("div", { style: { fontWeight: 600, marginTop: "8px" } }, "If something doesn't work"),
+    ul([b("No sound on the phone:"), " tap anywhere on the phone page (phones hold sound until you touch the page), and check the phone's own volume."],
+      [b("The PC is silent:"), " Windows may have made VB-CABLE the speakers; Deck shows it above with buttons to pick yours again."],
+      [b("The bar moves but nobody hears you:"), " the app isn't using CABLE Output; pick it in the app's voice settings, or turn on the default-mic switch and rejoin the call."],
+      [b("Echo:"), " use headphones on the phone when it is the speaker and the mic at the same time, or keep its volume low."],
+      [b("It stops when the screen turns off:"), " keep the phone remote open in front; Deck keeps the screen on while the phone plays or talks (on the secure page)."],
+      [b("Choppy or late:"), " stay close to the router, or plug the phone in and use USB tethering; about 0.1 s of delay is normal."],
+      [b("\"Not secure\" every time:"), " Deck made a new certificate (a new address); accept it once more."]));
+}
+
 /** Phone page: remote desktop through RustDesk, with Tailscale for away from home. */
 export function rdeskCard() {
   const d = S.cache.rdesk;
@@ -223,6 +292,7 @@ Pages.phone = {
     S.cache.remote = await invoke("remote_info");
     // RustDesk's state takes a moment (it asks RustDesk and Tailscale): fill it in when it comes
     invoke("rdesk_status").then((d) => { S.cache.rdesk = d; if (S.page === "phone") render(); });
+    if (S.state.settings.remote_mic) invoke("phone_mic_state").then((m) => { S.cache.phoneMic = m; if (S.page === "phone") render(); });
   },
   render() {
     const r = S.cache.remote || {};
@@ -271,7 +341,7 @@ Pages.phone = {
           h("button", { class: "icon-btn sm danger", title: "Remove from list", onclick: async () => { await invoke("shared_remove", { id: x.id }); S.cache.remote = await invoke("remote_info"); render(); } }, I("x", "sm")))))) : h("div", { class: "faint" }, "Nothing yet. Things you send from the phone are copied to the PC clipboard; files land in Downloads\\From phone."));
     el.append(h("div", { style: { display: "grid", gridTemplateColumns: "300px minmax(0, 1fr)", gap: "14px", alignItems: "start" } },
       h("div", { class: "col", style: { gap: "14px" } }, left, r.enabled ? connLimitsCard(s) : null, install),
-      h("div", { class: "col", style: { gap: "14px" } }, send, screenCard(r), rdeskCard(), inbox)));
+      h("div", { class: "col", style: { gap: "14px" } }, send, screenCard(r), spkMicCard(r), rdeskCard(), inbox)));
     return el;
   },
   live: true,

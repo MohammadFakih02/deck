@@ -43,7 +43,7 @@ const APP_INSTALLER: &str = "Microsoft.DesktopAppInstaller_8wekyb3d8bbwe";
 /// winget.exe from App Installer's own folder (C:\Program Files\WindowsApps, which only Windows
 /// can change). Never by name: that finds the alias in %LOCALAPPDATA%\Microsoft\WindowsApps, a
 /// folder the user's own programs can write to, and Deck runs it with admin rights.
-fn winget_exe() -> Option<PathBuf> {
+pub(crate) fn winget_exe() -> Option<PathBuf> {
     package_dirs(APP_INSTALLER)
         .into_iter()
         .map(|d| d.join("winget.exe"))

@@ -1,8 +1,9 @@
 //! Output devices, master volume and per-app volume (like EarTrumpet).
 //!
 //! The default output is switched through IPolicyConfig, the interface the
-//! Sound control panel uses; it works without administrator rights. Recording
-//! devices are left alone (Deck never changes the default mic).
+//! Sound control panel uses; it works without administrator rights. The default
+//! mic is changed only by the phone mic's own switch, off unless the user turns
+//! it on (`phonemic`), and put back when the phone mic stops.
 
 #![allow(non_snake_case)]
 
@@ -15,7 +16,7 @@ use windows::Win32::Devices::FunctionDiscovery::PKEY_Device_FriendlyName;
 use windows::Win32::Foundation::{PROPERTYKEY, S_OK};
 use windows::Win32::Media::Audio::Endpoints::{IAudioEndpointVolume, IAudioMeterInformation};
 use windows::Win32::Media::Audio::{
-    eCommunications, eConsole, eMultimedia, eRender, AudioSessionStateExpired, ERole, IAudioSessionControl2,
+    eCapture, eCommunications, eConsole, eMultimedia, eRender, AudioSessionStateExpired, ERole, IAudioSessionControl2,
     IAudioSessionManager2, IMMDevice, IMMDeviceEnumerator, ISimpleAudioVolume, MMDeviceEnumerator,
     DEVICE_STATE_ACTIVE,
 };
@@ -118,6 +119,70 @@ pub fn set_default_output(id: &str) -> Result<(), String> {
         unsafe { pc.SetDefaultEndpoint(PCWSTR(h.as_ptr()), role) }
             .ok()
             .map_err(|e| format!("Couldn't switch output: {e}"))?;
+    }
+    Ok(())
+}
+
+fn device_by_id(id: &str) -> windows::core::Result<IMMDevice> {
+    unsafe { enumerator()?.GetDevice(&HSTRING::from(id)) }
+}
+
+/// The default playback device's id.
+pub fn default_output_id() -> Option<String> {
+    default_render().ok().map(|d| device_id(&d))
+}
+
+/// Whether the playback device `id` is muted.
+pub fn output_muted(id: &str) -> Option<bool> {
+    unsafe {
+        let v = device_by_id(id).ok()?.Activate::<IAudioEndpointVolume>(CLSCTX_ALL, None).ok()?;
+        v.GetMute().ok().map(|b| b.as_bool())
+    }
+}
+
+/// Mutes or unmutes the playback device `id` (not only the default one).
+pub fn set_output_muted(id: &str, muted: bool) -> Result<(), String> {
+    unsafe {
+        let v = device_by_id(id).and_then(|d| d.Activate::<IAudioEndpointVolume>(CLSCTX_ALL, None)).map_err(|e| e.to_string())?;
+        v.SetMute(muted, std::ptr::null()).map_err(|e| e.to_string())
+    }
+}
+
+/// Recording devices that are connected now (`default`: the default for apps, eConsole).
+pub fn inputs() -> Vec<Device> {
+    let mut out = Vec::new();
+    let Ok(e) = enumerator() else { return out };
+    let def = default_input_id(eConsole);
+    unsafe {
+        let Ok(col) = e.EnumAudioEndpoints(eCapture, DEVICE_STATE_ACTIVE) else { return out };
+        for i in 0..col.GetCount().unwrap_or(0) {
+            let Ok(d) = col.Item(i) else { continue };
+            let id = device_id(&d);
+            out.push(Device { name: device_name(&d), default: def.as_deref() == Some(id.as_str()), id });
+        }
+    }
+    out.sort_by_key(|a| a.name.to_lowercase());
+    out
+}
+
+/// The default recording device for `role` (eConsole: apps and games; eCommunications: calls).
+pub fn default_input_id(role: ERole) -> Option<String> {
+    unsafe { enumerator().ok()?.GetDefaultAudioEndpoint(eCapture, role).ok().map(|d| device_id(&d)) }
+}
+
+/// Makes the recording device `id` the default for `role`. Only a connected recording device is
+/// accepted, so a playback id can never end up here. Used by the phone mic's switch alone.
+pub fn set_default_input(id: &str, role: ERole) -> Result<(), String> {
+    if !inputs().iter().any(|d| d.id == id) {
+        return Err("That microphone isn't connected any more".into());
+    }
+    com();
+    let pc: IPolicyConfig =
+        unsafe { CoCreateInstance(&CLSID_POLICY_CONFIG, None, CLSCTX_ALL) }.map_err(|e| format!("IPolicyConfig: {e}"))?;
+    let h = HSTRING::from(id);
+    let roles: &[ERole] = if role == eConsole { &[eConsole, eMultimedia] } else { &[role] };
+    for r in roles {
+        unsafe { pc.SetDefaultEndpoint(PCWSTR(h.as_ptr()), *r) }.ok().map_err(|e| format!("Couldn't switch the microphone: {e}"))?;
     }
     Ok(())
 }

@@ -256,7 +256,7 @@ pub fn state() -> Value {
             let gone = !d.exists();
             let extra = match it.kind.as_str() {
                 "apps" => apps::read_list(d).map(|l| json!({ "apps": l.apps.iter().map(|a| &a.name).collect::<Vec<_>>() })),
-                "setup" => snapshot::read_manifest(d).map(|m| json!({ "look": m.look.len(), "wallpaper": m.wallpaper.is_some(), "windhawk": m.windhawk_version, "mods": m.windhawk_mods.len(), "backup": snapshot::has_backup(d) })),
+                "setup" => snapshot::read_manifest(d).map(|m| json!({ "look": m.look.len(), "tweaks": m.tweaks.len(), "wallpaper": m.wallpaper.is_some(), "windhawk": m.windhawk_version, "mods": m.windhawk_mods.len(), "backup": snapshot::has_backup(d) })),
                 _ => None,
             };
             json!({ "name": it.name, "dir": it.dir, "entry": it.entry, "kind": it.kind, "kind_label": kind_label(&it.kind), "from": it.from, "size": it.size,
@@ -579,7 +579,7 @@ pub fn apps_state() -> Value {
 /// What a setup snapshot of this PC would hold (Setup tab).
 pub fn setup_preview() -> Value {
     let c = snapshot::preview();
-    json!({ "look": c.look, "wallpaper": c.wallpaper, "windhawk": snapshot::windhawk_installed().then(snapshot::windhawk_version).flatten(), "windhawk_installed": snapshot::windhawk_installed(), "mods": c.windhawk })
+    json!({ "look": c.look, "tweaks": c.tweaks, "wallpaper": c.wallpaper, "windhawk": snapshot::windhawk_installed().then(snapshot::windhawk_version).flatten(), "windhawk_installed": snapshot::windhawk_installed(), "mods": c.windhawk })
 }
 
 #[cfg(test)]

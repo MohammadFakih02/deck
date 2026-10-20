@@ -208,6 +208,12 @@ pub struct Settings {
     pub remote_screen_priority: String,
     /// "auto" (H.264 where the phone can decode it) or "jpeg"
     pub remote_screen_codec: String,
+    /// the phone plays the PC's sound (as its speaker), without the Screen view (off by default)
+    pub remote_speaker: bool,
+    /// the phone's mic is a mic on the PC, through VB-CABLE (off by default)
+    pub remote_mic: bool,
+    /// while a phone talks, its mic ("CABLE Output") is the PC's default mic; the old one comes back after
+    pub remote_mic_default: bool,
     pub remote_port: u16,
     /// sealed on disk (crate::secret)
     #[serde(with = "crate::secret::field")]
@@ -364,6 +370,9 @@ impl Default for Settings {
             remote_screen_kbps: 0,
             remote_screen_priority: "smooth".into(),
             remote_screen_codec: "auto".into(),
+            remote_speaker: false,
+            remote_mic: false,
+            remote_mic_default: false,
             remote_port: 47830,
             remote_token: String::new(),
             remote_max_local: 0,

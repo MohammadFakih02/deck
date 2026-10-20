@@ -96,6 +96,31 @@
   R.index_info = () => ({ building: false, count: 184233, took: 2.4 });
   R.rdesk_status = () => ({ installed: true, on: true, id: "123456789", direct: true, port: 21118, lan: "192.168.1.42", tray_hidden: true, tailscale: { installed: true, on: true, ip: "100.64.12.34" } });
   R.rdesk_do = () => R.rdesk_status();
+  // the phone mic's VB-CABLE: installed but turned off (the Phone page offers to turn it on)
+  R.phone_mic_state = () => ({ state: "off", busy: null, admin: true, enable_failed: false });
+  R.phone_mic_do = () => ({ state: "ready", busy: null, admin: true, enable_failed: false });
+  // Tweaks: a real PC's data (mock-tweaks.js), a few built-in apps, a Store search and a download
+  R.tweaks_state = () => window.__MOCK_TWEAKS;
+  R.tweaks_set = () => ({ failed: [] });
+  R.tweaks_do = () => ({});
+  R.tweaks_apps = () => ({ checked: true, apps: [
+    { name: "Clipchamp", what: "Video editor from Microsoft", rating: "safe", installed: true, removed: false },
+    { name: "Microsoft News", what: "News aggregator", rating: "safe", installed: true, removed: false },
+    { name: "Solitaire & Casual Games", what: "Collection of solitaire card games", rating: "safe", installed: false, removed: true },
+    { name: "Xbox Gaming App", what: "The Xbox app: Game Pass, your games and friends", rating: "optional", installed: true, removed: false },
+    { name: "Phone Link", what: "Your phone's messages, calls and photos on the PC", rating: "optional", installed: true, removed: false },
+    { name: "Microsoft Store", what: "The Store itself", rating: "unsafe", installed: true, removed: false }] });
+  R.tweaks_app = () => null;
+  R.tweaks_store = ({ what }) => what === "search" ? { results: [
+      { id: "9NCBCSZSJRSB", title: "Spotify - Music and Podcasts", publisher: "Spotify AB", price: 0, display_price: "Free" },
+      { id: "9NBLGGH5R558", title: "Microsoft To Do: Lists, Tasks & Reminders", publisher: "Microsoft Corporation", price: 0, display_price: "Free" },
+      { id: "9N0DX20HK701", title: "Some Paid App", publisher: "Example", price: 4.99, display_price: "$4.99" }] }
+    : what === "jobs" ? { jobs: [{ id: "9NCBCSZSJRSB", title: "Spotify - Music and Podcasts", mode: "install", phase: "downloading", file: "SpotifyAB.SpotifyMusic_1.305.3058.0_x64__zpdnekdrzrea0.appx", done: 88e6, total: 221e6, speed: 1.4e6, eta: 95, files: [] }] }
+    : what === "links" ? { title: "Microsoft To Do", files: [
+      { name: "Microsoft.UI.Xaml.2.8_8.2501.31001.0_x64__8wekyb3d8bbwe.appx", size: 4.3e6, main: false, have: true, url: null },
+      { name: "Microsoft.VCLibs.140.00_14.0.33519.0_x64__8wekyb3d8bbwe.appx", size: 0.9e6, main: false, have: true, url: null },
+      { name: "Microsoft.Todos_2.178.8571.0_neutral_~_8wekyb3d8bbwe.msixbundle", size: 90e6, main: true, have: false, url: "http://tlu.dl.delivery.mp.microsoft.com/filestreamingservice/files/example" }] }
+    : {};
   // Your PCs: Transfer and Claude Sync
   const tnow = Date.now();
   R.transfer_state = () => ({

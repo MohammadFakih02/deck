@@ -17,6 +17,28 @@ pub fn remote_info(app: A, remote: State<Arc<Remote>>) -> Value {
     remote::info(&app, &remote)
 }
 
+/// The phone mic's VB-CABLE: ready, off (turned off in Device Manager), restart, or missing.
+#[tauri::command]
+pub async fn phone_mic_state() -> Value {
+    tauri::async_runtime::spawn_blocking(crate::phonemic::cable_state).await.unwrap_or(Value::Null)
+}
+
+/// VB-CABLE for the phone mic: "enable" turns an installed one back on, "get" downloads VB-Audio's
+/// package and opens its own setup.
+#[tauri::command]
+pub async fn phone_mic_do(what: String) -> R<Value> {
+    tauri::async_runtime::spawn_blocking(move || {
+        match what.as_str() {
+            "enable" => crate::phonemic::enable_cable(),
+            "get" => crate::phonemic::get_cable(),
+            _ => Err(format!("unknown action {what}")),
+        }?;
+        Ok(crate::phonemic::cable_state())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 pub async fn rdesk_status() -> Value {
     tauri::async_runtime::spawn_blocking(rdesk::status).await.unwrap_or(Value::Null)

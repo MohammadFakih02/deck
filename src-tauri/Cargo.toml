@@ -69,6 +69,15 @@ jpeg-encoder = { version = "0.7", features = ["simd"] }
 windows-future = "0.3"
 # the controller overlay's art: SVG drawn in code, rasterised once per look (text only: no system font scan)
 resvg = { version = "0.48", default-features = false, features = ["text"] }
+# the phone remote's HTTPS (the phone mic needs a secure page): rustls on ring (already built for
+# ureq) and a self-signed certificate made on the PC
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12", "logging"] }
+rcgen = { version = "0.13", default-features = false, features = ["ring", "pem"] }
+# Tweaks → Get Store apps: Microsoft's update service answers in XML; its files are checked by
+# SHA-1/SHA-256; the usual web roots (already built for ureq) plus Microsoft's two
+roxmltree = "0.21"
+sha1 = "0.10"
+webpki-roots = "0.26"
 
 # `cargo test` / `cargo clippy` use the dev profile: incremental, with the dependencies
 # optimised once (a test run then rebuilds only Deck itself, in seconds)

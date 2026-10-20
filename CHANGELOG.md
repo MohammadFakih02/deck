@@ -2,6 +2,16 @@
 
 All notable changes to Deck. Setups for each version are on the [Releases](https://github.com/MohammadFakih02/deck/releases) page.
 
+## Unreleased
+
+### Added
+- **Your phone as the PC's speaker or microphone** (Deck → Phone → Speaker and mic, both off until you turn them on; the phone remote gets a Speaker and mic card). **Speaker:** the phone plays the PC's sound, with a switch to turn the PC's own speakers off while it plays (they come back when it stops, even if Deck closes meanwhile). **Mic:** the phone's mic becomes a mic on the PC, with echo and noise cancelling, so Discord, games and calls can use it; pick "CABLE Output" in an app, or turn on "Make it the default mic while the phone talks" (your mic comes back after). Over Wi-Fi, about a tenth of a second late. The mic needs VB-CABLE, VB-Audio's free virtual cable, because Windows only lists a microphone that a driver makes: Deck turns on one that is installed but off, or downloads VB-Audio's own setup for you (its licence doesn't allow building it into Deck's setup).
+- **Tweaks** (Maintenance → Tweaks): 132 Windows settings in 13 categories (privacy, Start and search, taskbar, File Explorer, right-click menu, appearance, multitasking, gaming, AI and Copilot, updates, network, system, advanced), from Win11Debloat and Chris Titus Tech's WinUtil, each checked, plus Deck's own. Every switch shows what Windows is set to right now ("Partly" when another tool set part of it), what it changes, its risk and whether it needs Explorer restarted, a sign-out or a restart. **Every change can be undone to exactly what it was before** (one by one or all at once), also months later; Deck notices when a Windows update changes a tweak back and offers to apply it again. Presets (Privacy, Clean Start & taskbar, Gaming, Quiet Windows) and "Recommended" open as checklists, never as one click that does everything. A restore point is offered before Advanced tweaks. Options that don't exist on this Windows version or this PC are hidden. Tweaks also turn up in Deck's search, and a PC to PC setup carries them to your other PC. Deck never removes Edge or WebView2, turns Windows Update or Defender off, or runs scripts from the internet.
+- **Built-in apps:** remove Clipchamp, News, the Xbox apps and the rest (Win11Debloat's list with its safe / optional / needed rating), and reinstall any of them later.
+- **Store apps without the Microsoft Store** (Tweaks → Get Store apps), like store.rg-adguard.net: search the Store, then Install, Download (to Downloads\Store apps), send to FluxDM, or copy the links. The files come straight from Microsoft's own servers, only the ones this PC is missing (usually just the app), checked against Microsoft's checksums, with a progress bar, speed and time left. Free apps only; desktop apps from the Store install with winget.
+- **Fixed:** PC to PC's "restart Explorer" after applying a setup started Explorer with Deck's admin rights; Windows now restarts it as you.
+- **The phone remote also answers on https** (same address, `https://`). Phones allow the mic only on secure pages; Deck makes its own certificate, so the phone warns once ("not private") the first time.
+
 ## 2.7.0 — 2026-10-20
 
 ### Added
@@ -24,7 +34,6 @@ All notable changes to Deck. Setups for each version are on the [Releases](https
 
 ### Changed
 - **Games are known by their program only.** The death counter no longer uses Steam or Epic numbers or library lists: a game is its exe, the same in every store, named from the program's description, its install folder or its window title. Deck's list of games with their own death screens or save readers is now the 17 it knows by exe (an Easy Anti-Cheat launcher no longer counts as Elden Ring). Death screens taught under an older Steam key need teaching again.
-
 ## 2.6.0 — 2026-10-20
 
 ### Fixed

@@ -1,0 +1,8056 @@
+{
+ "source": {
+  "Win11Debloat": "a2d63c7c1b9c7cb6554d4fce3aa7f377567f7f9e",
+  "WinUtil": "7514faf0d0f4bff9b6c5d9213426ab52520cfac4"
+ },
+ "cats": [
+  {
+   "id": "privacy",
+   "name": "Privacy",
+   "icon": "shield"
+  },
+  {
+   "id": "start",
+   "name": "Start & search",
+   "icon": "search"
+  },
+  {
+   "id": "taskbar",
+   "name": "Taskbar",
+   "icon": "layout"
+  },
+  {
+   "id": "explorer",
+   "name": "File Explorer",
+   "icon": "folder"
+  },
+  {
+   "id": "context",
+   "name": "Right-click menu",
+   "icon": "list"
+  },
+  {
+   "id": "appearance",
+   "name": "Appearance",
+   "icon": "droplet"
+  },
+  {
+   "id": "multitask",
+   "name": "Multitasking",
+   "icon": "windows"
+  },
+  {
+   "id": "gaming",
+   "name": "Gaming",
+   "icon": "gamepad"
+  },
+  {
+   "id": "ai",
+   "name": "AI & Copilot",
+   "icon": "sparkle"
+  },
+  {
+   "id": "updates",
+   "name": "Updates & Store",
+   "icon": "download"
+  },
+  {
+   "id": "network",
+   "name": "Network",
+   "icon": "wifi"
+  },
+  {
+   "id": "system",
+   "name": "System",
+   "icon": "gear"
+  },
+  {
+   "id": "advanced",
+   "name": "Advanced",
+   "icon": "alert"
+  }
+ ],
+ "presets": [
+  {
+   "id": "privacy",
+   "name": "Privacy",
+   "what": "Send Microsoft and apps as little as Windows allows.",
+   "set": {
+    "privacy": "off",
+    "privacy.activity": "off",
+    "privacy.feedback": "off",
+    "privacy.cloud_search": "off",
+    "privacy.consumer": "off",
+    "privacy.edge_ads": "off",
+    "privacy.device_apps": "off",
+    "start.bing": "off",
+    "ai.recall": "off",
+    "updates.delivery": "off"
+   }
+  },
+  {
+   "id": "clean",
+   "name": "Clean Start & taskbar",
+   "what": "No ads, Bing, widgets or Copilot in Start and on the taskbar.",
+   "set": {
+    "start.bing": "off",
+    "start.recommended": "off",
+    "start.phonelink": "off",
+    "taskbar.widgets": "off",
+    "taskbar.taskview": "off",
+    "taskbar.chat": "off",
+    "ai.copilot": "off",
+    "taskbar.endtask": "on",
+    "explorer.ext": "on"
+   }
+  },
+  {
+   "id": "gaming",
+   "name": "Gaming",
+   "what": "Fewer interruptions and background recording while you play.",
+   "set": {
+    "gaming.dvr": "off",
+    "gaming.mouseaccel": "off",
+    "multitask.stickykeys": "off",
+    "updates.autoreboot": "off",
+    "updates.asap": "off",
+    "privacy.feedback": "off"
+   }
+  },
+  {
+   "id": "quiet",
+   "name": "Quiet Windows",
+   "what": "No tips, nagging, suggestions or surprise restarts.",
+   "set": {
+    "privacy.suggestions": "off",
+    "privacy.lockscreen_tips": "off",
+    "privacy.settings_ads": "off",
+    "privacy.feedback": "off",
+    "privacy.consumer": "off",
+    "updates.autoreboot": "off",
+    "system.settings_home": "off"
+   }
+  }
+ ],
+ "tweaks": [
+  {
+   "id": "privacy.activity",
+   "cat": "privacy",
+   "group": null,
+   "name": "Activity history",
+   "what": "Windows records the apps and files you use and can upload the list. Clipboard history isn't affected.",
+   "more": null,
+   "risk": "safe",
+   "after": "none",
+   "src": "WinUtil",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": "off",
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\System",
+       "name": "EnableActivityFeed",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\System",
+       "name": "PublishUserActivities",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\System",
+       "name": "UploadUserActivities",
+       "delete": true
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\System",
+       "name": "EnableActivityFeed",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\System",
+       "name": "PublishUserActivities",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\System",
+       "name": "UploadUserActivities",
+       "type": "dword",
+       "value": 0
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "privacy.feedback",
+   "cat": "privacy",
+   "group": null,
+   "name": "Feedback requests",
+   "what": "Windows asks you now and then to rate it or give feedback.",
+   "more": null,
+   "risk": "safe",
+   "after": "none",
+   "src": "Deck",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": "off",
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Siuf\\Rules",
+       "name": "NumberOfSIUFInPeriod",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\DataCollection",
+       "name": "DoNotShowFeedbackNotifications",
+       "delete": true
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Siuf\\Rules",
+       "name": "NumberOfSIUFInPeriod",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\DataCollection",
+       "name": "DoNotShowFeedbackNotifications",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "privacy.edge_ads",
+   "cat": "privacy",
+   "group": null,
+   "name": "Ads and news in Edge",
+   "what": "Edge's new tab news, shopping help, recommendations and other promotions. Edge itself keeps working.",
+   "more": "These are Edge policies, so Edge then says \"Your browser is managed by your organization\": that line comes from this tweak and goes away with Undo.",
+   "risk": "safe",
+   "after": "none",
+   "src": "Win11Debloat",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": "off",
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+       "name": "NewTabPageContentEnabled",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+       "name": "NewTabPageHideDefaultTopSites",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+       "name": "EdgeShoppingAssistantEnabled",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+       "name": "TabServicesEnabled",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+       "name": "AlternateErrorPagesEnabled",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+       "name": "UserFeedbackAllowed",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+       "name": "ShowRecommendationsEnabled",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+       "name": "WalletDonationEnabled",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+       "name": "HideFirstRunExperience",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+       "name": "DefaultBrowserSettingEnabled",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+       "name": "DefaultBrowserSettingsCampaignEnabled",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+       "name": "SpotlightExperiencesAndRecommendationsEnabled",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+       "name": "ShowAcrobatSubscriptionButton",
+       "delete": true
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+       "name": "NewTabPageContentEnabled",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+       "name": "NewTabPageHideDefaultTopSites",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+       "name": "EdgeShoppingAssistantEnabled",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+       "name": "TabServicesEnabled",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+       "name": "AlternateErrorPagesEnabled",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+       "name": "UserFeedbackAllowed",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+       "name": "ShowRecommendationsEnabled",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+       "name": "WalletDonationEnabled",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+       "name": "HideFirstRunExperience",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+       "name": "DefaultBrowserSettingEnabled",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+       "name": "DefaultBrowserSettingsCampaignEnabled",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+       "name": "SpotlightExperiencesAndRecommendationsEnabled",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+       "name": "ShowAcrobatSubscriptionButton",
+       "type": "dword",
+       "value": 0
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "privacy",
+   "cat": "privacy",
+   "group": null,
+   "name": "Diagnostic data and ads ID",
+   "what": "Windows sends more than the required diagnostic data, tailors tips to it, gives apps an advertising ID, learns from your typing and inking, and sends speech to Microsoft. Off keeps only what Windows requires.",
+   "more": "Also turns off online speech recognition and the inking & typing dictionary.",
+   "risk": "safe",
+   "after": "none",
+   "src": "Win11Debloat",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": "off",
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\AdvertisingInfo",
+       "name": "Enabled",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Privacy",
+       "name": "TailoredExperiencesWithDiagnosticDataEnabled",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Speech_OneCore\\Settings\\OnlineSpeechPrivacy",
+       "name": "HasAccepted",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Input\\TIPC",
+       "name": "Enabled",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\InputPersonalization",
+       "name": "RestrictImplicitInkCollection",
+       "delete": true
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\InputPersonalization",
+       "name": "RestrictImplicitTextCollection",
+       "delete": true
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\InputPersonalization\\TrainedDataStore",
+       "name": "HarvestContacts",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Personalization\\Settings",
+       "name": "AcceptedPrivacyPolicy",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Diagnostics\\DiagTrack",
+       "name": "ShowedToastAtLevel",
+       "type": "dword",
+       "value": 3
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\DataCollection",
+       "name": "AllowTelemetry",
+       "type": "dword",
+       "value": 3
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\DataCollection",
+       "name": "MaxTelemetryAllowed",
+       "type": "dword",
+       "value": 3
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+       "name": "Start_TrackProgs",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Siuf\\Rules",
+       "name": "PeriodInNanoSeconds",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+       "name": "PersonalizationReportingEnabled",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+       "name": "DiagnosticData",
+       "delete": true
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\AdvertisingInfo",
+       "name": "Enabled",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Privacy",
+       "name": "TailoredExperiencesWithDiagnosticDataEnabled",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Speech_OneCore\\Settings\\OnlineSpeechPrivacy",
+       "name": "HasAccepted",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Input\\TIPC",
+       "name": "Enabled",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\InputPersonalization",
+       "name": "RestrictImplicitInkCollection",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\InputPersonalization",
+       "name": "RestrictImplicitTextCollection",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\InputPersonalization\\TrainedDataStore",
+       "name": "HarvestContacts",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Personalization\\Settings",
+       "name": "AcceptedPrivacyPolicy",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\DataCollection",
+       "name": "AllowTelemetry",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+       "name": "Start_TrackProgs",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKCU\\SOFTWARE\\Microsoft\\Siuf\\Rules",
+       "name": "PeriodInNanoSeconds",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+       "name": "PersonalizationReportingEnabled",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+       "name": "DiagnosticData",
+       "type": "dword",
+       "value": 0
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "privacy.suggestions",
+   "cat": "privacy",
+   "group": null,
+   "name": "Tips and suggested content",
+   "what": "\"Get tips and tricks\", suggested apps and content in Settings and Start, and the \"finish setting up your device\" screens.",
+   "more": null,
+   "risk": "safe",
+   "after": "none",
+   "src": "Win11Debloat",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": "off",
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager",
+       "name": "SubscribedContent-310093Enabled",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager",
+       "name": "SubscribedContent-338388Enabled",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager",
+       "name": "SystemPaneSuggestionsEnabled",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+       "name": "Start_IrisRecommendations",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager",
+       "name": "SubscribedContent-338389Enabled",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager",
+       "name": "SoftLandingEnabled",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager",
+       "name": "SubscribedContent-338393Enabled",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager",
+       "name": "SubscribedContent-353694Enabled",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager",
+       "name": "SubscribedContent-353696Enabled",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager",
+       "name": "SubscribedContent-353698Enabled",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\SystemSettings\\AccountNotifications",
+       "name": "EnableAccountNotifications",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\UserProfileEngagement",
+       "name": "ScoobeSystemSettingEnabled",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+       "name": "ShowSyncProviderNotifications",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager",
+       "name": "SilentInstalledAppsEnabled",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Notifications\\Settings\\Windows.SystemToast.Suggested",
+       "name": "Enabled",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Mobility",
+       "name": "OptedIn",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+       "name": "Start_AccountNotifications",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Notifications\\Settings\\Windows.SystemToast.BackupReminder",
+       "name": "Enabled",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\WindowsBackup",
+       "name": "DisableMonitoring",
+       "type": "dword",
+       "value": 0
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager",
+       "name": "SubscribedContent-310093Enabled",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager",
+       "name": "SubscribedContent-338388Enabled",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager",
+       "name": "SystemPaneSuggestionsEnabled",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+       "name": "Start_IrisRecommendations",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager",
+       "name": "SubscribedContent-338389Enabled",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager",
+       "name": "SoftLandingEnabled",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager",
+       "name": "SubscribedContent-338393Enabled",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager",
+       "name": "SubscribedContent-353694Enabled",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager",
+       "name": "SubscribedContent-353696Enabled",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager",
+       "name": "SubscribedContent-353698Enabled",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\SystemSettings\\AccountNotifications",
+       "name": "EnableAccountNotifications",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\UserProfileEngagement",
+       "name": "ScoobeSystemSettingEnabled",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+       "name": "ShowSyncProviderNotifications",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager",
+       "name": "SilentInstalledAppsEnabled",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Notifications\\Settings\\Windows.SystemToast.Suggested",
+       "name": "Enabled",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Mobility",
+       "name": "OptedIn",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+       "name": "Start_AccountNotifications",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Notifications\\Settings\\Windows.SystemToast.BackupReminder",
+       "name": "Enabled",
+       "type": "dword",
+       "value": 0
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "privacy.lockscreen_tips",
+   "cat": "privacy",
+   "group": null,
+   "name": "Lock screen tips and facts",
+   "what": "Tips, fun facts and suggestions on the lock screen.",
+   "more": null,
+   "risk": "safe",
+   "after": "none",
+   "src": "Win11Debloat",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": "off",
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager",
+       "name": "SubscribedContent-338387Enabled",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager",
+       "name": "RotatingLockScreenOverlayEnabled",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager",
+       "name": "SubscribedContent-338387Enabled",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliveryManager",
+       "name": "RotatingLockScreenOverlayEnabled",
+       "type": "dword",
+       "value": 0
+      }
+     ]
+    }
+   ],
+   "admin": false
+  },
+  {
+   "id": "privacy.settings_ads",
+   "cat": "privacy",
+   "group": null,
+   "name": "Microsoft 365 ads in Settings",
+   "what": "Promotions for Microsoft 365 and Copilot on Settings' Home page.",
+   "more": null,
+   "risk": "safe",
+   "after": "none",
+   "src": "Win11Debloat",
+   "min": 22000,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": "off",
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\CloudContent",
+       "name": "DisableConsumerAccountStateContent",
+       "delete": true
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\CloudContent",
+       "name": "DisableConsumerAccountStateContent",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "privacy.consumer",
+   "cat": "privacy",
+   "group": null,
+   "name": "Suggested apps installed by Windows",
+   "what": "Windows installs promoted Store apps and games (Candy Crush and the like) on its own.",
+   "more": null,
+   "risk": "safe",
+   "after": "none",
+   "src": "WinUtil",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": "off",
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\CloudContent",
+       "name": "DisableWindowsConsumerFeatures",
+       "delete": true
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\CloudContent",
+       "name": "DisableWindowsConsumerFeatures",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "privacy.device_apps",
+   "cat": "privacy",
+   "group": null,
+   "name": "Companion apps for new devices",
+   "what": "When you plug in a device (a mouse, a monitor), Windows downloads its maker's app.",
+   "more": null,
+   "risk": "behaviour",
+   "after": "none",
+   "src": "Win11Debloat",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": "off",
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Device Metadata",
+       "name": "PreventDeviceMetadataFromNetwork",
+       "delete": true
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Device Metadata",
+       "name": "PreventDeviceMetadataFromNetwork",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "privacy.location",
+   "cat": "privacy",
+   "group": null,
+   "name": "Location for Windows and apps",
+   "what": "Windows' location service, which apps, the weather and Find My Device use.",
+   "more": null,
+   "risk": "behaviour",
+   "after": "none",
+   "src": "Win11Debloat",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\LocationAndSensors",
+       "name": "DisableLocation",
+       "delete": true
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\LocationAndSensors",
+       "name": "DisableLocation",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "privacy.findmydevice",
+   "cat": "privacy",
+   "group": null,
+   "name": "Find My Device",
+   "what": "Windows saves this PC's location now and then so you can find it from your Microsoft account.",
+   "more": null,
+   "risk": "behaviour",
+   "after": "none",
+   "src": "Win11Debloat",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\FindMyDevice",
+       "name": "AllowFindMyDevice",
+       "delete": true
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\FindMyDevice",
+       "name": "AllowFindMyDevice",
+       "type": "dword",
+       "value": 0
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "privacy.cloud_search",
+   "cat": "privacy",
+   "group": null,
+   "name": "Cloud results in search",
+   "what": "Search also shows files and mail from your Microsoft account and work or school account.",
+   "more": null,
+   "risk": "safe",
+   "after": "none",
+   "src": "Deck",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": "off",
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\SearchSettings",
+       "name": "IsMSACloudSearchEnabled",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\SearchSettings",
+       "name": "IsAADCloudSearchEnabled",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\SearchSettings",
+       "name": "IsMSACloudSearchEnabled",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\SearchSettings",
+       "name": "IsAADCloudSearchEnabled",
+       "type": "dword",
+       "value": 0
+      }
+     ]
+    }
+   ],
+   "admin": false
+  },
+  {
+   "id": "privacy.search_history",
+   "cat": "privacy",
+   "group": null,
+   "name": "Search history on this PC",
+   "what": "Start remembers what you searched for to suggest it again.",
+   "more": null,
+   "risk": "safe",
+   "after": "none",
+   "src": "Deck",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\SearchSettings",
+       "name": "IsDeviceSearchHistoryEnabled",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\SearchSettings",
+       "name": "IsDeviceSearchHistoryEnabled",
+       "type": "dword",
+       "value": 0
+      }
+     ]
+    }
+   ],
+   "admin": false
+  },
+  {
+   "id": "privacy.wpbt",
+   "cat": "privacy",
+   "group": null,
+   "name": "Firmware programs at start-up (WPBT)",
+   "what": "Lets the PC's firmware make Windows run a program from the maker at every start (anti-theft tools, driver installers).",
+   "more": "Some laptops use this for anti-theft software (Absolute/Computrace). Desktops rarely need it.",
+   "risk": "advanced",
+   "after": "restart",
+   "src": "WinUtil",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager",
+       "name": "DisableWpbtExecution",
+       "delete": true
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager",
+       "name": "DisableWpbtExecution",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "privacy.access.webcam",
+   "cat": "privacy",
+   "group": "App permissions",
+   "name": "Apps can use: Camera",
+   "what": "Store apps and apps that ask Windows may use your camera. Off: Discord, Teams and games lose the camera.",
+   "more": null,
+   "risk": "behaviour",
+   "after": "none",
+   "src": "Deck",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\webcam",
+       "name": "Value",
+       "type": "string",
+       "value": "Allow"
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\webcam",
+       "name": "Value",
+       "type": "string",
+       "value": "Deny"
+      }
+     ]
+    }
+   ],
+   "admin": false
+  },
+  {
+   "id": "privacy.access.microphone",
+   "cat": "privacy",
+   "group": "App permissions",
+   "name": "Apps can use: Microphone",
+   "what": "Store apps and apps that ask Windows may use your microphone. Off: Discord, games and calls lose the microphone, also the phone mic in apps.",
+   "more": null,
+   "risk": "behaviour",
+   "after": "none",
+   "src": "Deck",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\microphone",
+       "name": "Value",
+       "type": "string",
+       "value": "Allow"
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\microphone",
+       "name": "Value",
+       "type": "string",
+       "value": "Deny"
+      }
+     ]
+    }
+   ],
+   "admin": false
+  },
+  {
+   "id": "privacy.access.contacts",
+   "cat": "privacy",
+   "group": "App permissions",
+   "name": "Apps can use: Contacts",
+   "what": "Store apps and apps that ask Windows may use your contacts.",
+   "more": null,
+   "risk": "behaviour",
+   "after": "none",
+   "src": "Deck",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\contacts",
+       "name": "Value",
+       "type": "string",
+       "value": "Allow"
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\contacts",
+       "name": "Value",
+       "type": "string",
+       "value": "Deny"
+      }
+     ]
+    }
+   ],
+   "admin": false
+  },
+  {
+   "id": "privacy.access.phoneCallHistory",
+   "cat": "privacy",
+   "group": "App permissions",
+   "name": "Apps can use: Call history",
+   "what": "Store apps and apps that ask Windows may use your call history.",
+   "more": null,
+   "risk": "behaviour",
+   "after": "none",
+   "src": "Deck",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\phoneCallHistory",
+       "name": "Value",
+       "type": "string",
+       "value": "Allow"
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\phoneCallHistory",
+       "name": "Value",
+       "type": "string",
+       "value": "Deny"
+      }
+     ]
+    }
+   ],
+   "admin": false
+  },
+  {
+   "id": "privacy.access.chat",
+   "cat": "privacy",
+   "group": "App permissions",
+   "name": "Apps can use: Messages",
+   "what": "Store apps and apps that ask Windows may use your text messages.",
+   "more": null,
+   "risk": "behaviour",
+   "after": "none",
+   "src": "Deck",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\chat",
+       "name": "Value",
+       "type": "string",
+       "value": "Allow"
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\chat",
+       "name": "Value",
+       "type": "string",
+       "value": "Deny"
+      }
+     ]
+    }
+   ],
+   "admin": false
+  },
+  {
+   "id": "privacy.access.email",
+   "cat": "privacy",
+   "group": "App permissions",
+   "name": "Apps can use: Email",
+   "what": "Store apps and apps that ask Windows may use your email.",
+   "more": null,
+   "risk": "behaviour",
+   "after": "none",
+   "src": "Deck",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\email",
+       "name": "Value",
+       "type": "string",
+       "value": "Allow"
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\email",
+       "name": "Value",
+       "type": "string",
+       "value": "Deny"
+      }
+     ]
+    }
+   ],
+   "admin": false
+  },
+  {
+   "id": "privacy.access.userDataTasks",
+   "cat": "privacy",
+   "group": "App permissions",
+   "name": "Apps can use: Tasks",
+   "what": "Store apps and apps that ask Windows may use your tasks.",
+   "more": null,
+   "risk": "behaviour",
+   "after": "none",
+   "src": "Deck",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\userDataTasks",
+       "name": "Value",
+       "type": "string",
+       "value": "Allow"
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\userDataTasks",
+       "name": "Value",
+       "type": "string",
+       "value": "Deny"
+      }
+     ]
+    }
+   ],
+   "admin": false
+  },
+  {
+   "id": "privacy.access.appointments",
+   "cat": "privacy",
+   "group": "App permissions",
+   "name": "Apps can use: Calendar",
+   "what": "Store apps and apps that ask Windows may use your calendar.",
+   "more": null,
+   "risk": "behaviour",
+   "after": "none",
+   "src": "Deck",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\appointments",
+       "name": "Value",
+       "type": "string",
+       "value": "Allow"
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\appointments",
+       "name": "Value",
+       "type": "string",
+       "value": "Deny"
+      }
+     ]
+    }
+   ],
+   "admin": false
+  },
+  {
+   "id": "privacy.access.radios",
+   "cat": "privacy",
+   "group": "App permissions",
+   "name": "Apps can use: Radios",
+   "what": "Store apps and apps that ask Windows may use Bluetooth and Wi-Fi on and off.",
+   "more": null,
+   "risk": "behaviour",
+   "after": "none",
+   "src": "Deck",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\radios",
+       "name": "Value",
+       "type": "string",
+       "value": "Allow"
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\radios",
+       "name": "Value",
+       "type": "string",
+       "value": "Deny"
+      }
+     ]
+    }
+   ],
+   "admin": false
+  },
+  {
+   "id": "privacy.access.documentsLibrary",
+   "cat": "privacy",
+   "group": "App permissions",
+   "name": "Apps can use: Documents",
+   "what": "Store apps and apps that ask Windows may use your Documents folder.",
+   "more": null,
+   "risk": "behaviour",
+   "after": "none",
+   "src": "Deck",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\documentsLibrary",
+       "name": "Value",
+       "type": "string",
+       "value": "Allow"
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\documentsLibrary",
+       "name": "Value",
+       "type": "string",
+       "value": "Deny"
+      }
+     ]
+    }
+   ],
+   "admin": false
+  },
+  {
+   "id": "privacy.access.picturesLibrary",
+   "cat": "privacy",
+   "group": "App permissions",
+   "name": "Apps can use: Pictures",
+   "what": "Store apps and apps that ask Windows may use your Pictures folder.",
+   "more": null,
+   "risk": "behaviour",
+   "after": "none",
+   "src": "Deck",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\picturesLibrary",
+       "name": "Value",
+       "type": "string",
+       "value": "Allow"
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\picturesLibrary",
+       "name": "Value",
+       "type": "string",
+       "value": "Deny"
+      }
+     ]
+    }
+   ],
+   "admin": false
+  },
+  {
+   "id": "privacy.access.videosLibrary",
+   "cat": "privacy",
+   "group": "App permissions",
+   "name": "Apps can use: Videos",
+   "what": "Store apps and apps that ask Windows may use your Videos folder.",
+   "more": null,
+   "risk": "behaviour",
+   "after": "none",
+   "src": "Deck",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\videosLibrary",
+       "name": "Value",
+       "type": "string",
+       "value": "Allow"
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\videosLibrary",
+       "name": "Value",
+       "type": "string",
+       "value": "Deny"
+      }
+     ]
+    }
+   ],
+   "admin": false
+  },
+  {
+   "id": "privacy.access.broadFileSystemAccess",
+   "cat": "privacy",
+   "group": "App permissions",
+   "name": "Apps can use: All files",
+   "what": "Store apps and apps that ask Windows may use every file on the PC.",
+   "more": null,
+   "risk": "behaviour",
+   "after": "none",
+   "src": "Deck",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\broadFileSystemAccess",
+       "name": "Value",
+       "type": "string",
+       "value": "Allow"
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\broadFileSystemAccess",
+       "name": "Value",
+       "type": "string",
+       "value": "Deny"
+      }
+     ]
+    }
+   ],
+   "admin": false
+  },
+  {
+   "id": "privacy.access.userNotificationListener",
+   "cat": "privacy",
+   "group": "App permissions",
+   "name": "Apps can use: Notifications",
+   "what": "Store apps and apps that ask Windows may use your notifications.",
+   "more": null,
+   "risk": "behaviour",
+   "after": "none",
+   "src": "Deck",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\userNotificationListener",
+       "name": "Value",
+       "type": "string",
+       "value": "Allow"
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\userNotificationListener",
+       "name": "Value",
+       "type": "string",
+       "value": "Deny"
+      }
+     ]
+    }
+   ],
+   "admin": false
+  },
+  {
+   "id": "privacy.access.userAccountInformation",
+   "cat": "privacy",
+   "group": "App permissions",
+   "name": "Apps can use: Account info",
+   "what": "Store apps and apps that ask Windows may use your name and account picture.",
+   "more": null,
+   "risk": "behaviour",
+   "after": "none",
+   "src": "Deck",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\userAccountInformation",
+       "name": "Value",
+       "type": "string",
+       "value": "Allow"
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\userAccountInformation",
+       "name": "Value",
+       "type": "string",
+       "value": "Deny"
+      }
+     ]
+    }
+   ],
+   "admin": false
+  },
+  {
+   "id": "start.bing",
+   "cat": "start",
+   "group": null,
+   "name": "Bing and Copilot in Start search",
+   "what": "Typing in Start also searches the web with Bing and offers Copilot. Off: Start searches this PC only.",
+   "more": null,
+   "risk": "safe",
+   "after": "explorer",
+   "src": "Win11Debloat",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": "off",
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Policies\\Microsoft\\Windows\\Explorer",
+       "name": "DisableSearchBoxSuggestions",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Windows Search",
+       "name": "AllowCortana",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Windows Search",
+       "name": "CortanaConsent",
+       "delete": true
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Policies\\Microsoft\\Windows\\Explorer",
+       "name": "DisableSearchBoxSuggestions",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Windows Search",
+       "name": "AllowCortana",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Windows Search",
+       "name": "CortanaConsent",
+       "type": "dword",
+       "value": 0
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "start.recommended",
+   "cat": "start",
+   "group": null,
+   "name": "Recommended in Start",
+   "what": "Start's Recommended section: recent files, new apps, suggestions.",
+   "more": null,
+   "risk": "safe",
+   "after": "explorer",
+   "src": "Win11Debloat",
+   "min": 22621,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKCU\\SOFTWARE\\Policies\\Microsoft\\Windows\\Explorer",
+       "name": "HideRecommendedSection",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Explorer",
+       "name": "HideRecommendedSection",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\PolicyManager\\current\\device\\Start",
+       "name": "HideRecommendedSection",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\PolicyManager\\current\\device\\Education",
+       "name": "IsEducationEnvironment",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+       "name": "Start_Layout",
+       "type": "dword",
+       "value": 0
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKCU\\SOFTWARE\\Policies\\Microsoft\\Windows\\Explorer",
+       "name": "HideRecommendedSection",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "start.recent_apps",
+   "cat": "start",
+   "group": null,
+   "name": "Recently added apps in Start",
+   "what": "Start lists apps you installed lately at the top.",
+   "more": null,
+   "risk": "safe",
+   "after": "explorer",
+   "src": "Deck",
+   "min": 22000,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Explorer",
+       "name": "HideRecentlyAddedApps",
+       "delete": true
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Explorer",
+       "name": "HideRecentlyAddedApps",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "start.phonelink",
+   "cat": "start",
+   "group": null,
+   "name": "Phone Link in Start",
+   "what": "Start shows your phone's apps and messages beside it (Phone Link).",
+   "more": null,
+   "risk": "safe",
+   "after": "none",
+   "src": "Win11Debloat",
+   "min": 22621,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": "off",
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Start\\Companions\\Microsoft.YourPhone_8wekyb3d8bbwe",
+       "name": "IsEnabled",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Start\\Companions\\Microsoft.YourPhone_8wekyb3d8bbwe",
+       "name": "IsEnabled",
+       "type": "dword",
+       "value": 0
+      }
+     ]
+    }
+   ],
+   "admin": false
+  },
+  {
+   "id": "start.allapps",
+   "cat": "start",
+   "group": null,
+   "name": "All apps in Start",
+   "what": "How Start lists every app.",
+   "more": null,
+   "risk": "safe",
+   "after": "none",
+   "src": "Win11Debloat",
+   "min": 26200,
+   "max": null,
+   "needs": [],
+   "kind": "choice",
+   "default": "category",
+   "rec": null,
+   "options": [
+    {
+     "id": "hide",
+     "label": "Hidden",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer",
+       "name": "NoStartMenuMorePrograms",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    },
+    {
+     "id": "category",
+     "label": "By category",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Start",
+       "name": "AllAppsViewMode",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer",
+       "name": "NoStartMenuMorePrograms",
+       "delete": true
+      }
+     ]
+    },
+    {
+     "id": "grid",
+     "label": "Grid",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Start",
+       "name": "AllAppsViewMode",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer",
+       "name": "NoStartMenuMorePrograms",
+       "delete": true
+      }
+     ]
+    },
+    {
+     "id": "list",
+     "label": "List",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Start",
+       "name": "AllAppsViewMode",
+       "type": "dword",
+       "value": 2
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer",
+       "name": "NoStartMenuMorePrograms",
+       "delete": true
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "start.old_layout",
+   "cat": "start",
+   "group": null,
+   "name": "Previous Start layout",
+   "what": "Brings back Start's layout from before the 2025 redesign, on builds that still have it.",
+   "more": null,
+   "risk": "behaviour",
+   "after": "explorer",
+   "src": "WinUtil",
+   "min": 26100,
+   "max": 26200,
+   "needs": [],
+   "kind": "switch",
+   "default": "off",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKLM\\SYSTEM\\ControlSet001\\Control\\FeatureManagement\\Overrides\\8\\3036241548",
+       "name": "EnabledState",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKLM\\SYSTEM\\ControlSet001\\Control\\FeatureManagement\\Overrides\\8\\3036241548",
+       "name": "EnabledState",
+       "delete": true
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "start.unpin_all",
+   "cat": "start",
+   "group": null,
+   "name": "Unpin everything from Start",
+   "what": "Removes every pinned app from Start for you (it starts empty, you pin what you want). Undo puts your pins back.",
+   "more": null,
+   "risk": "behaviour",
+   "after": "explorer",
+   "src": "Deck",
+   "min": 22621,
+   "max": null,
+   "needs": [],
+   "kind": "action",
+   "do": "start_clear",
+   "label": "Unpin all",
+   "default": null,
+   "rec": null,
+   "options": [],
+   "admin": true
+  },
+  {
+   "id": "taskbar.align",
+   "cat": "taskbar",
+   "group": null,
+   "name": "Taskbar icons",
+   "what": "Where the taskbar's icons sit.",
+   "more": null,
+   "risk": "safe",
+   "after": "none",
+   "src": "Deck",
+   "min": 22000,
+   "max": null,
+   "needs": [],
+   "kind": "choice",
+   "default": "center",
+   "rec": null,
+   "options": [
+    {
+     "id": "center",
+     "label": "Centre",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+       "name": "TaskbarAl",
+       "delete": true
+      }
+     ]
+    },
+    {
+     "id": "left",
+     "label": "Left",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+       "name": "TaskbarAl",
+       "type": "dword",
+       "value": 0
+      }
+     ]
+    }
+   ],
+   "admin": false
+  },
+  {
+   "id": "taskbar.search",
+   "cat": "taskbar",
+   "group": null,
+   "name": "Search on the taskbar",
+   "what": "The search box, a smaller button, or nothing (Win+S still searches).",
+   "more": null,
+   "risk": "safe",
+   "after": "none",
+   "src": "Win11Debloat",
+   "min": 22000,
+   "max": null,
+   "needs": [],
+   "kind": "choice",
+   "default": "box",
+   "rec": null,
+   "options": [
+    {
+     "id": "box",
+     "label": "Box",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Search",
+       "name": "SearchboxTaskbarMode",
+       "type": "dword",
+       "value": 2
+      }
+     ]
+    },
+    {
+     "id": "label",
+     "label": "Icon and label",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Search",
+       "name": "SearchboxTaskbarMode",
+       "type": "dword",
+       "value": 3
+      }
+     ]
+    },
+    {
+     "id": "icon",
+     "label": "Icon",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Search",
+       "name": "SearchboxTaskbarMode",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    },
+    {
+     "id": "hidden",
+     "label": "Hidden",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Search",
+       "name": "SearchboxTaskbarMode",
+       "type": "dword",
+       "value": 0
+      }
+     ]
+    }
+   ],
+   "admin": false
+  },
+  {
+   "id": "taskbar.taskview",
+   "cat": "taskbar",
+   "group": null,
+   "name": "Task view button",
+   "what": "The button for virtual desktops and open windows (Win+Tab does the same).",
+   "more": null,
+   "risk": "safe",
+   "after": "none",
+   "src": "Win11Debloat",
+   "min": 22000,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+       "name": "ShowTaskViewButton",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+       "name": "ShowTaskViewButton",
+       "type": "dword",
+       "value": 0
+      }
+     ]
+    }
+   ],
+   "admin": false
+  },
+  {
+   "id": "taskbar.widgets",
+   "cat": "taskbar",
+   "group": null,
+   "name": "Widgets",
+   "what": "The weather and news board on the taskbar and lock screen.",
+   "more": null,
+   "risk": "safe",
+   "after": "explorer",
+   "src": "Deck",
+   "min": 22000,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": "off",
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Dsh",
+       "name": "AllowNewsAndInterests",
+       "delete": true
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Dsh",
+       "name": "AllowNewsAndInterests",
+       "type": "dword",
+       "value": 0
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "taskbar.chat",
+   "cat": "taskbar",
+   "group": null,
+   "name": "Chat and Meet now",
+   "what": "The Teams Chat and Meet now buttons of older Windows versions.",
+   "more": null,
+   "risk": "safe",
+   "after": "none",
+   "src": "Win11Debloat",
+   "min": null,
+   "max": 22621,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+       "name": "TaskbarMn",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer",
+       "name": "HideSCAMeetNow",
+       "type": "dword",
+       "value": 0
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+       "name": "TaskbarMn",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer",
+       "name": "HideSCAMeetNow",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "taskbar.endtask",
+   "cat": "taskbar",
+   "group": null,
+   "name": "End task on right-click",
+   "what": "Right-clicking an app on the taskbar offers \"End task\", which closes it even when it hangs.",
+   "more": null,
+   "risk": "safe",
+   "after": "none",
+   "src": "Win11Debloat",
+   "min": 22631,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "off",
+   "rec": "on",
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\TaskbarDeveloperSettings",
+       "name": "TaskbarEndTask",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\TaskbarDeveloperSettings",
+       "name": "TaskbarEndTask",
+       "type": "dword",
+       "value": 0
+      }
+     ]
+    }
+   ],
+   "admin": false
+  },
+  {
+   "id": "taskbar.lastactive",
+   "cat": "taskbar",
+   "group": null,
+   "name": "Click goes to the last window",
+   "what": "Clicking an app with several windows opens the one you used last instead of showing them all.",
+   "more": null,
+   "risk": "safe",
+   "after": "none",
+   "src": "Win11Debloat",
+   "min": 22000,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "off",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+       "name": "LastActiveClick",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+       "name": "LastActiveClick",
+       "delete": true
+      }
+     ]
+    }
+   ],
+   "admin": false
+  },
+  {
+   "id": "taskbar.combine",
+   "cat": "taskbar",
+   "group": null,
+   "name": "Combine buttons (main display)",
+   "what": "Whether an app's windows share one button, and whether names show.",
+   "more": null,
+   "risk": "safe",
+   "after": "explorer",
+   "src": "Win11Debloat",
+   "min": 22000,
+   "max": null,
+   "needs": [],
+   "kind": "choice",
+   "default": "always",
+   "rec": null,
+   "options": [
+    {
+     "id": "always",
+     "label": "Always",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+       "name": "TaskbarGlomLevel",
+       "type": "dword",
+       "value": 0
+      }
+     ]
+    },
+    {
+     "id": "full",
+     "label": "When full",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+       "name": "TaskbarGlomLevel",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    },
+    {
+     "id": "never",
+     "label": "Never",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+       "name": "TaskbarGlomLevel",
+       "type": "dword",
+       "value": 2
+      }
+     ]
+    }
+   ],
+   "admin": false
+  },
+  {
+   "id": "taskbar.combine_mm",
+   "cat": "taskbar",
+   "group": null,
+   "name": "Combine buttons (other displays)",
+   "what": "The same for the taskbars on your other monitors.",
+   "more": null,
+   "risk": "safe",
+   "after": "explorer",
+   "src": "Win11Debloat",
+   "min": 22000,
+   "max": null,
+   "needs": [],
+   "kind": "choice",
+   "default": "always",
+   "rec": null,
+   "options": [
+    {
+     "id": "always",
+     "label": "Always",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+       "name": "MMTaskbarGlomLevel",
+       "type": "dword",
+       "value": 0
+      }
+     ]
+    },
+    {
+     "id": "full",
+     "label": "When full",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+       "name": "MMTaskbarGlomLevel",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    },
+    {
+     "id": "never",
+     "label": "Never",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+       "name": "MMTaskbarGlomLevel",
+       "type": "dword",
+       "value": 2
+      }
+     ]
+    }
+   ],
+   "admin": false
+  },
+  {
+   "id": "taskbar.mm_mode",
+   "cat": "taskbar",
+   "group": null,
+   "name": "Show apps on",
+   "what": "With several monitors: which taskbars show an app's button.",
+   "more": null,
+   "risk": "safe",
+   "after": "explorer",
+   "src": "Win11Debloat",
+   "min": 22000,
+   "max": null,
+   "needs": [],
+   "kind": "choice",
+   "default": "all",
+   "rec": null,
+   "options": [
+    {
+     "id": "all",
+     "label": "All taskbars",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+       "name": "MMTaskbarMode",
+       "type": "dword",
+       "value": 0
+      }
+     ]
+    },
+    {
+     "id": "main_active",
+     "label": "Main and where it's open",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+       "name": "MMTaskbarMode",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    },
+    {
+     "id": "active",
+     "label": "Where it's open",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+       "name": "MMTaskbarMode",
+       "type": "dword",
+       "value": 2
+      }
+     ]
+    }
+   ],
+   "admin": false
+  },
+  {
+   "id": "taskbar.battery",
+   "cat": "taskbar",
+   "group": null,
+   "name": "Battery percentage",
+   "what": "Shows the battery level as a number next to its icon.",
+   "more": null,
+   "risk": "safe",
+   "after": "none",
+   "src": "WinUtil",
+   "min": null,
+   "max": null,
+   "needs": [
+    "battery"
+   ],
+   "kind": "switch",
+   "default": "off",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+       "name": "IsBatteryPercentageEnabled",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+       "name": "IsBatteryPercentageEnabled",
+       "delete": true
+      }
+     ]
+    }
+   ],
+   "admin": false
+  },
+  {
+   "id": "taskbar.notifications",
+   "cat": "taskbar",
+   "group": null,
+   "name": "Notifications and calendar",
+   "what": "The notification centre and pop-ups from apps and Windows.",
+   "more": "Off also hides the calendar flyout from the clock. Deck's own pop-ups are its own window and keep working.",
+   "risk": "advanced",
+   "after": "signout",
+   "src": "WinUtil",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Policies\\Microsoft\\Windows\\Explorer",
+       "name": "DisableNotificationCenter",
+       "delete": true
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\PushNotifications",
+       "name": "ToastEnabled",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Policies\\Microsoft\\Windows\\Explorer",
+       "name": "DisableNotificationCenter",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\PushNotifications",
+       "name": "ToastEnabled",
+       "type": "dword",
+       "value": 0
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "taskbar.seconds",
+   "cat": "taskbar",
+   "group": null,
+   "name": "Seconds in the clock",
+   "what": "The taskbar clock shows seconds.",
+   "more": null,
+   "risk": "safe",
+   "after": "none",
+   "src": "Deck",
+   "min": 22621,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "off",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+       "name": "ShowSecondsInSystemClock",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+       "name": "ShowSecondsInSystemClock",
+       "type": "dword",
+       "value": 0
+      }
+     ]
+    }
+   ],
+   "admin": false
+  },
+  {
+   "id": "explorer.ext",
+   "cat": "explorer",
+   "group": null,
+   "name": "File extensions",
+   "what": "Shows .exe, .jpg, .txt after file names, so a \"photo.jpg.exe\" can't hide what it is.",
+   "more": null,
+   "risk": "safe",
+   "after": "explorer",
+   "src": "Win11Debloat",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "off",
+   "rec": "on",
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+       "name": "HideFileExt",
+       "type": "dword",
+       "value": 0
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+       "name": "HideFileExt",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    }
+   ],
+   "admin": false
+  },
+  {
+   "id": "explorer.hidden",
+   "cat": "explorer",
+   "group": null,
+   "name": "Hidden files and folders",
+   "what": "Shows files and folders marked hidden (like AppData).",
+   "more": null,
+   "risk": "safe",
+   "after": "explorer",
+   "src": "Win11Debloat",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "off",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+       "name": "Hidden",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+       "name": "Hidden",
+       "type": "dword",
+       "value": 2
+      }
+     ]
+    }
+   ],
+   "admin": false
+  },
+  {
+   "id": "explorer.superhidden",
+   "cat": "explorer",
+   "group": null,
+   "name": "Protected system files",
+   "what": "Shows Windows' own protected files. Deleting or moving them can break Windows.",
+   "more": null,
+   "risk": "advanced",
+   "after": "explorer",
+   "src": "Deck",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "off",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+       "name": "ShowSuperHidden",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+       "name": "ShowSuperHidden",
+       "type": "dword",
+       "value": 0
+      }
+     ]
+    }
+   ],
+   "admin": false
+  },
+  {
+   "id": "explorer.launch",
+   "cat": "explorer",
+   "group": null,
+   "name": "File Explorer opens to",
+   "what": "The folder a new Explorer window shows.",
+   "more": null,
+   "risk": "safe",
+   "after": "explorer",
+   "src": "Win11Debloat",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "choice",
+   "default": "home",
+   "rec": null,
+   "options": [
+    {
+     "id": "home",
+     "label": "Home",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+       "name": "LaunchTo",
+       "type": "dword",
+       "value": 2
+      }
+     ]
+    },
+    {
+     "id": "thispc",
+     "label": "This PC",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+       "name": "LaunchTo",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    },
+    {
+     "id": "downloads",
+     "label": "Downloads",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+       "name": "LaunchTo",
+       "type": "dword",
+       "value": 3
+      }
+     ]
+    },
+    {
+     "id": "onedrive",
+     "label": "OneDrive",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+       "name": "LaunchTo",
+       "type": "dword",
+       "value": 4
+      }
+     ]
+    }
+   ],
+   "admin": false
+  },
+  {
+   "id": "explorer.home",
+   "cat": "explorer",
+   "group": null,
+   "name": "Home in the side pane",
+   "what": "Explorer's Home (recent and pinned files) in the left pane.",
+   "more": null,
+   "risk": "safe",
+   "after": "explorer",
+   "src": "Win11Debloat",
+   "min": 22000,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Classes\\CLSID\\{f874310e-b6b7-47dc-bc84-b9e6b38f5903}",
+       "name": "",
+       "type": "string",
+       "value": "CLSID_MSGraphHomeFolder"
+      },
+      {
+       "reg": "HKCU\\Software\\Classes\\CLSID\\{f874310e-b6b7-47dc-bc84-b9e6b38f5903}",
+       "name": "System.IsPinnedToNameSpaceTree",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\NavPane\\ShowHome",
+       "name": "CheckedValue",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\NavPane\\ShowHome",
+       "name": "DefaultValue",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\NavPane\\ShowHome",
+       "name": "HKeyRoot",
+       "type": "dword",
+       "value": 2147483649
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\NavPane\\ShowHome",
+       "name": "Id",
+       "type": "dword",
+       "value": 13
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\NavPane\\ShowHome",
+       "name": "RegPath",
+       "type": "string",
+       "value": "Software\\Classes\\CLSID\\{f874310e-b6b7-47dc-bc84-b9e6b38f5903}"
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\NavPane\\ShowHome",
+       "name": "Text",
+       "type": "string",
+       "value": "Show Home"
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\NavPane\\ShowHome",
+       "name": "Type",
+       "type": "string",
+       "value": "checkbox"
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\NavPane\\ShowHome",
+       "name": "UncheckedValue",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\NavPane\\ShowHome",
+       "name": "ValueName",
+       "type": "string",
+       "value": "System.IsPinnedToNameSpaceTree"
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Classes\\CLSID\\{f874310e-b6b7-47dc-bc84-b9e6b38f5903}",
+       "name": "",
+       "type": "string",
+       "value": "CLSID_MSGraphHomeFolder"
+      },
+      {
+       "reg": "HKCU\\Software\\Classes\\CLSID\\{f874310e-b6b7-47dc-bc84-b9e6b38f5903}",
+       "name": "System.IsPinnedToNameSpaceTree",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\NavPane\\ShowHome",
+       "name": "CheckedValue",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\NavPane\\ShowHome",
+       "name": "DefaultValue",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\NavPane\\ShowHome",
+       "name": "HKeyRoot",
+       "type": "dword",
+       "value": 2147483649
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\NavPane\\ShowHome",
+       "name": "Id",
+       "type": "dword",
+       "value": 13
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\NavPane\\ShowHome",
+       "name": "RegPath",
+       "type": "string",
+       "value": "Software\\Classes\\CLSID\\{f874310e-b6b7-47dc-bc84-b9e6b38f5903}"
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\NavPane\\ShowHome",
+       "name": "Text",
+       "type": "string",
+       "value": "Show Home"
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\NavPane\\ShowHome",
+       "name": "Type",
+       "type": "string",
+       "value": "checkbox"
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\NavPane\\ShowHome",
+       "name": "UncheckedValue",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\NavPane\\ShowHome",
+       "name": "ValueName",
+       "type": "string",
+       "value": "System.IsPinnedToNameSpaceTree"
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "explorer.gallery",
+   "cat": "explorer",
+   "group": null,
+   "name": "Gallery in the side pane",
+   "what": "Explorer's Gallery (your photos) in the left pane.",
+   "more": null,
+   "risk": "safe",
+   "after": "explorer",
+   "src": "Win11Debloat",
+   "min": 22000,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Classes\\CLSID\\{e88865ea-0e1c-4e20-9aa6-edcd0212c87c}",
+       "name": "System.IsPinnedToNameSpaceTree",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\NavPane\\ShowGallery",
+       "name": "CheckedValue",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\NavPane\\ShowGallery",
+       "name": "DefaultValue",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\NavPane\\ShowGallery",
+       "name": "HKeyRoot",
+       "type": "dword",
+       "value": 2147483649
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\NavPane\\ShowGallery",
+       "name": "Id",
+       "type": "dword",
+       "value": 13
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\NavPane\\ShowGallery",
+       "name": "RegPath",
+       "type": "string",
+       "value": "Software\\Classes\\CLSID\\{e88865ea-0e1c-4e20-9aa6-edcd0212c87c}"
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\NavPane\\ShowGallery",
+       "name": "Text",
+       "type": "string",
+       "value": "Show Gallery"
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\NavPane\\ShowGallery",
+       "name": "Type",
+       "type": "string",
+       "value": "checkbox"
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\NavPane\\ShowGallery",
+       "name": "UncheckedValue",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\NavPane\\ShowGallery",
+       "name": "ValueName",
+       "type": "string",
+       "value": "System.IsPinnedToNameSpaceTree"
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Classes\\CLSID\\{e88865ea-0e1c-4e20-9aa6-edcd0212c87c}",
+       "name": "System.IsPinnedToNameSpaceTree",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\NavPane\\ShowGallery",
+       "name": "CheckedValue",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\NavPane\\ShowGallery",
+       "name": "DefaultValue",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\NavPane\\ShowGallery",
+       "name": "HKeyRoot",
+       "type": "dword",
+       "value": 2147483649
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\NavPane\\ShowGallery",
+       "name": "Id",
+       "type": "dword",
+       "value": 13
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\NavPane\\ShowGallery",
+       "name": "RegPath",
+       "type": "string",
+       "value": "Software\\Classes\\CLSID\\{e88865ea-0e1c-4e20-9aa6-edcd0212c87c}"
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\NavPane\\ShowGallery",
+       "name": "Text",
+       "type": "string",
+       "value": "Show Gallery"
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\NavPane\\ShowGallery",
+       "name": "Type",
+       "type": "string",
+       "value": "checkbox"
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\NavPane\\ShowGallery",
+       "name": "UncheckedValue",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\NavPane\\ShowGallery",
+       "name": "ValueName",
+       "type": "string",
+       "value": "System.IsPinnedToNameSpaceTree"
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "explorer.onedrive",
+   "cat": "explorer",
+   "group": null,
+   "name": "OneDrive in the side pane",
+   "what": "OneDrive in Explorer's left pane (OneDrive keeps syncing).",
+   "more": null,
+   "risk": "safe",
+   "after": "explorer",
+   "src": "Win11Debloat",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Classes\\CLSID\\{018D5C66-4533-4307-9B53-224DE2ED1FE6}",
+       "name": "System.IsPinnedToNameSpaceTree",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\NavPane\\ShowOneDrive",
+       "name": "CheckedValue",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\NavPane\\ShowOneDrive",
+       "name": "DefaultValue",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\NavPane\\ShowOneDrive",
+       "name": "HKeyRoot",
+       "type": "dword",
+       "value": 2147483649
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\NavPane\\ShowOneDrive",
+       "name": "Id",
+       "type": "dword",
+       "value": 13
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\NavPane\\ShowOneDrive",
+       "name": "RegPath",
+       "type": "string",
+       "value": "Software\\Classes\\CLSID\\{018D5C66-4533-4307-9B53-224DE2ED1FE6}"
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\NavPane\\ShowOneDrive",
+       "name": "Text",
+       "type": "string",
+       "value": "Show OneDrive"
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\NavPane\\ShowOneDrive",
+       "name": "Type",
+       "type": "string",
+       "value": "checkbox"
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\NavPane\\ShowOneDrive",
+       "name": "UncheckedValue",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\NavPane\\ShowOneDrive",
+       "name": "ValueName",
+       "type": "string",
+       "value": "System.IsPinnedToNameSpaceTree"
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Classes\\CLSID\\{018D5C66-4533-4307-9B53-224DE2ED1FE6}",
+       "name": "System.IsPinnedToNameSpaceTree",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\NavPane\\ShowOneDrive",
+       "name": "CheckedValue",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\NavPane\\ShowOneDrive",
+       "name": "DefaultValue",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\NavPane\\ShowOneDrive",
+       "name": "HKeyRoot",
+       "type": "dword",
+       "value": 2147483649
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\NavPane\\ShowOneDrive",
+       "name": "Id",
+       "type": "dword",
+       "value": 13
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\NavPane\\ShowOneDrive",
+       "name": "RegPath",
+       "type": "string",
+       "value": "Software\\Classes\\CLSID\\{018D5C66-4533-4307-9B53-224DE2ED1FE6}"
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\NavPane\\ShowOneDrive",
+       "name": "Text",
+       "type": "string",
+       "value": "Show OneDrive"
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\NavPane\\ShowOneDrive",
+       "name": "Type",
+       "type": "string",
+       "value": "checkbox"
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\NavPane\\ShowOneDrive",
+       "name": "UncheckedValue",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced\\NavPane\\ShowOneDrive",
+       "name": "ValueName",
+       "type": "string",
+       "value": "System.IsPinnedToNameSpaceTree"
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "explorer.dup_drives",
+   "cat": "explorer",
+   "group": null,
+   "name": "USB drives listed twice",
+   "what": "Windows lists each USB drive under This PC and again on its own. Off: once.",
+   "more": null,
+   "risk": "safe",
+   "after": "explorer",
+   "src": "Win11Debloat",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Desktop\\NameSpace\\DelegateFolders\\{F5FB2C77-0E2F-4A16-A381-3E560C68BC83}",
+       "name": "",
+       "type": "string",
+       "value": "Removable Drives"
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Desktop\\NameSpace\\DelegateFolders\\{F5FB2C77-0E2F-4A16-A381-3E560C68BC83}",
+       "key_delete": true
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "explorer.thispc_folders",
+   "cat": "explorer",
+   "group": null,
+   "name": "Your folders under This PC",
+   "what": "Desktop, Documents, Downloads, Music, Pictures and Videos shown in This PC again.",
+   "more": null,
+   "risk": "safe",
+   "after": "explorer",
+   "src": "Win11Debloat",
+   "min": 22000,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "off",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\MyComputer\\NameSpace\\{B4BFCC3A-DB2C-424C-B029-7FE99A87C641}",
+       "name": "HideIfEnabled",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\MyComputer\\NameSpace\\{B4BFCC3A-DB2C-424C-B029-7FE99A87C641}",
+       "name": "HiddenByDefault",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\MyComputer\\NameSpace\\{d3162b92-9365-467a-956b-92703aca08af}",
+       "name": "HideIfEnabled",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\MyComputer\\NameSpace\\{d3162b92-9365-467a-956b-92703aca08af}",
+       "name": "HiddenByDefault",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\MyComputer\\NameSpace\\{088e3905-0323-4b02-9826-5d99428e115f}",
+       "name": "HideIfEnabled",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\MyComputer\\NameSpace\\{088e3905-0323-4b02-9826-5d99428e115f}",
+       "name": "HiddenByDefault",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\MyComputer\\NameSpace\\{3dfdf296-dbec-4fb4-81d1-6a3438bcf4de}",
+       "name": "HideIfEnabled",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\MyComputer\\NameSpace\\{1CF1260C-4DD0-4ebb-811F-33C572699FDE}",
+       "name": "HiddenByDefault",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\MyComputer\\NameSpace\\{3dfdf296-dbec-4fb4-81d1-6a3438bcf4de}",
+       "name": "HiddenByDefault",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\MyComputer\\NameSpace\\{24ad3ad4-a569-4530-98e1-ab02f9417aa8}",
+       "name": "HideIfEnabled",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\MyComputer\\NameSpace\\{24ad3ad4-a569-4530-98e1-ab02f9417aa8}",
+       "name": "HiddenByDefault",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\MyComputer\\NameSpace\\{f86fa3ab-70d2-4fc7-9c99-fcbf05467f3a}",
+       "name": "HideIfEnabled",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\MyComputer\\NameSpace\\{f86fa3ab-70d2-4fc7-9c99-fcbf05467f3a}",
+       "name": "HiddenByDefault",
+       "type": "dword",
+       "value": 0
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\MyComputer\\NameSpace\\{B4BFCC3A-DB2C-424C-B029-7FE99A87C641}",
+       "name": "HideIfEnabled",
+       "type": "dword",
+       "value": 36354489
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\MyComputer\\NameSpace\\{B4BFCC3A-DB2C-424C-B029-7FE99A87C641}",
+       "name": "HiddenByDefault",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\MyComputer\\NameSpace\\{d3162b92-9365-467a-956b-92703aca08af}",
+       "name": "HideIfEnabled",
+       "type": "dword",
+       "value": 36354489
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\MyComputer\\NameSpace\\{d3162b92-9365-467a-956b-92703aca08af}",
+       "name": "HiddenByDefault",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\MyComputer\\NameSpace\\{088e3905-0323-4b02-9826-5d99428e115f}",
+       "name": "HideIfEnabled",
+       "type": "dword",
+       "value": 36354489
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\MyComputer\\NameSpace\\{088e3905-0323-4b02-9826-5d99428e115f}",
+       "name": "HiddenByDefault",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\MyComputer\\NameSpace\\{3dfdf296-dbec-4fb4-81d1-6a3438bcf4de}",
+       "name": "HideIfEnabled",
+       "type": "dword",
+       "value": 36354489
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\MyComputer\\NameSpace\\{1CF1260C-4DD0-4ebb-811F-33C572699FDE}",
+       "name": "HiddenByDefault",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\MyComputer\\NameSpace\\{3dfdf296-dbec-4fb4-81d1-6a3438bcf4de}",
+       "name": "HiddenByDefault",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\MyComputer\\NameSpace\\{24ad3ad4-a569-4530-98e1-ab02f9417aa8}",
+       "name": "HideIfEnabled",
+       "type": "dword",
+       "value": 36354489
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\MyComputer\\NameSpace\\{24ad3ad4-a569-4530-98e1-ab02f9417aa8}",
+       "name": "HiddenByDefault",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\MyComputer\\NameSpace\\{f86fa3ab-70d2-4fc7-9c99-fcbf05467f3a}",
+       "name": "HideIfEnabled",
+       "type": "dword",
+       "value": 36354489
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\MyComputer\\NameSpace\\{f86fa3ab-70d2-4fc7-9c99-fcbf05467f3a}",
+       "name": "HiddenByDefault",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "explorer.3dobjects",
+   "cat": "explorer",
+   "group": null,
+   "name": "3D Objects under This PC",
+   "what": "The 3D Objects folder of Windows 10.",
+   "more": null,
+   "risk": "safe",
+   "after": "explorer",
+   "src": "Win11Debloat",
+   "min": null,
+   "max": 21999,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\MyComputer\\NameSpace\\{0DB7E03F-FC29-4DC6-9020-FF41B59E513A}",
+       "key_create": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Wow6432Node\\Microsoft\\Windows\\CurrentVersion\\Explorer\\MyComputer\\NameSpace\\{0DB7E03F-FC29-4DC6-9020-FF41B59E513A}",
+       "key_create": true
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\MyComputer\\NameSpace\\{0DB7E03F-FC29-4DC6-9020-FF41B59E513A}",
+       "key_delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Wow6432Node\\Microsoft\\Windows\\CurrentVersion\\Explorer\\MyComputer\\NameSpace\\{0DB7E03F-FC29-4DC6-9020-FF41B59E513A}",
+       "key_delete": true
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "explorer.music",
+   "cat": "explorer",
+   "group": null,
+   "name": "Music under This PC",
+   "what": "The Music folder in This PC (Windows 10).",
+   "more": null,
+   "risk": "safe",
+   "after": "explorer",
+   "src": "Win11Debloat",
+   "min": null,
+   "max": 21999,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\MyComputer\\NameSpace\\{3dfdf296-dbec-4fb4-81d1-6a3438bcf4de}",
+       "key_create": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Wow6432Node\\Microsoft\\Windows\\CurrentVersion\\Explorer\\MyComputer\\NameSpace\\{3dfdf296-dbec-4fb4-81d1-6a3438bcf4de}",
+       "key_create": true
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\MyComputer\\NameSpace\\{3dfdf296-dbec-4fb4-81d1-6a3438bcf4de}",
+       "key_delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Wow6432Node\\Microsoft\\Windows\\CurrentVersion\\Explorer\\MyComputer\\NameSpace\\{3dfdf296-dbec-4fb4-81d1-6a3438bcf4de}",
+       "key_delete": true
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "explorer.letters",
+   "cat": "explorer",
+   "group": null,
+   "name": "Drive letters",
+   "what": "Where drive letters show next to drive names.",
+   "more": null,
+   "risk": "safe",
+   "after": "explorer",
+   "src": "Win11Debloat",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "choice",
+   "default": "after",
+   "rec": null,
+   "options": [
+    {
+     "id": "after",
+     "label": "After the name",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer",
+       "name": "ShowDriveLettersFirst",
+       "type": "dword",
+       "value": 0
+      }
+     ]
+    },
+    {
+     "id": "before",
+     "label": "Before the name",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer",
+       "name": "ShowDriveLettersFirst",
+       "type": "dword",
+       "value": 4
+      }
+     ]
+    },
+    {
+     "id": "net_before",
+     "label": "Network drives first",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer",
+       "name": "ShowDriveLettersFirst",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    },
+    {
+     "id": "hidden",
+     "label": "Hidden",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer",
+       "name": "ShowDriveLettersFirst",
+       "type": "dword",
+       "value": 2
+      }
+     ]
+    }
+   ],
+   "admin": false
+  },
+  {
+   "id": "explorer.discovery",
+   "cat": "explorer",
+   "group": null,
+   "name": "Folder type guessing",
+   "what": "Explorer looks at a folder's files to pick a view (Pictures, Music). In big folders that makes it slow to open.",
+   "more": null,
+   "risk": "behaviour",
+   "after": "explorer",
+   "src": "WinUtil (idea), Deck",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Classes\\Local Settings\\Software\\Microsoft\\Windows\\Shell\\Bags\\AllFolders\\Shell",
+       "name": "FolderType",
+       "delete": true
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Classes\\Local Settings\\Software\\Microsoft\\Windows\\Shell\\Bags\\AllFolders\\Shell",
+       "name": "FolderType",
+       "type": "string",
+       "value": "NotSpecified"
+      }
+     ]
+    }
+   ],
+   "admin": false
+  },
+  {
+   "id": "explorer.longpaths",
+   "cat": "explorer",
+   "group": null,
+   "name": "Long paths",
+   "what": "Programs that support it may use paths longer than 260 characters.",
+   "more": null,
+   "risk": "behaviour",
+   "after": "none",
+   "src": "WinUtil",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "off",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKLM\\SYSTEM\\CurrentControlSet\\Control\\FileSystem",
+       "name": "LongPathsEnabled",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKLM\\SYSTEM\\CurrentControlSet\\Control\\FileSystem",
+       "name": "LongPathsEnabled",
+       "type": "dword",
+       "value": 0
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "explorer.compact",
+   "cat": "explorer",
+   "group": null,
+   "name": "Compact view",
+   "what": "Less space between items in Explorer's lists.",
+   "more": null,
+   "risk": "safe",
+   "after": "explorer",
+   "src": "Deck",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "off",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+       "name": "UseCompactMode",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+       "name": "UseCompactMode",
+       "type": "dword",
+       "value": 0
+      }
+     ]
+    }
+   ],
+   "admin": false
+  },
+  {
+   "id": "explorer.fullpath",
+   "cat": "explorer",
+   "group": null,
+   "name": "Full path in the title bar",
+   "what": "Explorer's title shows the whole folder path.",
+   "more": null,
+   "risk": "safe",
+   "after": "explorer",
+   "src": "Deck",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "off",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\CabinetState",
+       "name": "FullPath",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\CabinetState",
+       "name": "FullPath",
+       "type": "dword",
+       "value": 0
+      }
+     ]
+    }
+   ],
+   "admin": false
+  },
+  {
+   "id": "explorer.recent",
+   "cat": "explorer",
+   "group": null,
+   "name": "Recent files and frequent folders",
+   "what": "Home and Quick access list the files and folders you used lately.",
+   "more": null,
+   "risk": "safe",
+   "after": "explorer",
+   "src": "Deck",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer",
+       "name": "ShowRecent",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer",
+       "name": "ShowFrequent",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer",
+       "name": "ShowRecent",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer",
+       "name": "ShowFrequent",
+       "type": "dword",
+       "value": 0
+      }
+     ]
+    }
+   ],
+   "admin": false
+  },
+  {
+   "id": "explorer.checkboxes",
+   "cat": "explorer",
+   "group": null,
+   "name": "Check boxes to select files",
+   "what": "A tick box on each file for picking several without Ctrl.",
+   "more": null,
+   "risk": "safe",
+   "after": "explorer",
+   "src": "Deck",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "off",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+       "name": "AutoCheckSelect",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+       "name": "AutoCheckSelect",
+       "type": "dword",
+       "value": 0
+      }
+     ]
+    }
+   ],
+   "admin": false
+  },
+  {
+   "id": "context.classic",
+   "cat": "context",
+   "group": null,
+   "name": "Classic right-click menu",
+   "what": "The full Windows 10 menu at once, without \"Show more options\".",
+   "more": null,
+   "risk": "behaviour",
+   "after": "explorer",
+   "src": "Win11Debloat",
+   "min": 22000,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "off",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Classes\\CLSID\\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\\InprocServer32",
+       "name": "",
+       "type": "string",
+       "value": ""
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Classes\\CLSID\\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}",
+       "key_delete": true
+      }
+     ]
+    }
+   ],
+   "admin": false
+  },
+  {
+   "id": "context.library",
+   "cat": "context",
+   "group": null,
+   "name": "\"Include in library\"",
+   "what": "The Include in library entry on folders.",
+   "more": null,
+   "risk": "safe",
+   "after": "explorer",
+   "src": "Win11Debloat",
+   "min": null,
+   "max": 21999,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKCR\\Folder\\ShellEx\\ContextMenuHandlers\\Library Location",
+       "name": "",
+       "type": "string",
+       "value": "{3dad6c5d-2167-4cae-9914-f99e41c12cfa}"
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Classes\\Folder\\ShellEx\\ContextMenuHandlers\\Library Location",
+       "name": "",
+       "type": "string",
+       "value": "{3dad6c5d-2167-4cae-9914-f99e41c12cfa}"
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKCR\\Folder\\ShellEx\\ContextMenuHandlers\\Library Location",
+       "key_delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Classes\\Folder\\ShellEx\\ContextMenuHandlers\\Library Location",
+       "key_delete": true
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "context.giveaccess",
+   "cat": "context",
+   "group": null,
+   "name": "\"Give access to\"",
+   "what": "The Give access to (sharing) entry.",
+   "more": null,
+   "risk": "safe",
+   "after": "explorer",
+   "src": "Win11Debloat",
+   "min": null,
+   "max": 21999,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKCR\\*\\shellex\\ContextMenuHandlers\\Sharing",
+       "name": "",
+       "type": "string",
+       "value": "{f81e9010-6ea4-11ce-a7ff-00aa003ca9f6}"
+      },
+      {
+       "reg": "HKCR\\Directory\\Background\\shellex\\ContextMenuHandlers\\Sharing",
+       "name": "",
+       "type": "string",
+       "value": "{f81e9010-6ea4-11ce-a7ff-00aa003ca9f6}"
+      },
+      {
+       "reg": "HKCR\\Directory\\shellex\\ContextMenuHandlers\\Sharing",
+       "name": "",
+       "type": "string",
+       "value": "{f81e9010-6ea4-11ce-a7ff-00aa003ca9f6}"
+      },
+      {
+       "reg": "HKCR\\Drive\\shellex\\ContextMenuHandlers\\Sharing",
+       "name": "",
+       "type": "string",
+       "value": "{f81e9010-6ea4-11ce-a7ff-00aa003ca9f6}"
+      },
+      {
+       "reg": "HKCR\\LibraryFolder\\background\\shellex\\ContextMenuHandlers\\Sharing",
+       "name": "",
+       "type": "string",
+       "value": "{f81e9010-6ea4-11ce-a7ff-00aa003ca9f6}"
+      },
+      {
+       "reg": "HKCR\\UserLibraryFolder\\shellex\\ContextMenuHandlers\\Sharing",
+       "name": "",
+       "type": "string",
+       "value": "{f81e9010-6ea4-11ce-a7ff-00aa003ca9f6}"
+      },
+      {
+       "reg": "HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer",
+       "name": "NoInplaceSharing",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Shell Extensions\\Blocked",
+       "name": "{f81e9010-6ea4-11ce-a7ff-00aa003ca9f6}",
+       "delete": true
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKCR\\*\\shellex\\ContextMenuHandlers\\Sharing",
+       "key_delete": true
+      },
+      {
+       "reg": "HKCR\\Directory\\Background\\shellex\\ContextMenuHandlers\\Sharing",
+       "key_delete": true
+      },
+      {
+       "reg": "HKCR\\Directory\\shellex\\ContextMenuHandlers\\Sharing",
+       "key_delete": true
+      },
+      {
+       "reg": "HKCR\\Drive\\shellex\\ContextMenuHandlers\\Sharing",
+       "key_delete": true
+      },
+      {
+       "reg": "HKCR\\LibraryFolder\\background\\shellex\\ContextMenuHandlers\\Sharing",
+       "key_delete": true
+      },
+      {
+       "reg": "HKCR\\UserLibraryFolder\\shellex\\ContextMenuHandlers\\Sharing",
+       "key_delete": true
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "context.share",
+   "cat": "context",
+   "group": null,
+   "name": "\"Share\"",
+   "what": "The Share entry on files.",
+   "more": null,
+   "risk": "safe",
+   "after": "explorer",
+   "src": "Win11Debloat",
+   "min": null,
+   "max": 21999,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKCR\\*\\shellex\\ContextMenuHandlers\\ModernSharing",
+       "name": "",
+       "type": "string",
+       "value": "{e2bf9676-5f8f-435c-97eb-11607a5bedf7}"
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKCR\\*\\shellex\\ContextMenuHandlers\\ModernSharing",
+       "key_delete": true
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "appearance.dark",
+   "cat": "appearance",
+   "group": null,
+   "name": "Dark mode",
+   "what": "Deck's Display page switches dark and light mode, also on a schedule.",
+   "more": null,
+   "risk": "safe",
+   "after": "none",
+   "src": "Deck",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "link",
+   "page": "system/display",
+   "label": "Open Display",
+   "default": null,
+   "rec": null,
+   "options": [],
+   "admin": false
+  },
+  {
+   "id": "appearance.transparency",
+   "cat": "appearance",
+   "group": null,
+   "name": "Transparency effects",
+   "what": "See-through Start, taskbar and window backgrounds.",
+   "more": null,
+   "risk": "safe",
+   "after": "none",
+   "src": "Win11Debloat",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+       "name": "EnableTransparency",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+       "name": "EnableTransparency",
+       "type": "dword",
+       "value": 0
+      }
+     ]
+    }
+   ],
+   "admin": false
+  },
+  {
+   "id": "appearance.animations",
+   "cat": "appearance",
+   "group": null,
+   "name": "Animations",
+   "what": "Windows zoom when they minimise and maximise, and the taskbar animates.",
+   "more": "Off makes Windows feel snappier on a slow PC. Every effect one by one: Performance Options below.",
+   "risk": "safe",
+   "after": "none",
+   "src": "Win11Debloat (idea), Deck",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKCU\\Control Panel\\Desktop\\WindowMetrics",
+       "name": "MinAnimate",
+       "type": "string",
+       "value": "1"
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+       "name": "TaskbarAnimations",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKCU\\Control Panel\\Desktop\\WindowMetrics",
+       "name": "MinAnimate",
+       "type": "string",
+       "value": "0"
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+       "name": "TaskbarAnimations",
+       "type": "dword",
+       "value": 0
+      }
+     ]
+    }
+   ],
+   "admin": false
+  },
+  {
+   "id": "appearance.visualfx",
+   "cat": "appearance",
+   "group": null,
+   "name": "Visual effects (all of them)",
+   "what": "Windows' Performance Options, with every visual effect one by one.",
+   "more": null,
+   "risk": "safe",
+   "after": "none",
+   "src": "Deck",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "link",
+   "page": "open:SystemPropertiesPerformance.exe",
+   "label": "Open Performance Options",
+   "default": null,
+   "rec": null,
+   "options": [],
+   "admin": false
+  },
+  {
+   "id": "appearance.spotlight",
+   "cat": "appearance",
+   "group": null,
+   "name": "Windows Spotlight on the desktop",
+   "what": "A new desktop picture every day from Bing.",
+   "more": null,
+   "risk": "safe",
+   "after": "none",
+   "src": "Win11Debloat",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "choice",
+   "default": "on",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Policies\\Microsoft\\Windows\\CloudContent",
+       "name": "DisableSpotlightCollectionOnDesktop",
+       "delete": true
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\HideDesktopIcons\\NewStartPanel",
+       "name": "{2cc5ca98-6485-489a-920e-b3e88a6ccce3}",
+       "delete": true
+      }
+     ]
+    },
+    {
+     "id": "on_noicon",
+     "label": "On, without \"Learn about this picture\"",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Policies\\Microsoft\\Windows\\CloudContent",
+       "name": "DisableSpotlightCollectionOnDesktop",
+       "delete": true
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\HideDesktopIcons\\NewStartPanel",
+       "name": "{2cc5ca98-6485-489a-920e-b3e88a6ccce3}",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Policies\\Microsoft\\Windows\\CloudContent",
+       "name": "DisableSpotlightCollectionOnDesktop",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\HideDesktopIcons\\NewStartPanel",
+       "name": "{2cc5ca98-6485-489a-920e-b3e88a6ccce3}",
+       "delete": true
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "appearance.scrollbars",
+   "cat": "appearance",
+   "group": null,
+   "name": "Scrollbars always visible",
+   "what": "Windows hides thin scrollbars until you hover. On: they always show.",
+   "more": null,
+   "risk": "safe",
+   "after": "none",
+   "src": "WinUtil",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "off",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKCU\\Control Panel\\Accessibility",
+       "name": "DynamicScrollbars",
+       "type": "dword",
+       "value": 0
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKCU\\Control Panel\\Accessibility",
+       "name": "DynamicScrollbars",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    }
+   ],
+   "admin": false
+  },
+  {
+   "id": "appearance.titlebars",
+   "cat": "appearance",
+   "group": null,
+   "name": "Accent colour on title bars",
+   "what": "Window title bars and borders use your accent colour.",
+   "more": null,
+   "risk": "safe",
+   "after": "none",
+   "src": "Deck",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "off",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\DWM",
+       "name": "ColorPrevalence",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\DWM",
+       "name": "ColorPrevalence",
+       "type": "dword",
+       "value": 0
+      }
+     ]
+    }
+   ],
+   "admin": false
+  },
+  {
+   "id": "appearance.logon_blur",
+   "cat": "appearance",
+   "group": null,
+   "name": "Blur on the sign-in screen",
+   "what": "The sign-in screen blurs the lock screen picture behind it.",
+   "more": null,
+   "risk": "safe",
+   "after": "none",
+   "src": "WinUtil",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\System",
+       "name": "DisableAcrylicBackgroundOnLogon",
+       "delete": true
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\System",
+       "name": "DisableAcrylicBackgroundOnLogon",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "multitask.snap",
+   "cat": "multitask",
+   "group": null,
+   "name": "Window snapping",
+   "what": "Dragging a window to an edge snaps it to half or a corner.",
+   "more": null,
+   "risk": "behaviour",
+   "after": "none",
+   "src": "Win11Debloat",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKCU\\Control Panel\\Desktop",
+       "name": "WindowArrangementActive",
+       "type": "string",
+       "value": "1"
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKCU\\Control Panel\\Desktop",
+       "name": "WindowArrangementActive",
+       "type": "string",
+       "value": "0"
+      }
+     ]
+    }
+   ],
+   "admin": false
+  },
+  {
+   "id": "multitask.snapassist",
+   "cat": "multitask",
+   "group": null,
+   "name": "Snap suggestions",
+   "what": "After snapping a window, Windows suggests what to put beside it.",
+   "more": null,
+   "risk": "safe",
+   "after": "none",
+   "src": "Win11Debloat",
+   "min": 22000,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+       "name": "SnapAssist",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+       "name": "SnapAssist",
+       "type": "dword",
+       "value": 0
+      }
+     ]
+    }
+   ],
+   "admin": false
+  },
+  {
+   "id": "multitask.snaplayouts",
+   "cat": "multitask",
+   "group": null,
+   "name": "Snap layouts",
+   "what": "The layout picker on the maximise button and at the top of the screen.",
+   "more": null,
+   "risk": "safe",
+   "after": "none",
+   "src": "Win11Debloat",
+   "min": 22000,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+       "name": "EnableSnapBar",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+       "name": "EnableSnapAssistFlyout",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+       "name": "EnableSnapBar",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+       "name": "EnableSnapAssistFlyout",
+       "type": "dword",
+       "value": 0
+      }
+     ]
+    }
+   ],
+   "admin": false
+  },
+  {
+   "id": "multitask.alttab",
+   "cat": "multitask",
+   "group": null,
+   "name": "Browser tabs in Alt+Tab",
+   "what": "Edge tabs show in Alt+Tab like windows.",
+   "more": null,
+   "risk": "safe",
+   "after": "none",
+   "src": "Win11Debloat",
+   "min": 22000,
+   "max": null,
+   "needs": [],
+   "kind": "choice",
+   "default": "3",
+   "rec": null,
+   "options": [
+    {
+     "id": "none",
+     "label": "None",
+     "steps": [
+      {
+       "reg": "HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+       "name": "MultiTaskingAltTabFilter",
+       "type": "dword",
+       "value": 3
+      }
+     ]
+    },
+    {
+     "id": "3",
+     "label": "3 recent",
+     "steps": [
+      {
+       "reg": "HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+       "name": "MultiTaskingAltTabFilter",
+       "type": "dword",
+       "value": 2
+      }
+     ]
+    },
+    {
+     "id": "5",
+     "label": "5 recent",
+     "steps": [
+      {
+       "reg": "HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+       "name": "MultiTaskingAltTabFilter",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    },
+    {
+     "id": "20",
+     "label": "20 recent",
+     "steps": [
+      {
+       "reg": "HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+       "name": "MultiTaskingAltTabFilter",
+       "type": "dword",
+       "value": 0
+      }
+     ]
+    }
+   ],
+   "admin": false
+  },
+  {
+   "id": "multitask.stickykeys",
+   "cat": "multitask",
+   "group": null,
+   "name": "Sticky Keys shortcut",
+   "what": "Pressing Shift five times turns on Sticky Keys (and asks in the middle of a game).",
+   "more": null,
+   "risk": "safe",
+   "after": "none",
+   "src": "Win11Debloat (idea), Deck",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": "off",
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKCU\\Control Panel\\Accessibility\\StickyKeys",
+       "name": "Flags",
+       "bits": 4,
+       "set": true
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKCU\\Control Panel\\Accessibility\\StickyKeys",
+       "name": "Flags",
+       "bits": 4,
+       "set": false
+      }
+     ]
+    }
+   ],
+   "admin": false
+  },
+  {
+   "id": "multitask.numlock",
+   "cat": "multitask",
+   "group": null,
+   "name": "Num Lock on at start",
+   "what": "The number pad works right away after start-up.",
+   "more": null,
+   "risk": "safe",
+   "after": "restart",
+   "src": "WinUtil (idea), Deck",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "off",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKU\\.DEFAULT\\Control Panel\\Keyboard",
+       "name": "InitialKeyboardIndicators",
+       "bits": 2,
+       "set": true
+      },
+      {
+       "reg": "HKCU\\Control Panel\\Keyboard",
+       "name": "InitialKeyboardIndicators",
+       "bits": 2,
+       "set": true
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKU\\.DEFAULT\\Control Panel\\Keyboard",
+       "name": "InitialKeyboardIndicators",
+       "bits": 2,
+       "set": false
+      },
+      {
+       "reg": "HKCU\\Control Panel\\Keyboard",
+       "name": "InitialKeyboardIndicators",
+       "bits": 2,
+       "set": false
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "gaming.gamemode",
+   "cat": "gaming",
+   "group": null,
+   "name": "Game Mode",
+   "what": "Deck's CPU profiles set Game Mode; change it there so the two don't fight.",
+   "more": null,
+   "risk": "safe",
+   "after": "none",
+   "src": "Deck",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "link",
+   "page": "cpu",
+   "label": "Open CPU",
+   "default": null,
+   "rec": null,
+   "options": [],
+   "admin": false
+  },
+  {
+   "id": "gaming.dvr",
+   "cat": "gaming",
+   "group": null,
+   "name": "Game recording (Xbox Game DVR)",
+   "what": "Windows can record your games in the background, which costs some performance.",
+   "more": null,
+   "risk": "safe",
+   "after": "none",
+   "src": "Win11Debloat",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": "off",
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKCU\\System\\GameConfigStore",
+       "name": "GameDVR_Enabled",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\GameDVR",
+       "name": "AppCaptureEnabled",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\GameDVR",
+       "name": "AllowGameDVR",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKCU\\System\\GameConfigStore",
+       "name": "GameDVR_Enabled",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\GameDVR",
+       "name": "AppCaptureEnabled",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\GameDVR",
+       "name": "AllowGameDVR",
+       "type": "dword",
+       "value": 0
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "gaming.gamebar",
+   "cat": "gaming",
+   "group": null,
+   "name": "Game Bar",
+   "what": "Win+G and the controller's Xbox button open the Xbox Game Bar.",
+   "more": "Off also stops the \"You'll need a new app to open this ms-gamebar link\" message after removing the Xbox apps.",
+   "risk": "behaviour",
+   "after": "none",
+   "src": "Win11Debloat",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKCU\\SOFTWARE\\Microsoft\\GameBar",
+       "name": "UseNexusForGameBarEnabled",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKCR\\ms-gamebar",
+       "name": "",
+       "type": "string",
+       "value": "URL:ms-gamebar"
+      },
+      {
+       "reg": "HKCR\\ms-gamebar",
+       "name": "URL Protocol",
+       "type": "string",
+       "value": ""
+      },
+      {
+       "reg": "HKCR\\ms-gamebar",
+       "name": "NoOpenWith",
+       "delete": true
+      },
+      {
+       "reg": "HKCR\\ms-gamebar\\shell\\open\\command",
+       "key_delete": true
+      },
+      {
+       "reg": "HKCR\\ms-gamebarservices",
+       "name": "",
+       "type": "string",
+       "value": "URL:ms-gamebarservices"
+      },
+      {
+       "reg": "HKCR\\ms-gamebarservices",
+       "name": "URL Protocol",
+       "type": "string",
+       "value": ""
+      },
+      {
+       "reg": "HKCR\\ms-gamebarservices",
+       "name": "NoOpenWith",
+       "delete": true
+      },
+      {
+       "reg": "HKCR\\ms-gamebarservices\\shell\\open\\command",
+       "key_delete": true
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKCU\\SOFTWARE\\Microsoft\\GameBar",
+       "name": "UseNexusForGameBarEnabled",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKCR\\ms-gamebar",
+       "name": "",
+       "type": "string",
+       "value": "URL:ms-gamebar"
+      },
+      {
+       "reg": "HKCR\\ms-gamebar",
+       "name": "URL Protocol",
+       "type": "string",
+       "value": ""
+      },
+      {
+       "reg": "HKCR\\ms-gamebar",
+       "name": "NoOpenWith",
+       "type": "string",
+       "value": ""
+      },
+      {
+       "reg": "HKCR\\ms-gamebar\\shell\\open\\command",
+       "name": "",
+       "type": "string",
+       "value": "%SystemRoot%/System32/systray.exe"
+      },
+      {
+       "reg": "HKCR\\ms-gamebarservices",
+       "name": "",
+       "type": "string",
+       "value": "URL:ms-gamebarservices"
+      },
+      {
+       "reg": "HKCR\\ms-gamebarservices",
+       "name": "URL Protocol",
+       "type": "string",
+       "value": ""
+      },
+      {
+       "reg": "HKCR\\ms-gamebarservices",
+       "name": "NoOpenWith",
+       "type": "string",
+       "value": ""
+      },
+      {
+       "reg": "HKCR\\ms-gamebarservices\\shell\\open\\command",
+       "name": "",
+       "type": "string",
+       "value": "%SystemRoot%/System32/systray.exe"
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "gaming.mouseaccel",
+   "cat": "gaming",
+   "group": null,
+   "name": "Mouse acceleration",
+   "what": "\"Enhance pointer precision\": the pointer goes further when you move faster. Off: the same hand movement always moves it the same distance.",
+   "more": null,
+   "risk": "behaviour",
+   "after": "none",
+   "src": "Win11Debloat",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKCU\\Control Panel\\Mouse",
+       "name": "MouseSpeed",
+       "type": "string",
+       "value": "1"
+      },
+      {
+       "reg": "HKCU\\Control Panel\\Mouse",
+       "name": "MouseThreshold1",
+       "type": "string",
+       "value": "6"
+      },
+      {
+       "reg": "HKCU\\Control Panel\\Mouse",
+       "name": "MouseThreshold2",
+       "type": "string",
+       "value": "10"
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKCU\\Control Panel\\Mouse",
+       "name": "MouseSpeed",
+       "type": "string",
+       "value": "0"
+      },
+      {
+       "reg": "HKCU\\Control Panel\\Mouse",
+       "name": "MouseThreshold1",
+       "type": "string",
+       "value": "0"
+      },
+      {
+       "reg": "HKCU\\Control Panel\\Mouse",
+       "name": "MouseThreshold2",
+       "type": "string",
+       "value": "0"
+      }
+     ]
+    }
+   ],
+   "admin": false
+  },
+  {
+   "id": "gaming.fso",
+   "cat": "gaming",
+   "group": null,
+   "name": "Fullscreen optimisations",
+   "what": "Windows runs fullscreen games through its desktop compositor (alt-tab is faster, overlays work). Off brings back old exclusive fullscreen for every game.",
+   "more": null,
+   "risk": "advanced",
+   "after": "none",
+   "src": "Deck",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKCU\\System\\GameConfigStore",
+       "name": "GameDVR_FSEBehaviorMode",
+       "delete": true
+      },
+      {
+       "reg": "HKCU\\System\\GameConfigStore",
+       "name": "GameDVR_HonorUserFSEBehaviorMode",
+       "delete": true
+      },
+      {
+       "reg": "HKCU\\System\\GameConfigStore",
+       "name": "GameDVR_DXGIHonorFSEWindowsCompatible",
+       "delete": true
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKCU\\System\\GameConfigStore",
+       "name": "GameDVR_FSEBehaviorMode",
+       "type": "dword",
+       "value": 2
+      },
+      {
+       "reg": "HKCU\\System\\GameConfigStore",
+       "name": "GameDVR_HonorUserFSEBehaviorMode",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKCU\\System\\GameConfigStore",
+       "name": "GameDVR_DXGIHonorFSEWindowsCompatible",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    }
+   ],
+   "admin": false
+  },
+  {
+   "id": "gaming.windowed",
+   "cat": "gaming",
+   "group": null,
+   "name": "Optimisations for windowed games",
+   "what": "Lets DirectX 10 and 11 games in a window use the faster flip model (lower latency, VRR).",
+   "more": null,
+   "risk": "behaviour",
+   "after": "none",
+   "src": "Deck",
+   "min": 22621,
+   "max": null,
+   "needs": [],
+   "kind": "choice",
+   "default": "default",
+   "rec": null,
+   "options": [
+    {
+     "id": "default",
+     "label": "Windows' choice",
+     "steps": [
+      {
+       "dx": "SwapEffectUpgradeEnable",
+       "value": null
+      }
+     ]
+    },
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "dx": "SwapEffectUpgradeEnable",
+       "value": "1"
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "dx": "SwapEffectUpgradeEnable",
+       "value": "0"
+      }
+     ]
+    }
+   ],
+   "admin": false
+  },
+  {
+   "id": "gaming.vrr",
+   "cat": "gaming",
+   "group": null,
+   "name": "Variable refresh rate for windowed games",
+   "what": "G-Sync / FreeSync for games that don't support it themselves, in a window.",
+   "more": null,
+   "risk": "behaviour",
+   "after": "none",
+   "src": "Deck",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "choice",
+   "default": "default",
+   "rec": null,
+   "options": [
+    {
+     "id": "default",
+     "label": "Windows' choice",
+     "steps": [
+      {
+       "dx": "VRROptimizeEnable",
+       "value": null
+      }
+     ]
+    },
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "dx": "VRROptimizeEnable",
+       "value": "1"
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "dx": "VRROptimizeEnable",
+       "value": "0"
+      }
+     ]
+    }
+   ],
+   "admin": false
+  },
+  {
+   "id": "gaming.hags",
+   "cat": "gaming",
+   "group": null,
+   "name": "Hardware-accelerated GPU scheduling",
+   "what": "The GPU schedules its own work (can lower latency; needed for DLSS frame generation).",
+   "more": null,
+   "risk": "behaviour",
+   "after": "restart",
+   "src": "Deck",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "choice",
+   "default": "default",
+   "rec": null,
+   "options": [
+    {
+     "id": "default",
+     "label": "Driver's choice",
+     "steps": [
+      {
+       "reg": "HKLM\\SYSTEM\\CurrentControlSet\\Control\\GraphicsDrivers",
+       "name": "HwSchMode",
+       "delete": true
+      }
+     ]
+    },
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKLM\\SYSTEM\\CurrentControlSet\\Control\\GraphicsDrivers",
+       "name": "HwSchMode",
+       "type": "dword",
+       "value": 2
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKLM\\SYSTEM\\CurrentControlSet\\Control\\GraphicsDrivers",
+       "name": "HwSchMode",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "gaming.mpo",
+   "cat": "gaming",
+   "group": null,
+   "name": "Multiplane overlay",
+   "what": "Lets the GPU show video and games as separate layers. Off fixes flicker and stutter on some NVIDIA setups, but can raise latency a little.",
+   "more": null,
+   "risk": "advanced",
+   "after": "restart",
+   "src": "WinUtil",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\Dwm",
+       "name": "OverlayTestMode",
+       "delete": true
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\Dwm",
+       "name": "OverlayTestMode",
+       "type": "dword",
+       "value": 5
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "ai.copilot",
+   "cat": "ai",
+   "group": null,
+   "name": "Copilot",
+   "what": "Microsoft Copilot and its taskbar button.",
+   "more": null,
+   "risk": "safe",
+   "after": "explorer",
+   "src": "Win11Debloat",
+   "min": 22621,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": "off",
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+       "name": "ShowCopilotButton",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKCU\\Software\\Policies\\Microsoft\\Windows\\WindowsCopilot",
+       "name": "TurnOffWindowsCopilot",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsCopilot",
+       "name": "TurnOffWindowsCopilot",
+       "delete": true
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+       "name": "ShowCopilotButton",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKCU\\Software\\Policies\\Microsoft\\Windows\\WindowsCopilot",
+       "name": "TurnOffWindowsCopilot",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsCopilot",
+       "name": "TurnOffWindowsCopilot",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "ai.recall",
+   "cat": "ai",
+   "group": null,
+   "name": "Recall",
+   "what": "Recall saves pictures of your screen to search later (Copilot+ PCs).",
+   "more": null,
+   "risk": "safe",
+   "after": "restart",
+   "src": "Win11Debloat",
+   "min": 22621,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": "off",
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Policies\\Microsoft\\Windows\\WindowsAI",
+       "name": "DisableAIDataAnalysis",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsAI",
+       "name": "DisableAIDataAnalysis",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsAI",
+       "name": "AllowRecallEnablement",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsAI",
+       "name": "TurnOffSavingSnapshots",
+       "delete": true
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Policies\\Microsoft\\Windows\\WindowsAI",
+       "name": "DisableAIDataAnalysis",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsAI",
+       "name": "DisableAIDataAnalysis",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsAI",
+       "name": "AllowRecallEnablement",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsAI",
+       "name": "TurnOffSavingSnapshots",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "ai.clicktodo",
+   "cat": "ai",
+   "group": null,
+   "name": "Click to Do",
+   "what": "Windows looks at what's on screen to offer AI actions on text and pictures.",
+   "more": null,
+   "risk": "safe",
+   "after": "none",
+   "src": "Win11Debloat",
+   "min": 22621,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": "off",
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Policies\\Microsoft\\Windows\\WindowsAI",
+       "name": "DisableClickToDo",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsAI",
+       "name": "DisableClickToDo",
+       "delete": true
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Policies\\Microsoft\\Windows\\WindowsAI",
+       "name": "DisableClickToDo",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsAI",
+       "name": "DisableClickToDo",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "ai.service",
+   "cat": "ai",
+   "group": null,
+   "name": "AI service starts by itself",
+   "what": "Windows' AI service (WSAIFabricSvc) starts with Windows. Off: only when something needs it.",
+   "more": null,
+   "risk": "behaviour",
+   "after": "restart",
+   "src": "Win11Debloat",
+   "min": 22621,
+   "max": null,
+   "needs": [
+    "service:WSAIFabricSvc"
+   ],
+   "kind": "switch",
+   "default": "on",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKLM\\SYSTEM\\CurrentControlSet\\Services\\WSAIFabricSvc",
+       "name": "Start",
+       "type": "dword",
+       "value": 2
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKLM\\SYSTEM\\CurrentControlSet\\Services\\WSAIFabricSvc",
+       "name": "Start",
+       "type": "dword",
+       "value": 3
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "ai.edge",
+   "cat": "ai",
+   "group": null,
+   "name": "AI in Edge",
+   "what": "Copilot in Edge's sidebar and on pages, AI writing help and AI history search.",
+   "more": "These are Edge policies, so Edge then says \"Your browser is managed by your organization\": that line comes from this tweak and goes away with Undo.",
+   "risk": "safe",
+   "after": "none",
+   "src": "Win11Debloat",
+   "min": 22621,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": "off",
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+       "name": "CopilotCDPPageContext",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+       "name": "CopilotPageContext",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+       "name": "HubsSidebarEnabled",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+       "name": "Microsoft365CopilotChatIconEnabled",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+       "name": "EdgeEntraCopilotPageContext",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+       "name": "EdgeHistoryAISearchEnabled",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+       "name": "ComposeInlineEnabled",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+       "name": "GenAILocalFoundationalModelSettings",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+       "name": "NewTabPageBingChatEnabled",
+       "delete": true
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+       "name": "CopilotCDPPageContext",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+       "name": "CopilotPageContext",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+       "name": "HubsSidebarEnabled",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+       "name": "Microsoft365CopilotChatIconEnabled",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+       "name": "EdgeEntraCopilotPageContext",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+       "name": "EdgeHistoryAISearchEnabled",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+       "name": "ComposeInlineEnabled",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+       "name": "GenAILocalFoundationalModelSettings",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+       "name": "NewTabPageBingChatEnabled",
+       "type": "dword",
+       "value": 0
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "ai.chrome",
+   "cat": "ai",
+   "group": null,
+   "name": "AI in Chrome",
+   "what": "Gemini, Help me write, AI history search and other AI features in Chrome.",
+   "more": "These are Chrome policies, so Chrome then says \"Managed by your organization\": that line comes from this tweak and goes away with Undo.",
+   "risk": "safe",
+   "after": "none",
+   "src": "Win11Debloat",
+   "min": 22621,
+   "max": null,
+   "needs": [
+    "app:chrome"
+   ],
+   "kind": "switch",
+   "default": "on",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Google\\Chrome",
+       "name": "AIModeSettings",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Google\\Chrome",
+       "name": "AutofillPredictionSettings",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Google\\Chrome",
+       "name": "ChromeSuggestionsSettings",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Google\\Chrome",
+       "name": "CreateThemesSettings",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Google\\Chrome",
+       "name": "DevToolsGenAiSettings",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Google\\Chrome",
+       "name": "FindAndFillWithGeminiSettings",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Google\\Chrome",
+       "name": "GeminiSettings",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Google\\Chrome",
+       "name": "GeminiSparkSettings",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Google\\Chrome",
+       "name": "GenAILocalFoundationalModelSettings",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Google\\Chrome",
+       "name": "HelpMeWriteSettings",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Google\\Chrome",
+       "name": "HistorySearchSettings",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Google\\Chrome",
+       "name": "SearchContentSharingSettings",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Google\\Chrome",
+       "name": "SmartTabSharingSettings",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Google\\Chrome",
+       "name": "TabCompareSettings",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Google\\Chrome",
+       "name": "ThirdPartyAiChatSettings",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Google\\Chrome",
+       "name": "VoiceTypingSettings",
+       "delete": true
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Google\\Chrome",
+       "name": "AIModeSettings",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Google\\Chrome",
+       "name": "AutofillPredictionSettings",
+       "type": "dword",
+       "value": 2
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Google\\Chrome",
+       "name": "ChromeSuggestionsSettings",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Google\\Chrome",
+       "name": "CreateThemesSettings",
+       "type": "dword",
+       "value": 2
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Google\\Chrome",
+       "name": "DevToolsGenAiSettings",
+       "type": "dword",
+       "value": 2
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Google\\Chrome",
+       "name": "FindAndFillWithGeminiSettings",
+       "type": "dword",
+       "value": 2
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Google\\Chrome",
+       "name": "GeminiSettings",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Google\\Chrome",
+       "name": "GeminiSparkSettings",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Google\\Chrome",
+       "name": "GenAILocalFoundationalModelSettings",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Google\\Chrome",
+       "name": "HelpMeWriteSettings",
+       "type": "dword",
+       "value": 2
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Google\\Chrome",
+       "name": "HistorySearchSettings",
+       "type": "dword",
+       "value": 2
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Google\\Chrome",
+       "name": "SearchContentSharingSettings",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Google\\Chrome",
+       "name": "SmartTabSharingSettings",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Google\\Chrome",
+       "name": "TabCompareSettings",
+       "type": "dword",
+       "value": 2
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Google\\Chrome",
+       "name": "ThirdPartyAiChatSettings",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Google\\Chrome",
+       "name": "VoiceTypingSettings",
+       "type": "dword",
+       "value": 2
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "ai.paint",
+   "cat": "ai",
+   "group": null,
+   "name": "AI in Paint",
+   "what": "Cocreator, Image Creator, generative fill and erase in Paint.",
+   "more": null,
+   "risk": "safe",
+   "after": "none",
+   "src": "Win11Debloat",
+   "min": 22621,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\Paint",
+       "name": "DisableCocreator",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\Paint",
+       "name": "DisableGenerativeFill",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\Paint",
+       "name": "DisableImageCreator",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\Paint",
+       "name": "DisableGenerativeErase",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\Paint",
+       "name": "DisableRemoveBackground",
+       "delete": true
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\Paint",
+       "name": "DisableCocreator",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\Paint",
+       "name": "DisableGenerativeFill",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\Paint",
+       "name": "DisableImageCreator",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\Paint",
+       "name": "DisableGenerativeErase",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\Paint",
+       "name": "DisableRemoveBackground",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "ai.notepad",
+   "cat": "ai",
+   "group": null,
+   "name": "AI in Notepad",
+   "what": "Rewrite, summarise and other AI features in Notepad.",
+   "more": null,
+   "risk": "safe",
+   "after": "none",
+   "src": "Win11Debloat",
+   "min": 22621,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\WindowsNotepad",
+       "name": "DisableAIFeatures",
+       "delete": true
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\WindowsNotepad",
+       "name": "DisableAIFeatures",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "updates.asap",
+   "cat": "updates",
+   "group": null,
+   "name": "Get updates as soon as they're out",
+   "what": "Windows installs new features before they reach everyone.",
+   "more": null,
+   "risk": "safe",
+   "after": "none",
+   "src": "Win11Debloat",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": "off",
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\WindowsUpdate\\UX\\Settings",
+       "name": "IsContinuousInnovationOptedIn",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\WindowsUpdate\\UX\\Settings",
+       "name": "IsContinuousInnovationOptedIn",
+       "type": "dword",
+       "value": 0
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "updates.autoreboot",
+   "cat": "updates",
+   "group": null,
+   "name": "Restart by itself after updates",
+   "what": "Windows may restart to finish an update while you're signed in (it waits for you when off).",
+   "more": null,
+   "risk": "safe",
+   "after": "none",
+   "src": "Win11Debloat",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": "off",
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate\\AU",
+       "name": "NoAutoRebootWithLoggedOnUsers",
+       "delete": true
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate\\AU",
+       "name": "NoAutoRebootWithLoggedOnUsers",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "updates.delivery",
+   "cat": "updates",
+   "group": null,
+   "name": "Share updates with other PCs",
+   "what": "Your PC uploads parts of updates to other PCs on the internet or your network.",
+   "more": null,
+   "risk": "safe",
+   "after": "none",
+   "src": "Win11Debloat",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": "off",
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKU\\S-1-5-20\\Software\\Microsoft\\Windows\\CurrentVersion\\DeliveryOptimization\\Settings",
+       "name": "DownloadMode",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKU\\S-1-5-20\\Software\\Microsoft\\Windows\\CurrentVersion\\DeliveryOptimization\\Settings",
+       "name": "DownloadMode",
+       "type": "dword",
+       "value": 0
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "updates.drivers",
+   "cat": "updates",
+   "group": null,
+   "name": "Drivers from Windows Update",
+   "what": "Windows Update installs drivers too, and can replace the GPU driver you chose.",
+   "more": null,
+   "risk": "behaviour",
+   "after": "none",
+   "src": "Deck",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate",
+       "name": "ExcludeWUDriversInQualityUpdate",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\DriverSearching",
+       "name": "SearchOrderConfig",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate",
+       "name": "ExcludeWUDriversInQualityUpdate",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\DriverSearching",
+       "name": "SearchOrderConfig",
+       "type": "dword",
+       "value": 0
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "updates.store_auto",
+   "cat": "updates",
+   "group": null,
+   "name": "Store apps update by themselves",
+   "what": "Microsoft Store updates your apps in the background.",
+   "more": null,
+   "risk": "behaviour",
+   "after": "none",
+   "src": "Deck",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\WindowsStore",
+       "name": "AutoDownload",
+       "delete": true
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\WindowsStore",
+       "name": "AutoDownload",
+       "type": "dword",
+       "value": 2
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "updates.pause_limit",
+   "cat": "updates",
+   "group": null,
+   "name": "Longest update pause",
+   "what": "How far Settings → Windows Update lets you pause (it doesn't pause anything by itself).",
+   "more": "A paused PC gets no security fixes either. Pause only as long as you need.",
+   "risk": "advanced",
+   "after": "none",
+   "src": "Deck",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "choice",
+   "default": "default",
+   "rec": null,
+   "options": [
+    {
+     "id": "default",
+     "label": "Windows' limit (5 weeks)",
+     "steps": [
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\WindowsUpdate\\UX\\Settings",
+       "name": "FlightSettingsMaxPauseDays",
+       "delete": true
+      }
+     ]
+    },
+    {
+     "id": "year",
+     "label": "1 year",
+     "steps": [
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\WindowsUpdate\\UX\\Settings",
+       "name": "FlightSettingsMaxPauseDays",
+       "type": "dword",
+       "value": 365
+      }
+     ]
+    },
+    {
+     "id": "long",
+     "label": "10 years",
+     "steps": [
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\WindowsUpdate\\UX\\Settings",
+       "name": "FlightSettingsMaxPauseDays",
+       "type": "dword",
+       "value": 3650
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "network.prefer_ipv4",
+   "cat": "network",
+   "group": null,
+   "name": "Prefer IPv4 over IPv6",
+   "what": "Connections try IPv4 first. IPv6 keeps working.",
+   "more": null,
+   "risk": "behaviour",
+   "after": "restart",
+   "src": "WinUtil",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "off",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKLM\\SYSTEM\\CurrentControlSet\\Services\\Tcpip6\\Parameters",
+       "name": "DisabledComponents",
+       "bits": 32,
+       "set": true
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKLM\\SYSTEM\\CurrentControlSet\\Services\\Tcpip6\\Parameters",
+       "name": "DisabledComponents",
+       "bits": 32,
+       "set": false
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "network.teredo",
+   "cat": "network",
+   "group": null,
+   "name": "Teredo",
+   "what": "An IPv6 tunnel over IPv4. Off can lower latency; Xbox party chat and some Game Pass multiplayer need it.",
+   "more": null,
+   "risk": "advanced",
+   "after": "restart",
+   "src": "WinUtil (idea), Deck",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\TCPIP\\v6Transition",
+       "name": "Teredo_State",
+       "delete": true
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\TCPIP\\v6Transition",
+       "name": "Teredo_State",
+       "type": "string",
+       "value": "Disabled"
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "network.dns",
+   "cat": "network",
+   "group": null,
+   "name": "DNS server",
+   "what": "Who turns names into addresses for this PC's connection. Automatic uses your router's.",
+   "more": null,
+   "risk": "behaviour",
+   "after": "none",
+   "src": "WinUtil (idea), Deck",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "choice",
+   "default": "auto",
+   "rec": null,
+   "options": [
+    {
+     "id": "auto",
+     "label": "Automatic",
+     "steps": [
+      {
+       "dns": []
+      }
+     ]
+    },
+    {
+     "id": "cloudflare",
+     "label": "Cloudflare",
+     "steps": [
+      {
+       "dns": [
+        "1.1.1.1",
+        "1.0.0.1"
+       ]
+      }
+     ]
+    },
+    {
+     "id": "google",
+     "label": "Google",
+     "steps": [
+      {
+       "dns": [
+        "8.8.8.8",
+        "8.8.4.4"
+       ]
+      }
+     ]
+    },
+    {
+     "id": "quad9",
+     "label": "Quad9",
+     "steps": [
+      {
+       "dns": [
+        "9.9.9.9",
+        "149.112.112.112"
+       ]
+      }
+     ]
+    },
+    {
+     "id": "adguard",
+     "label": "AdGuard (blocks ads)",
+     "steps": [
+      {
+       "dns": [
+        "94.140.14.14",
+        "94.140.15.15"
+       ]
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "network.throttling",
+   "cat": "network",
+   "group": null,
+   "name": "Network throttling for media",
+   "what": "While audio or video plays, Windows caps other network traffic a little. Off removes the cap.",
+   "more": null,
+   "risk": "advanced",
+   "after": "restart",
+   "src": "Deck",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Multimedia\\SystemProfile",
+       "name": "NetworkThrottlingIndex",
+       "type": "dword",
+       "value": 10
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Multimedia\\SystemProfile",
+       "name": "NetworkThrottlingIndex",
+       "type": "dword",
+       "value": 4294967295
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "system.hibernate",
+   "cat": "system",
+   "group": null,
+   "name": "Hibernation",
+   "what": "Saves memory to disk to power off completely. Off frees hiberfil.sys (as big as a good part of your RAM) and also turns off fast start-up.",
+   "more": null,
+   "risk": "behaviour",
+   "after": "none",
+   "src": "WinUtil",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "cmd": "hibernate",
+       "on": true
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "cmd": "hibernate",
+       "on": false
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "system.faststartup",
+   "cat": "system",
+   "group": null,
+   "name": "Fast start-up",
+   "what": "Shut down saves part of Windows to disk to start faster. Off: real shutdowns (fixes dual boot and some driver problems).",
+   "more": null,
+   "risk": "behaviour",
+   "after": "none",
+   "src": "Win11Debloat",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Power",
+       "name": "HiberbootEnabled",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Power",
+       "name": "HiberbootEnabled",
+       "type": "dword",
+       "value": 0
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "system.bsod",
+   "cat": "system",
+   "group": null,
+   "name": "Detailed blue screens",
+   "what": "Blue screens show the technical details (driver and stop code) instead of the sad face only.",
+   "more": null,
+   "risk": "safe",
+   "after": "none",
+   "src": "WinUtil",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "off",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKLM\\SYSTEM\\CurrentControlSet\\Control\\CrashControl",
+       "name": "DisplayParameters",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKLM\\SYSTEM\\CurrentControlSet\\Control\\CrashControl",
+       "name": "DisableEmoticon",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKLM\\SYSTEM\\CurrentControlSet\\Control\\CrashControl",
+       "name": "DisplayParameters",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKLM\\SYSTEM\\CurrentControlSet\\Control\\CrashControl",
+       "name": "DisableEmoticon",
+       "type": "dword",
+       "value": 0
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "system.verbose",
+   "cat": "system",
+   "group": null,
+   "name": "Detailed start-up messages",
+   "what": "Start-up, sign-in and shutdown say what Windows is doing (\"Applying settings…\").",
+   "more": null,
+   "risk": "safe",
+   "after": "none",
+   "src": "WinUtil",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "off",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
+       "name": "VerboseStatus",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
+       "name": "VerboseStatus",
+       "type": "dword",
+       "value": 0
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "system.storagesense",
+   "cat": "system",
+   "group": null,
+   "name": "Storage Sense",
+   "what": "Windows deletes temporary files and old Recycle Bin items by itself when space runs low.",
+   "more": null,
+   "risk": "behaviour",
+   "after": "none",
+   "src": "Win11Debloat",
+   "min": 22000,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\StorageSense\\Parameters\\StoragePolicy",
+       "name": "01",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\StorageSense\\Parameters\\StoragePolicy",
+       "name": "01",
+       "type": "dword",
+       "value": 0
+      }
+     ]
+    }
+   ],
+   "admin": false
+  },
+  {
+   "id": "system.reserved",
+   "cat": "system",
+   "group": null,
+   "name": "Reserved storage",
+   "what": "Windows keeps 7-10 GB free for updates. Off gives it back; turn it on again before a big feature update.",
+   "more": null,
+   "risk": "advanced",
+   "after": "none",
+   "src": "WinUtil",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "cmd": "reserved_storage",
+       "on": true
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "cmd": "reserved_storage",
+       "on": false
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "system.bitlocker_auto",
+   "cat": "system",
+   "group": null,
+   "name": "Automatic device encryption",
+   "what": "New installs turn on BitLocker device encryption by themselves. Off stops that; it never decrypts a drive that is already encrypted.",
+   "more": null,
+   "risk": "behaviour",
+   "after": "none",
+   "src": "Win11Debloat",
+   "min": 22000,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKLM\\SYSTEM\\CurrentControlSet\\Control\\BitLocker",
+       "name": "PreventDeviceEncryption",
+       "delete": true
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKLM\\SYSTEM\\CurrentControlSet\\Control\\BitLocker",
+       "name": "PreventDeviceEncryption",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "system.standby_net",
+   "cat": "system",
+   "group": null,
+   "name": "Network while asleep (Modern Standby)",
+   "what": "The laptop stays online while asleep for mail and updates.",
+   "more": null,
+   "risk": "behaviour",
+   "after": "none",
+   "src": "Win11Debloat",
+   "min": 22000,
+   "max": null,
+   "needs": [
+    "battery"
+   ],
+   "kind": "switch",
+   "default": "on",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Power\\PowerSettings\\f15576e8-98b7-4186-b944-eafa664402d9",
+       "name": "ACSettingIndex",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Power\\PowerSettings\\f15576e8-98b7-4186-b944-eafa664402d9",
+       "name": "DCSettingIndex",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Power\\PowerSettings\\f15576e8-98b7-4186-b944-eafa664402d9",
+       "name": "ACSettingIndex",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Power\\PowerSettings\\f15576e8-98b7-4186-b944-eafa664402d9",
+       "name": "DCSettingIndex",
+       "type": "dword",
+       "value": 0
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "system.utc",
+   "cat": "system",
+   "group": null,
+   "name": "Hardware clock in UTC",
+   "what": "For dual booting with Linux, which keeps the clock in UTC: stops the time jumping by hours between them.",
+   "more": null,
+   "risk": "advanced",
+   "after": "restart",
+   "src": "WinUtil",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "off",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKLM\\SYSTEM\\CurrentControlSet\\Control\\TimeZoneInformation",
+       "name": "RealTimeIsUniversal",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKLM\\SYSTEM\\CurrentControlSet\\Control\\TimeZoneInformation",
+       "name": "RealTimeIsUniversal",
+       "type": "dword",
+       "value": 0
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "system.settings_home",
+   "cat": "system",
+   "group": null,
+   "name": "Settings Home page",
+   "what": "Settings opens on Home (recommendations and ads). Off: it opens on System.",
+   "more": null,
+   "risk": "safe",
+   "after": "none",
+   "src": "Win11Debloat",
+   "min": 22000,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer",
+       "name": "SettingsPageVisibility",
+       "delete": true
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer",
+       "name": "SettingsPageVisibility",
+       "type": "string",
+       "value": "hide:home"
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "system.lockscreen",
+   "cat": "system",
+   "group": null,
+   "name": "Lock screen",
+   "what": "The picture screen before sign-in. Off goes straight to the sign-in box.",
+   "more": null,
+   "risk": "behaviour",
+   "after": "none",
+   "src": "WinUtil",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Personalization",
+       "name": "NoLockScreen",
+       "delete": true
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Personalization",
+       "name": "NoLockScreen",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "system.sandbox",
+   "cat": "system",
+   "group": null,
+   "name": "Windows Sandbox",
+   "what": "A throwaway Windows in a window for trying unknown programs (Pro, Enterprise).",
+   "more": null,
+   "risk": "behaviour",
+   "after": "restart",
+   "src": "Win11Debloat",
+   "min": 18362,
+   "max": null,
+   "needs": [
+    "edition:pro"
+   ],
+   "kind": "switch",
+   "default": "off",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "feature": "Containers-DisposableClientVM",
+       "on": true
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "feature": "Containers-DisposableClientVM",
+       "on": false
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "system.wsl",
+   "cat": "system",
+   "group": null,
+   "name": "Windows Subsystem for Linux",
+   "what": "Run Linux tools and distributions on Windows.",
+   "more": null,
+   "risk": "behaviour",
+   "after": "restart",
+   "src": "Win11Debloat",
+   "min": 19041,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "off",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "feature": "Microsoft-Windows-Subsystem-Linux",
+       "on": true
+      },
+      {
+       "feature": "VirtualMachinePlatform",
+       "on": true
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "feature": "Microsoft-Windows-Subsystem-Linux",
+       "on": false
+      },
+      {
+       "feature": "VirtualMachinePlatform",
+       "on": false
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "advanced.memory_integrity",
+   "cat": "advanced",
+   "group": null,
+   "name": "Memory integrity (core isolation)",
+   "what": "Windows checks every driver in a protected area, which stops kernel malware. Some old drivers and tools need it off; it can cost a few % in games.",
+   "more": "FACEIT and some anti-cheats require it on, and Windows Security warns while it's off.",
+   "risk": "advanced",
+   "after": "restart",
+   "src": "Deck",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKLM\\SYSTEM\\CurrentControlSet\\Control\\DeviceGuard\\Scenarios\\HypervisorEnforcedCodeIntegrity",
+       "name": "Enabled",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKLM\\SYSTEM\\CurrentControlSet\\Control\\DeviceGuard\\Scenarios\\HypervisorEnforcedCodeIntegrity",
+       "name": "Enabled",
+       "type": "dword",
+       "value": 0
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "advanced.sysmain",
+   "cat": "advanced",
+   "group": null,
+   "name": "SysMain (Superfetch)",
+   "what": "Preloads programs you use often into memory. Helps hard drives; on an SSD it mostly writes to the disk.",
+   "more": null,
+   "risk": "advanced",
+   "after": "none",
+   "src": "Deck",
+   "min": null,
+   "max": null,
+   "needs": [
+    "system_hdd"
+   ],
+   "kind": "switch",
+   "default": "on",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "service": "SysMain",
+       "start": "auto"
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "service": "SysMain",
+       "start": "disabled"
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "advanced.search_service",
+   "cat": "advanced",
+   "group": null,
+   "name": "Windows Search indexing",
+   "what": "Indexes your files so Start and Explorer find them fast. Off saves disk work; searches get slow (Deck's own search keeps working).",
+   "more": null,
+   "risk": "advanced",
+   "after": "none",
+   "src": "Deck",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "service": "WSearch",
+       "start": "auto"
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "service": "WSearch",
+       "start": "disabled"
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "advanced.bgapps",
+   "cat": "advanced",
+   "group": null,
+   "name": "Store apps in the background",
+   "what": "Store apps may run in the background (for notifications and live tiles).",
+   "more": null,
+   "risk": "advanced",
+   "after": "none",
+   "src": "WinUtil",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\BackgroundAccessApplications",
+       "name": "GlobalUserDisabled",
+       "type": "dword",
+       "value": 0
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\BackgroundAccessApplications",
+       "name": "GlobalUserDisabled",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    }
+   ],
+   "admin": false
+  },
+  {
+   "id": "advanced.rdp_warning",
+   "cat": "advanced",
+   "group": null,
+   "name": "Warnings for unsigned RDP files",
+   "what": "Windows warns before opening a Remote Desktop file nobody signed.",
+   "more": null,
+   "risk": "advanced",
+   "after": "none",
+   "src": "WinUtil",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": null,
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Terminal Services\\Client",
+       "name": "RedirectionWarningDialogVersion",
+       "delete": true
+      },
+      {
+       "reg": "HKCU\\SOFTWARE\\Microsoft\\Terminal Server Client",
+       "name": "RdpLaunchConsentAccepted",
+       "delete": true
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Terminal Services\\Client",
+       "name": "RedirectionWarningDialogVersion",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKCU\\SOFTWARE\\Microsoft\\Terminal Server Client",
+       "name": "RdpLaunchConsentAccepted",
+       "type": "dword",
+       "value": 1
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "advanced.brave",
+   "cat": "advanced",
+   "group": null,
+   "name": "Brave extras",
+   "what": "Brave Rewards, Wallet, VPN, Leo AI, News, Talk and Tor windows.",
+   "more": null,
+   "risk": "safe",
+   "after": "none",
+   "src": "WinUtil",
+   "min": null,
+   "max": null,
+   "needs": [
+    "app:brave"
+   ],
+   "kind": "switch",
+   "default": "on",
+   "rec": "off",
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\BraveSoftware\\Brave",
+       "name": "BraveRewardsDisabled",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\BraveSoftware\\Brave",
+       "name": "BraveWalletDisabled",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\BraveSoftware\\Brave",
+       "name": "BraveVPNDisabled",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\BraveSoftware\\Brave",
+       "name": "BraveAIChatEnabled",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\BraveSoftware\\Brave",
+       "name": "BraveStatsPingEnabled",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\BraveSoftware\\Brave",
+       "name": "BraveNewsDisabled",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\BraveSoftware\\Brave",
+       "name": "BraveTalkDisabled",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\BraveSoftware\\Brave",
+       "name": "TorDisabled",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\BraveSoftware\\Brave",
+       "name": "BraveP3AEnabled",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\BraveSoftware\\Brave",
+       "name": "UrlKeyedAnonymizedDataCollectionEnabled",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\BraveSoftware\\Brave",
+       "name": "SafeBrowsingExtendedReportingEnabled",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\BraveSoftware\\Brave",
+       "name": "MetricsReportingEnabled",
+       "delete": true
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\BraveSoftware\\Brave",
+       "name": "BraveRewardsDisabled",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\BraveSoftware\\Brave",
+       "name": "BraveWalletDisabled",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\BraveSoftware\\Brave",
+       "name": "BraveVPNDisabled",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\BraveSoftware\\Brave",
+       "name": "BraveAIChatEnabled",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\BraveSoftware\\Brave",
+       "name": "BraveStatsPingEnabled",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\BraveSoftware\\Brave",
+       "name": "BraveNewsDisabled",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\BraveSoftware\\Brave",
+       "name": "BraveTalkDisabled",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\BraveSoftware\\Brave",
+       "name": "TorDisabled",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\BraveSoftware\\Brave",
+       "name": "BraveP3AEnabled",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\BraveSoftware\\Brave",
+       "name": "UrlKeyedAnonymizedDataCollectionEnabled",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\BraveSoftware\\Brave",
+       "name": "SafeBrowsingExtendedReportingEnabled",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\BraveSoftware\\Brave",
+       "name": "MetricsReportingEnabled",
+       "type": "dword",
+       "value": 0
+      }
+     ]
+    }
+   ],
+   "admin": true
+  },
+  {
+   "id": "advanced.edge",
+   "cat": "advanced",
+   "group": null,
+   "name": "Edge extras and data sharing",
+   "what": "Edge's first-run pages, shopping, rewards, collections, desktop shortcut and data sharing. Edge and WebView2 stay installed.",
+   "more": "These are Edge policies, so Edge then says \"Your browser is managed by your organization\": that line comes from this tweak and goes away with Undo.",
+   "risk": "safe",
+   "after": "none",
+   "src": "WinUtil",
+   "min": null,
+   "max": null,
+   "needs": [],
+   "kind": "switch",
+   "default": "on",
+   "rec": "off",
+   "options": [
+    {
+     "id": "on",
+     "label": "On",
+     "steps": [
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\EdgeUpdate",
+       "name": "CreateDesktopShortcutDefault",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge\\ExtensionInstallBlocklist",
+       "name": "1",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+       "name": "ConfigureDoNotTrack",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+       "name": "EdgeCollectionsEnabled",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+       "name": "MicrosoftEdgeInsiderPromotionEnabled",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+       "name": "ShowMicrosoftRewards",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+       "name": "WebWidgetAllowed",
+       "delete": true
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+       "name": "EdgeAssetDeliveryServiceEnabled",
+       "delete": true
+      }
+     ]
+    },
+    {
+     "id": "off",
+     "label": "Off",
+     "steps": [
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\EdgeUpdate",
+       "name": "CreateDesktopShortcutDefault",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge\\ExtensionInstallBlocklist",
+       "name": "1",
+       "type": "string",
+       "value": "ofefcgjbeghpigppfmkologfjadafddi"
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+       "name": "ConfigureDoNotTrack",
+       "type": "dword",
+       "value": 1
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+       "name": "EdgeCollectionsEnabled",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+       "name": "MicrosoftEdgeInsiderPromotionEnabled",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+       "name": "ShowMicrosoftRewards",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+       "name": "WebWidgetAllowed",
+       "type": "dword",
+       "value": 0
+      },
+      {
+       "reg": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge",
+       "name": "EdgeAssetDeliveryServiceEnabled",
+       "type": "dword",
+       "value": 0
+      }
+     ]
+    }
+   ],
+   "admin": true
+  }
+ ]
+}

@@ -5,8 +5,11 @@ import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL, fileURLToPath } from "node:url";
 
+// Edge, or Chrome where Edge isn't installed (BROWSER=path picks another Chromium browser), as shot.mjs
+export const BROWSER = process.env.BROWSER || ["C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe", "C:/Program Files/Microsoft/Edge/Application/msedge.exe", "C:/Program Files/Google/Chrome/Application/chrome.exe"].find((p) => fs.existsSync(p));
+
 export async function openDeck({ w = 1260, h = 900, port = 9370, page = null } = {}) {
-  const edge = spawn("C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe", ["--headless=new", `--remote-debugging-port=${port}`, "--allow-file-access-from-files", "--disable-gpu", "--hide-scrollbars", `--user-data-dir=${process.env.TEMP}\\deck-test-edge-${process.pid}-${port}`, `--window-size=${w},${h}`, "about:blank"], { stdio: "ignore" });
+  const edge = spawn(BROWSER, ["--headless=new", `--remote-debugging-port=${port}`, "--allow-file-access-from-files", "--disable-gpu", "--hide-scrollbars", `--user-data-dir=${process.env.TEMP}\\deck-test-edge-${process.pid}-${port}`, `--window-size=${w},${h}`, "about:blank"], { stdio: "ignore" });
   let list;
   for (let i = 0; i < 150; i++) { try { list = await (await fetch(`http://127.0.0.1:${port}/json`)).json(); if (list.find((t) => t.type === "page" && t.url === "about:blank")) break; } catch {} await new Promise((r) => setTimeout(r, 200)); }
   const t = list.find((x) => x.type === "page" && x.url === "about:blank");
@@ -21,7 +24,7 @@ export async function openDeck({ w = 1260, h = 900, port = 9370, page = null } =
   const here = path.dirname(fileURLToPath(import.meta.url));
   const uiDir = process.env.DECK_UI || path.resolve(here, "../../../ui");
   const ui = pathToFileURL(uiDir).href + "/";
-  const html = fs.readFileSync(path.join(uiDir, "index.html"), "utf8").replace("<head>", `<head><base href="${ui}"><script src="${pathToFileURL(path.join(here, "mock.js")).href}"></script><script src="${pathToFileURL(path.join(here, "mock-data.js")).href}"></script>`);
+  const html = fs.readFileSync(path.join(uiDir, "index.html"), "utf8").replace("<head>", `<head><base href="${ui}"><script src="${pathToFileURL(path.join(here, "mock.js")).href}"></script><script src="${pathToFileURL(path.join(here, "mock-tweaks.js")).href}"></script><script src="${pathToFileURL(path.join(here, "mock-data.js")).href}"></script>`);
   const harness = path.join(here, `harness-${port}.html`);
   fs.writeFileSync(harness, html);
   await send("Page.navigate", { url: pathToFileURL(harness).href });

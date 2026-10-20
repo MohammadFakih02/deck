@@ -47,6 +47,10 @@ pub struct Manifest {
     pub wallpaper: Option<String>,
     pub windhawk_version: Option<String>,
     pub windhawk_mods: Vec<String>,
+    /// Deck's Tweaks applied on the sending PC: (tweak id, option), re-applied here through the
+    /// Tweaks engine (with its own exact undo), never as raw registry values
+    #[serde(default)]
+    pub tweaks: Vec<(String, String)>,
 }
 
 pub fn read_manifest(dir: &Path) -> Option<Manifest> {
@@ -153,13 +157,14 @@ fn windhawk_mod_ids() -> Vec<String> {
 // ------------------------------------------------------------------------------------------ build
 pub struct Counts {
     pub look: usize,
+    pub tweaks: usize,
     pub wallpaper: bool,
     pub windhawk: Vec<String>,
 }
 
 pub fn preview() -> Counts {
     let look = LOOK.iter().flat_map(|(p, ns)| ns.iter().map(move |n| (p, n))).filter(|(p, n)| reg_get(p, n).is_some()).count();
-    Counts { look, wallpaper: wallpaper_path().is_some(), windhawk: if windhawk_installed() { windhawk_mod_ids() } else { vec![] } }
+    Counts { look, tweaks: crate::tweaks::applied().len(), wallpaper: wallpaper_path().is_some(), windhawk: if windhawk_installed() { windhawk_mod_ids() } else { vec![] } }
 }
 
 fn wallpaper_path() -> Option<PathBuf> {
@@ -182,6 +187,7 @@ pub fn build(out_root: &Path, machine: &str, look: bool, wallpaper: bool, windha
                 }
             }
         }
+        m.tweaks = crate::tweaks::applied();
     }
     if wallpaper {
         if let Some(p) = wallpaper_path() {
@@ -216,7 +222,7 @@ pub fn build(out_root: &Path, machine: &str, look: bool, wallpaper: bool, windha
         m.windhawk_version = windhawk_version();
         m.windhawk_mods = windhawk_mod_ids();
     }
-    if m.look.is_empty() && m.wallpaper.is_none() && m.windhawk_version.is_none() {
+    if m.look.is_empty() && m.tweaks.is_empty() && m.wallpaper.is_none() && m.windhawk_version.is_none() {
         return Err("nothing to put in the snapshot".into());
     }
     std::fs::write(dir.join("manifest.json"), serde_json::to_vec_pretty(&m).unwrap_or_default()).map_err(|e| e.to_string())?;
@@ -232,10 +238,9 @@ pub fn has_backup(dir: &Path) -> bool {
     backup_dir(dir).join("look.json").exists() || backup_dir(dir).join("windhawk").exists()
 }
 
+/// Windows starts Explorer again as you (one Deck started would run with Deck's admin rights).
 fn restart_explorer() {
-    let _ = Command::new("taskkill.exe").args(["/F", "/IM", "explorer.exe"]).creation_flags(NO_WINDOW).status();
-    std::thread::sleep(std::time::Duration::from_millis(700));
-    let _ = Command::new("explorer.exe").spawn();
+    crate::tweaks::restart_explorer();
 }
 
 fn set_wallpaper(p: &str) {
@@ -263,6 +268,28 @@ pub fn apply_look(dir: &Path, m: &Manifest, look: bool, wallpaper: bool, restart
             }
         }
     }
+    // Deck's tweaks: through this PC's own Tweaks engine (which keeps what each was before)
+    let (mut tw, mut tw_failed) = (0, Vec::new());
+    if look && !m.tweaks.is_empty() {
+        let mut done: Vec<String> = std::fs::read(bk.join("tweaks.json")).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+        for (id, opt) in &m.tweaks {
+            let was_changed = crate::tweaks::is_changed(id);
+            match crate::tweaks::set_from_setup(id, opt) {
+                Ok(()) => {
+                    tw += 1;
+                    // only the ones this setup changed are undone with it
+                    if !was_changed && crate::tweaks::is_changed(id) && !done.contains(id) {
+                        done.push(id.clone());
+                    }
+                }
+                Err(e) => tw_failed.push(format!("{id}: {e}")),
+            }
+        }
+        let _ = std::fs::write(bk.join("tweaks.json"), serde_json::to_vec(&done).unwrap_or_default());
+        if !tw_failed.is_empty() {
+            crate::log::warn(format!("setup: tweaks not applied: {}", tw_failed.join("; ")));
+        }
+    }
     let mut wp = false;
     if wallpaper {
         if let Some(f) = &m.wallpaper {
@@ -276,7 +303,9 @@ pub fn apply_look(dir: &Path, m: &Manifest, look: bool, wallpaper: bool, restart
     if look && restart {
         restart_explorer();
     }
-    Ok(format!("{n} settings{} applied", if wp { " and the wallpaper" } else { "" }))
+    let tweaks = if tw > 0 { format!(", {tw} tweak{}", if tw > 1 { "s" } else { "" }) } else { String::new() };
+    let skipped = if tw_failed.is_empty() { String::new() } else { format!(" ({} tweak{} not for this PC)", tw_failed.len(), if tw_failed.len() > 1 { "s" } else { "" }) };
+    Ok(format!("{n} settings{tweaks}{} applied{skipped}", if wp { " and the wallpaper" } else { "" }))
 }
 
 pub fn undo_look(dir: &Path, restart: bool) -> Result<String, String> {
@@ -292,6 +321,14 @@ pub fn undo_look(dir: &Path, restart: bool) -> Result<String, String> {
         }
     }
     let _ = std::fs::remove_file(&f);
+    // the tweaks this setup changed, put back by the Tweaks engine
+    let tf = backup_dir(dir).join("tweaks.json");
+    if let Some(ids) = std::fs::read(&tf).ok().and_then(|b| serde_json::from_slice::<Vec<String>>(&b).ok()) {
+        for id in ids {
+            let _ = crate::tweaks::undo(&id);
+        }
+        let _ = std::fs::remove_file(&tf);
+    }
     if restart {
         restart_explorer();
     }

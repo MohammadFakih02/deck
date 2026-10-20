@@ -1,0 +1,1247 @@
+{
+ "source": "a2d63c7c1b9c7cb6554d4fce3aa7f377567f7f9e",
+ "apps": [
+  {
+   "name": "Clipchamp",
+   "ids": [
+    "Clipchamp.Clipchamp"
+   ],
+   "what": "Video editor from Microsoft",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "3D Builder",
+   "ids": [
+    "Microsoft.3DBuilder"
+   ],
+   "what": "Basic 3D modeling software",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "Cortana",
+   "ids": [
+    "Microsoft.549981C3F5F10"
+   ],
+   "what": "Microsoft Cortana voice assistant (discontinued)",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "Bing Finance",
+   "ids": [
+    "Microsoft.BingFinance"
+   ],
+   "what": "Finance news and tracking via Bing (discontinued)",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "Bing Food And Drink",
+   "ids": [
+    "Microsoft.BingFoodAndDrink"
+   ],
+   "what": "Recipes and food news via Bing (discontinued)",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "Bing Health And Fitness",
+   "ids": [
+    "Microsoft.BingHealthAndFitness"
+   ],
+   "what": "Health and fitness tracking/news via Bing (discontinued)",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "Microsoft News",
+   "ids": [
+    "Microsoft.BingNews"
+   ],
+   "what": "News aggregator app. Brings together breaking news, personalized article feeds, and global current events",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "Bing Sports",
+   "ids": [
+    "Microsoft.BingSports"
+   ],
+   "what": "Sports news and scores via Bing (discontinued)",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "Bing Translator",
+   "ids": [
+    "Microsoft.BingTranslator"
+   ],
+   "what": "Translation service via Bing",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "Bing Travel",
+   "ids": [
+    "Microsoft.BingTravel"
+   ],
+   "what": "Travel planning and news via Bing (discontinued)",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "Bing Weather",
+   "ids": [
+    "Microsoft.BingWeather"
+   ],
+   "what": "Weather forecast via Bing",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "Microsoft Copilot",
+   "ids": [
+    "XP9CXNGPPJ97XX"
+   ],
+   "what": "AI assistant integrated into Windows",
+   "rating": "safe",
+   "method": "WinGet"
+  },
+  {
+   "name": "Copilot+ AI Hub",
+   "ids": [
+    "Microsoft.Windows.AIHub"
+   ],
+   "what": "Copilot+ AI Hub app (Windows 11 24H2+)",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "Microsoft PC Manager",
+   "ids": [
+    "Microsoft.PCManager"
+   ],
+   "what": "Microsoft PC Manager system cleanup and optimization tool (often preinstalled)",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "Get Started",
+   "ids": [
+    "Microsoft.Getstarted"
+   ],
+   "what": "Tips and introductory guide for Windows (Cannot be uninstalled in Windows 11)",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "Messaging",
+   "ids": [
+    "Microsoft.Messaging"
+   ],
+   "what": "Messaging app, often integrates with Skype (Largely discontinued)",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "3D Viewer",
+   "ids": [
+    "Microsoft.Microsoft3DViewer"
+   ],
+   "what": "Viewer for 3D models",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "Microsoft Journal",
+   "ids": [
+    "Microsoft.MicrosoftJournal"
+   ],
+   "what": "Digital note-taking app optimized for pen input",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "Office Hub",
+   "ids": [
+    "Microsoft.MicrosoftOfficeHub"
+   ],
+   "what": "Hub to access Microsoft Office apps and documents (Precursor to Microsoft 365 app)",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "Power BI",
+   "ids": [
+    "Microsoft.MicrosoftPowerBIForWindows"
+   ],
+   "what": "Business analytics service client",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "Solitaire Collection",
+   "ids": [
+    "Microsoft.MicrosoftSolitaireCollection"
+   ],
+   "what": "Collection of solitaire card games",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "Sticky Notes",
+   "ids": [
+    "Microsoft.MicrosoftStickyNotes"
+   ],
+   "what": "Digital sticky notes app (Discontinued & replaced by OneNote)",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "Mixed Reality Portal",
+   "ids": [
+    "Microsoft.MixedReality.Portal"
+   ],
+   "what": "Portal for Windows Mixed Reality headsets",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "Network Speed Test",
+   "ids": [
+    "Microsoft.NetworkSpeedTest"
+   ],
+   "what": "Internet connection speed test utility",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "OneNote",
+   "ids": [
+    "Microsoft.Office.OneNote"
+   ],
+   "what": "Digital note-taking app (Universal Windows Platform version)",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "Sway",
+   "ids": [
+    "Microsoft.Office.Sway"
+   ],
+   "what": "Presentation and storytelling app",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "One Connect",
+   "ids": [
+    "Microsoft.OneConnect"
+   ],
+   "what": "Mobile Operator management app (Replaced by Mobile Plans)",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "Print 3D",
+   "ids": [
+    "Microsoft.Print3D"
+   ],
+   "what": "3D printing preparation software",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "Power Automate",
+   "ids": [
+    "Microsoft.PowerAutomateDesktop"
+   ],
+   "what": "Desktop automation tool (RPA)",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "Skype (UWP)",
+   "ids": [
+    "Microsoft.SkypeApp"
+   ],
+   "what": "Skype communication app, Universal Windows Platform version (discontinued)",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "Microsoft To Do",
+   "ids": [
+    "Microsoft.Todos"
+   ],
+   "what": "To-do list and task management app",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "Dev Home",
+   "ids": [
+    "Microsoft.Windows.DevHome"
+   ],
+   "what": "Developer dashboard and tool configuration utility (discontinued)",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "Alarms & Clock",
+   "ids": [
+    "Microsoft.WindowsAlarms"
+   ],
+   "what": "Alarms & Clock app",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "Feedback Hub",
+   "ids": [
+    "Microsoft.WindowsFeedbackHub"
+   ],
+   "what": "App for providing feedback to Microsoft on Windows",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "Windows Maps",
+   "ids": [
+    "Microsoft.WindowsMaps"
+   ],
+   "what": "Mapping and navigation app",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "Sound Recorder",
+   "ids": [
+    "Microsoft.WindowsSoundRecorder"
+   ],
+   "what": "Basic audio recording app",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "Xbox Console Companion",
+   "ids": [
+    "Microsoft.XboxApp"
+   ],
+   "what": "Old Xbox Console Companion App (discontinued)",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "Movies & TV",
+   "ids": [
+    "Microsoft.ZuneVideo"
+   ],
+   "what": "Microsoft Movies & TV app for playing previously purchased movies and TV shows on Windows",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "Family Safety",
+   "ids": [
+    "MicrosoftCorporationII.MicrosoftFamily"
+   ],
+   "what": "Family Safety App for managing family accounts and settings",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "Quick Assist",
+   "ids": [
+    "MicrosoftCorporationII.QuickAssist"
+   ],
+   "what": "Remote assistance tool",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "Microsoft Teams (Old)",
+   "ids": [
+    "MicrosoftTeams"
+   ],
+   "what": "Old Microsoft Teams personal (MS Store version)",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "Microsoft Teams (New)",
+   "ids": [
+    "MSTeams"
+   ],
+   "what": "New Microsoft Teams app (Work/School or Personal)",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "ACG Media Player",
+   "ids": [
+    "ACGMediaPlayer"
+   ],
+   "what": "Media player app",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "Actipro Software",
+   "ids": [
+    "ActiproSoftwareLLC"
+   ],
+   "what": "Potentially UI controls or software components, often bundled by OEMs",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "Adobe Photoshop Express",
+   "ids": [
+    "AdobeSystemsIncorporated.AdobePhotoshopExpress"
+   ],
+   "what": "Basic photo editing app from Adobe",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "Amazon",
+   "ids": [
+    "Amazon.com.Amazon"
+   ],
+   "what": "Amazon shopping app",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "Prime Video",
+   "ids": [
+    "AmazonVideo.PrimeVideo"
+   ],
+   "what": "Amazon Prime Video streaming service app",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "Asphalt 8",
+   "ids": [
+    "Asphalt8Airborne"
+   ],
+   "what": "Racing game",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "Autodesk SketchBook",
+   "ids": [
+    "AutodeskSketchBook"
+   ],
+   "what": "Digital drawing and sketching app",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "Caesars Slots",
+   "ids": [
+    "CaesarsSlotsFreeCasino"
+   ],
+   "what": "Casino slot machine game",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "Cooking Fever",
+   "ids": [
+    "COOKINGFEVER"
+   ],
+   "what": "Restaurant simulation game",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "CyberLink Media Suite",
+   "ids": [
+    "CyberLinkMediaSuiteEssentials"
+   ],
+   "what": "Multimedia software suite (often preinstalled by OEMs)",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "Disney Magic Kingdoms",
+   "ids": [
+    "DisneyMagicKingdoms"
+   ],
+   "what": "Disney theme park building game",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "Disney+",
+   "ids": [
+    "Disney.37853FC22B2CE"
+   ],
+   "what": "Disney+ streaming service app",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "Drawboard PDF",
+   "ids": [
+    "DrawboardPDF"
+   ],
+   "what": "PDF viewing and annotation app, often focused on pen input",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "Duolingo",
+   "ids": [
+    "Duolingo-LearnLanguagesforFree"
+   ],
+   "what": "Language learning app",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "Facebook",
+   "ids": [
+    "FACEBOOK.FACEBOOK"
+   ],
+   "what": "Facebook social media app",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "FarmVille 2",
+   "ids": [
+    "FarmVille2CountryEscape"
+   ],
+   "what": "Farming simulation game",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "Flipboard",
+   "ids": [
+    "Flipboard"
+   ],
+   "what": "News and social network aggregator styled as a magazine",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "Hidden City",
+   "ids": [
+    "HiddenCity"
+   ],
+   "what": "Hidden object puzzle adventure game",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "Hulu",
+   "ids": [
+    "HULULLC.HULUPLUS"
+   ],
+   "what": "Hulu streaming service app",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "iHeartRadio",
+   "ids": [
+    "iHeartRadio"
+   ],
+   "what": "Internet radio streaming app",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "Instagram",
+   "ids": [
+    "Facebook.Instagram"
+   ],
+   "what": "Instagram social media app",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "Bubble Witch 3",
+   "ids": [
+    "king.com.BubbleWitch3Saga"
+   ],
+   "what": "Puzzle game from King",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "Candy Crush Saga",
+   "ids": [
+    "king.com.CandyCrushSaga"
+   ],
+   "what": "Puzzle game from King",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "Candy Crush Soda",
+   "ids": [
+    "king.com.CandyCrushSodaSaga"
+   ],
+   "what": "Puzzle game from King",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "LinkedIn",
+   "ids": [
+    "LinkedInforWindows"
+   ],
+   "what": "LinkedIn professional networking app",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "March of Empires",
+   "ids": [
+    "MarchofEmpires"
+   ],
+   "what": "Strategy game",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "Netflix",
+   "ids": [
+    "4DF9E0F8.Netflix"
+   ],
+   "what": "Netflix streaming service app",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "NYT Crossword",
+   "ids": [
+    "NYTCrossword"
+   ],
+   "what": "New York Times crossword puzzle app",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "One Calendar",
+   "ids": [
+    "OneCalendar"
+   ],
+   "what": "Calendar aggregation app",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "Pandora",
+   "ids": [
+    "PandoraMediaInc"
+   ],
+   "what": "Pandora music streaming app",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "Phototastic Collage",
+   "ids": [
+    "PhototasticCollage"
+   ],
+   "what": "Photo collage creation app",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "PicsArt",
+   "ids": [
+    "PicsArt-PhotoStudio"
+   ],
+   "what": "Photo editing and creative app",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "Polarr Photo Editor",
+   "ids": [
+    "PolarrPhotoEditorAcademicEdition"
+   ],
+   "what": "Photo editing app (Academic Edition)",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "Royal Revolt",
+   "ids": [
+    "flaregamesGmbH.RoyalRevolt"
+   ],
+   "what": "Tower defense / strategy game",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "Live Wallpaper",
+   "ids": [
+    "Sidia.LiveWallpaper"
+   ],
+   "what": "Live wallpaper app",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "Sling TV",
+   "ids": [
+    "SlingTV"
+   ],
+   "what": "Live TV streaming service app",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "Spotify",
+   "ids": [
+    "SpotifyAB.SpotifyMusic"
+   ],
+   "what": "Spotify music streaming app",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "TikTok",
+   "ids": [
+    "BytedancePte.Ltd.TikTok"
+   ],
+   "what": "TikTok short-form video app",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "TuneIn Radio",
+   "ids": [
+    "TuneInRadio"
+   ],
+   "what": "Internet radio streaming app",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "WinZip",
+   "ids": [
+    "WinZipUniversal"
+   ],
+   "what": "File compression and extraction utility (Universal Windows Platform version)",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "Bing Search",
+   "ids": [
+    "Microsoft.BingSearch"
+   ],
+   "what": "Web Search from Microsoft Bing (Integrates into Windows Search)",
+   "rating": "optional",
+   "method": "Appx"
+  },
+  {
+   "name": "Xbox Gaming App",
+   "ids": [
+    "Microsoft.GamingApp"
+   ],
+   "what": "Modern Xbox Gaming App, required for installing some PC games",
+   "rating": "optional",
+   "method": "Appx"
+  },
+  {
+   "name": "Get Help",
+   "ids": [
+    "Microsoft.GetHelp"
+   ],
+   "what": "Required for some Windows 11 Troubleshooters and support interactions",
+   "rating": "unsafe",
+   "method": "Appx"
+  },
+  {
+   "name": "Microsoft 365 Companions",
+   "ids": [
+    "Microsoft.M365Companions"
+   ],
+   "what": "Microsoft 365 (Business) Calendar, Files and People mini-apps, these apps may be reinstalled if enabled by your Microsoft 365 admin",
+   "rating": "optional",
+   "method": "Appx"
+  },
+  {
+   "name": "Paint 3D",
+   "ids": [
+    "Microsoft.MSPaint"
+   ],
+   "what": "Paint 3D (Modern paint application with 3D features)",
+   "rating": "optional",
+   "method": "Appx"
+  },
+  {
+   "name": "OneDrive",
+   "ids": [
+    "Microsoft.OneDrive"
+   ],
+   "what": "OneDrive consumer cloud storage client",
+   "rating": "optional",
+   "method": "WinGet"
+  },
+  {
+   "name": "Outlook for Windows",
+   "ids": [
+    "Microsoft.OutlookForWindows"
+   ],
+   "what": "New Outlook for Windows mail client",
+   "rating": "optional",
+   "method": "Appx"
+  },
+  {
+   "name": "Paint",
+   "ids": [
+    "Microsoft.Paint"
+   ],
+   "what": "Classic Paint (Traditional 2D paint application)",
+   "rating": "optional",
+   "method": "Appx"
+  },
+  {
+   "name": "People",
+   "ids": [
+    "Microsoft.People"
+   ],
+   "what": "Required for & included with Mail & Calendar (discontinued)",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "Remote Desktop",
+   "ids": [
+    "Microsoft.RemoteDesktop"
+   ],
+   "what": "Remote Desktop client app",
+   "rating": "optional",
+   "method": "Appx"
+  },
+  {
+   "name": "Snipping Tool",
+   "ids": [
+    "Microsoft.ScreenSketch"
+   ],
+   "what": "Snipping Tool (Screenshot and annotation tool)",
+   "rating": "optional",
+   "method": "Appx"
+  },
+  {
+   "name": "Widgets Experience",
+   "ids": [
+    "Microsoft.StartExperiencesApp"
+   ],
+   "what": "This app powers Windows Widgets My Feed",
+   "rating": "optional",
+   "method": "Appx"
+  },
+  {
+   "name": "Whiteboard",
+   "ids": [
+    "Microsoft.Whiteboard"
+   ],
+   "what": "Digital collaborative whiteboard app",
+   "rating": "optional",
+   "method": "Appx"
+  },
+  {
+   "name": "Photos",
+   "ids": [
+    "Microsoft.Windows.Photos"
+   ],
+   "what": "Default photo viewing and basic editing app",
+   "rating": "optional",
+   "method": "Appx"
+  },
+  {
+   "name": "Calculator",
+   "ids": [
+    "Microsoft.WindowsCalculator"
+   ],
+   "what": "Calculator app",
+   "rating": "optional",
+   "method": "Appx"
+  },
+  {
+   "name": "Camera",
+   "ids": [
+    "Microsoft.WindowsCamera"
+   ],
+   "what": "Camera app for using built-in or connected cameras",
+   "rating": "optional",
+   "method": "Appx"
+  },
+  {
+   "name": "Mail & Calendar",
+   "ids": [
+    "Microsoft.windowscommunicationsapps"
+   ],
+   "what": "Mail & Calendar app suite (discontinued)",
+   "rating": "safe",
+   "method": "Appx"
+  },
+  {
+   "name": "Notepad",
+   "ids": [
+    "Microsoft.WindowsNotepad"
+   ],
+   "what": "Notepad text editor app",
+   "rating": "optional",
+   "method": "Appx"
+  },
+  {
+   "name": "Microsoft Store",
+   "ids": [
+    "Microsoft.WindowsStore"
+   ],
+   "what": "Microsoft Store, WARNING: This app cannot be reinstalled easily if removed!",
+   "rating": "unsafe",
+   "method": "Appx"
+  },
+  {
+   "name": "Windows Terminal",
+   "ids": [
+    "Microsoft.WindowsTerminal"
+   ],
+   "what": "Default terminal app in windows 11 (Command Prompt, PowerShell, WSL), WARNING: Do not remove if you launched Win11Debloat from Windows Terminal, as this will cause the script to fail.",
+   "rating": "unsafe",
+   "method": "Appx"
+  },
+  {
+   "name": "Xbox TCUI Framework",
+   "ids": [
+    "Microsoft.Xbox.TCUI"
+   ],
+   "what": "UI framework, seems to be required for Microsoft Store, photos and certain games",
+   "rating": "unsafe",
+   "method": "Appx"
+  },
+  {
+   "name": "Xbox Game Overlay",
+   "ids": [
+    "Microsoft.XboxGameOverlay"
+   ],
+   "what": "Game overlay, required or useful for some games (part of Xbox Game Bar). Warning: Uninstalling this app may reduce game performance on PCs with certain modern processors.",
+   "rating": "optional",
+   "method": "Appx"
+  },
+  {
+   "name": "Xbox Gaming Overlay",
+   "ids": [
+    "Microsoft.XboxGamingOverlay"
+   ],
+   "what": "Game overlay, required or useful for some games (part of Xbox Game Bar). Warning: Uninstalling this app may reduce game performance on PCs with certain modern processors.",
+   "rating": "optional",
+   "method": "Appx"
+  },
+  {
+   "name": "Xbox Identity Provider",
+   "ids": [
+    "Microsoft.XboxIdentityProvider"
+   ],
+   "what": "Xbox sign-in framework, required for some games and Xbox services",
+   "rating": "unsafe",
+   "method": "Appx"
+  },
+  {
+   "name": "Xbox Speech To Text",
+   "ids": [
+    "Microsoft.XboxSpeechToTextOverlay"
+   ],
+   "what": "Accessibility feature required for some games, WARNING: This app cannot be reinstalled easily!",
+   "rating": "unsafe",
+   "method": "Appx"
+  },
+  {
+   "name": "Phone Link",
+   "ids": [
+    "Microsoft.YourPhone"
+   ],
+   "what": "Phone link (Connects Android/iOS phone to PC)",
+   "rating": "optional",
+   "method": "Appx"
+  },
+  {
+   "name": "Media Player",
+   "ids": [
+    "Microsoft.ZuneMusic"
+   ],
+   "what": "Modern Media Player (Replaced Groove Music, plays local audio/video)",
+   "rating": "optional",
+   "method": "Appx"
+  },
+  {
+   "name": "Cross Device Experience",
+   "ids": [
+    "MicrosoftWindows.CrossDevice"
+   ],
+   "what": "Phone integration within File Explorer, Camera and more (Part of Phone Link features)",
+   "rating": "optional",
+   "method": "Appx"
+  },
+  {
+   "name": "Windows Web Experience Pack",
+   "ids": [
+    "MicrosoftWindows.Client.WebExperience"
+   ],
+   "what": "Helps deliver and update certain features, like Widgets, through the Microsoft Store",
+   "rating": "optional",
+   "method": "Appx"
+  },
+  {
+   "name": "Widgets Platform Runtime",
+   "ids": [
+    "Microsoft.WidgetsPlatformRuntime"
+   ],
+   "what": "Runtime required for Windows Widgets to function",
+   "rating": "optional",
+   "method": "Appx"
+  },
+  {
+   "name": "LG Monitor App",
+   "ids": [
+    "LGElectronics.LGMonitorApp"
+   ],
+   "what": "LG OEM software for controlling your LG monitor, Windows Update may silently reinstall this app if you have an LG monitor connected",
+   "rating": "optional",
+   "method": "Appx"
+  },
+  {
+   "name": "HP AI Experience Center",
+   "ids": [
+    "AD2F1837.HPAIExperienceCenter"
+   ],
+   "what": "HP OEM software, AI-enhanced features and support",
+   "rating": "optional",
+   "method": "Appx"
+  },
+  {
+   "name": "HP Connected Music",
+   "ids": [
+    "AD2F1837.HPConnectedMusic"
+   ],
+   "what": "HP OEM software for music (Potentially discontinued)",
+   "rating": "optional",
+   "method": "Appx"
+  },
+  {
+   "name": "HP Connected Photo",
+   "ids": [
+    "AD2F1837.HPConnectedPhotopoweredbySnapfish"
+   ],
+   "what": "HP OEM software for photos, integrated with Snapfish (Potentially discontinued)",
+   "rating": "optional",
+   "method": "Appx"
+  },
+  {
+   "name": "HP Desktop Support Utilities",
+   "ids": [
+    "AD2F1837.HPDesktopSupportUtilities"
+   ],
+   "what": "HP OEM software providing desktop support tools",
+   "rating": "optional",
+   "method": "Appx"
+  },
+  {
+   "name": "HP Easy Clean",
+   "ids": [
+    "AD2F1837.HPEasyClean"
+   ],
+   "what": "HP OEM software for system cleaning or optimization",
+   "rating": "optional",
+   "method": "Appx"
+  },
+  {
+   "name": "HP File Viewer",
+   "ids": [
+    "AD2F1837.HPFileViewer"
+   ],
+   "what": "HP OEM software for viewing specific file types",
+   "rating": "optional",
+   "method": "Appx"
+  },
+  {
+   "name": "HP JumpStarts",
+   "ids": [
+    "AD2F1837.HPJumpStarts"
+   ],
+   "what": "HP OEM software for tutorials, app discovery, or quick access to HP features",
+   "rating": "optional",
+   "method": "Appx"
+  },
+  {
+   "name": "HP PC Hardware Diagnostics",
+   "ids": [
+    "AD2F1837.HPPCHardwareDiagnosticsWindows"
+   ],
+   "what": "HP OEM software for PC hardware diagnostics",
+   "rating": "optional",
+   "method": "Appx"
+  },
+  {
+   "name": "HP Power Manager",
+   "ids": [
+    "AD2F1837.HPPowerManager"
+   ],
+   "what": "HP OEM software for managing power settings and battery",
+   "rating": "optional",
+   "method": "Appx"
+  },
+  {
+   "name": "HP Printer Control",
+   "ids": [
+    "AD2F1837.HPPrinterControl"
+   ],
+   "what": "HP OEM software for managing HP printers",
+   "rating": "optional",
+   "method": "Appx"
+  },
+  {
+   "name": "HP Privacy Settings",
+   "ids": [
+    "AD2F1837.HPPrivacySettings"
+   ],
+   "what": "HP OEM software for managing privacy settings",
+   "rating": "optional",
+   "method": "Appx"
+  },
+  {
+   "name": "HP QuickDrop",
+   "ids": [
+    "AD2F1837.HPQuickDrop"
+   ],
+   "what": "HP OEM software for quick file transfer between devices",
+   "rating": "optional",
+   "method": "Appx"
+  },
+  {
+   "name": "HP QuickTouch",
+   "ids": [
+    "AD2F1837.HPQuickTouch"
+   ],
+   "what": "HP OEM software, possibly for touch-specific shortcuts or controls",
+   "rating": "optional",
+   "method": "Appx"
+  },
+  {
+   "name": "HP Registration",
+   "ids": [
+    "AD2F1837.HPRegistration"
+   ],
+   "what": "HP OEM software for product registration",
+   "rating": "optional",
+   "method": "Appx"
+  },
+  {
+   "name": "HP Support Assistant",
+   "ids": [
+    "AD2F1837.HPSupportAssistant"
+   ],
+   "what": "HP OEM software for support, updates, and troubleshooting",
+   "rating": "optional",
+   "method": "Appx"
+  },
+  {
+   "name": "HP Sure Shield AI",
+   "ids": [
+    "AD2F1837.HPSureShieldAI"
+   ],
+   "what": "HP OEM security software, likely AI-based threat protection",
+   "rating": "optional",
+   "method": "Appx"
+  },
+  {
+   "name": "HP System Information",
+   "ids": [
+    "AD2F1837.HPSystemInformation"
+   ],
+   "what": "HP OEM software for displaying system information",
+   "rating": "optional",
+   "method": "Appx"
+  },
+  {
+   "name": "HP Welcome",
+   "ids": [
+    "AD2F1837.HPWelcome"
+   ],
+   "what": "HP OEM software providing a welcome experience or initial setup help",
+   "rating": "optional",
+   "method": "Appx"
+  },
+  {
+   "name": "HP WorkWell",
+   "ids": [
+    "AD2F1837.HPWorkWell"
+   ],
+   "what": "HP OEM software focused on well-being, possibly with break reminders or ergonomic tips",
+   "rating": "optional",
+   "method": "Appx"
+  },
+  {
+   "name": "myHP",
+   "ids": [
+    "AD2F1837.myHP"
+   ],
+   "what": "HP OEM central hub app for device info, support, and services",
+   "rating": "optional",
+   "method": "Appx"
+  },
+  {
+   "name": "Lenovo Vantage",
+   "ids": [
+    "E046963F.LenovoCompanion"
+   ],
+   "what": "Lenovo OEM hub app for device settings, updates, and support",
+   "rating": "optional",
+   "method": "Appx"
+  },
+  {
+   "name": "Lenovo Vantage Service",
+   "ids": [
+    "LenovoCompanyLimited.LenovoVantageService"
+   ],
+   "what": "Background service component for Lenovo Vantage",
+   "rating": "optional",
+   "method": "Appx"
+  },
+  {
+   "name": "Dell SupportAssist",
+   "ids": [
+    "DellInc.DellSupportAssistforPCs"
+   ],
+   "what": "Dell OEM support, diagnostic, and update tool",
+   "rating": "optional",
+   "method": "Appx"
+  },
+  {
+   "name": "Dell Digital Delivery Services",
+   "ids": [
+    "DellInc.DellDigitalDelivery"
+   ],
+   "what": "Dell OEM software for delivering pre-purchased software",
+   "rating": "optional",
+   "method": "Appx"
+  },
+  {
+   "name": "Dell Mobile Connect",
+   "ids": [
+    "DellInc.DellMobileConnect"
+   ],
+   "what": "Dell OEM app for linking Android/iOS phone to PC (superseded by Phone Link)",
+   "rating": "optional",
+   "method": "Appx"
+  }
+ ]
+}

@@ -35,6 +35,21 @@ export function actions() {
   a("Display settings", "Refresh rate, brightness, HDR", "monitor", "refresh rate hz brightness hdr monitor display", () => go("system", "display"));
   a("Workspaces", "Put your apps back where they belong", "layout", "workspace layout scene", () => go("windows", "workspaces"));
   a("Send to phone", "Text, a link or a file", "send", "phone send share transfer", () => go("phone"));
+  a("Install a Store app", "Without the Microsoft Store, from Microsoft's servers", "download", "store msstore install app appx msix rg-adguard winget", () => go("tweaks", "store"));
+  a("Remove built-in apps", "Clipchamp, News, Xbox… (debloat)", "trash", "remove uninstall bloat debloat builtin apps xbox", () => go("tweaks", "apps"));
+  // every Windows tweak (its list arrives with the first search; the Tweaks page keeps it fresh)
+  const tw = S.cache.tw;
+  if (tw) {
+    const cats = Object.fromEntries(tw.cats.map((c) => [c.id, c]));
+    for (const t of tw.tweaks) {
+      if (t.hidden) continue;
+      const c = cats[t.cat] || {};
+      a(t.name, `Tweak · ${c.name || "Windows"}`, c.icon || "sliders", `${t.name} ${t.what} ${t.group || ""} tweak windows`, () => { S.cache.twQ = t.name; go("tweaks", t.cat); });
+    }
+  } else if (!actions.loading) {
+    actions.loading = true;
+    invoke("tweaks_state").then((x) => { if (!S.cache.tw) S.cache.tw = x; }).catch(() => {}).finally(() => { actions.loading = false; });
+  }
   a("Task Manager", "Windows", "activity", "task manager taskmgr", () => invoke("open_system", { what: "taskmgr" }));
   a("Sound control panel", "Windows", "volume", "sound control panel playback recording", () => invoke("open_system", { what: "sound" }));
   a("Network connections", "Windows", "wifi", "network adapters ncpa", () => invoke("open_system", { what: "network" }));

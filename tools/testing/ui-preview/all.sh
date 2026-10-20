@@ -39,6 +39,12 @@ system startup
 files space
 files cleanup
 tools -
+tweaks overview
+tweaks privacy
+tweaks gaming
+tweaks apps
+tweaks store
+tweaks changed
 transfer -
 claudesync -
 phone -

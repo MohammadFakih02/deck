@@ -25,6 +25,13 @@ const PHONE_HTML: &str = include_str!("../phone/index.html");
 /// The phone page's H.264 decoder (a Web Worker with tinyh264); the name changes with its content,
 /// so phones may keep it a long time.
 const H264_DEC: &str = include_str!("../phone/h264dec.js");
+/// The phone mic's AudioWorklet: the microphone's samples, handed to the page in pieces (a worklet
+/// must be a script file; the name changes with its content, so phones may keep it a long time).
+const MIC_WORKLET: &str = "class DeckMic extends AudioWorkletProcessor {
+  process(inputs) { const c = inputs[0] && inputs[0][0]; if (c) this.port.postMessage(c.slice(0)); return true; }
+}
+registerProcessor('deck-mic', DeckMic);
+";
 const ICON_192: &[u8] = include_bytes!("../icons/phone-192.png");
 const ICON_512: &[u8] = include_bytes!("../icons/phone-512.png");
 const ICON_MASKABLE: &[u8] = include_bytes!("../icons/phone-maskable.png");
@@ -101,6 +108,7 @@ pub fn info(app: &App, remote: &Remote) -> Value {
         "local": phones.0,
         "online": phones.1,
         "screen_viewers": app.screen_viewers.load(Ordering::Relaxed),
+        "mics": PHONE_MICS.load(Ordering::Relaxed),
         "shared": *app.shared.lock(),
     })
 }
@@ -176,6 +184,8 @@ pub fn start(app: Arc<App>, remote: Arc<Remote>) {
             .route("/ws", get(ws))
             .route("/screen", get(screen_ws))
             .route("/audio", get(audio_ws))
+            .route("/mic", get(mic_ws))
+            .route("/mic-worklet-1.js", get(|| async { ([(header::CONTENT_TYPE, "text/javascript"), (header::CACHE_CONTROL, "max-age=31536000, immutable")], MIC_WORKLET) }))
             .route("/session", post(session))
             .route("/check", get(check))
             .route("/upload", post(upload).get(upload_have))
@@ -190,12 +200,11 @@ pub fn start(app: Arc<App>, remote: Arc<Remote>) {
             .route("/manifest.webmanifest", get(manifest))
             .layer(axum::middleware::from_fn(guard))
             .with_state(app.clone());
-        // no Nagle: the Screen view's pictures and the phone's answers go out at once (the last
-        // part of each picture otherwise waits for the phone's delayed acknowledgement)
+        // HTTP and HTTPS on the one port (the phone's mic needs a secure page, see `phonetls`);
+        // Nagle is off there: the Screen view's pictures and the phone's answers go out at once
+        // (the last part of each picture otherwise waits for the phone's delayed acknowledgement)
         use axum::serve::ListenerExt;
-        let listener = listener.tap_io(|tcp| {
-            let _ = tcp.set_nodelay(true);
-        });
+        let listener = crate::phonetls::Mixed::new(listener).tap_io(|_| {});
         // the phone's address: home or online, and one count per phone
         if let Err(e) = axum::serve(listener, router.into_make_service_with_connect_info::<SocketAddr>()).await {
             *r2.error.lock() = Some(format!("Phone remote stopped: {e}"));
@@ -831,6 +840,11 @@ fn phone_state(app: &App) -> Value {
         "boost": app.boost.brief(),
         "profiles": profiles,
         "screen": app.settings.lock().remote_screen.clone(),
+        // the phone as the PC's speaker and mic (Deck → Phone), and whether VB-CABLE is there for the mic
+        "speaker": app.settings.lock().remote_speaker,
+        "mic": app.settings.lock().remote_mic,
+        "mic_default": app.settings.lock().remote_mic_default,
+        "cable": crate::phonemic::cable_ready(),
         // the PC on the home network: a phone that opened the Tailscale address uses it when it can
         "lan": crate::net::lan_ip(),
     })
@@ -843,34 +857,57 @@ struct AudioQuery {
     m: Option<String>,
     /// best, good or low (see `screencast::start_sound`)
     q: Option<String>,
+    /// "1": the phone is the PC's speaker (Deck → Phone → Speaker and mic), not the Screen view's sound
+    spk: Option<String>,
+}
+
+/// Whether the PC's sound may go to a phone: the Screen view's own, or the phone as speaker.
+fn sound_allowed(app: &App, speaker: bool) -> bool {
+    let s = app.settings.lock();
+    if speaker {
+        s.remote_speaker
+    } else {
+        s.remote_screen != "off"
+    }
 }
 
 async fn audio_ws(State(app): State<St>, ConnectInfo(addr): ConnectInfo<SocketAddr>, Query(q): Query<AudioQuery>, up: WebSocketUpgrade) -> Response {
     if !authorized(&app, &q.s, &q.c, &q.m, "/audio", false) {
         return (StatusCode::UNAUTHORIZED, "bad key").into_response();
     }
-    if app.settings.lock().remote_screen == "off" {
-        return (StatusCode::FORBIDDEN, "Screen view is off on the PC").into_response();
+    let speaker = q.spk.as_deref() == Some("1");
+    if !sound_allowed(&app, speaker) {
+        return (StatusCode::FORBIDDEN, if speaker { "The phone speaker is off on the PC" } else { "Screen view is off on the PC" }).into_response();
     }
     let reg = match admit(&app, addr.ip()) {
         Ok(r) => r,
         Err(why) => return (StatusCode::FORBIDDEN, why).into_response(),
     };
     let quality = q.q.unwrap_or_default();
-    up.on_upgrade(move |socket| audio_client(socket, app, quality, reg))
+    up.on_upgrade(move |socket| audio_client(socket, app, quality, speaker, reg))
 }
 
-/// The PC's sound for a phone with the Screen view open and its sound on. Ends when the phone
-/// turns it off or leaves, or the PC turns the Screen view off.
-async fn audio_client(mut socket: WebSocket, app: Arc<App>, quality: String, _reg: Registered) {
+/// The PC's sound for a phone with the Screen view open and its sound on, or for a phone that is
+/// the PC's speaker (which may ask for the PC to be quiet meanwhile: {"t":"quiet","on":true}).
+/// Ends when the phone turns it off or leaves, or the PC turns the Screen view or speaker off.
+async fn audio_client(mut socket: WebSocket, app: Arc<App>, quality: String, speaker: bool, _reg: Registered) {
     let (tx, mut rx) = tokio::sync::mpsc::channel::<crate::screencast::Out>(64);
     let stop = crate::screencast::start_sound(&quality, tx);
     let mut check = tokio::time::interval(Duration::from_millis(1000));
+    // the PC's speakers muted for this phone, given back when it leaves (COM calls: a blocking thread)
+    let quiet = Arc::new(Mutex::new(crate::phonemic::Speaker::new()));
     loop {
         tokio::select! {
             msg = socket.recv() => {
                 match msg {
                     Some(Ok(Message::Close(_))) | None | Some(Err(_)) => break,
+                    Some(Ok(Message::Text(t))) if speaker => {
+                        let v: Value = serde_json::from_str(t.as_str()).unwrap_or_default();
+                        if v["t"] == "quiet" {
+                            let (q, on) = (quiet.clone(), v["on"] == true);
+                            let _ = tokio::task::spawn_blocking(move || q.lock().quiet(on)).await;
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -883,12 +920,79 @@ async fn audio_client(mut socket: WebSocket, app: Arc<App>, quality: String, _re
                 if sent.is_err() { break; }
             }
             _ = check.tick() => {
-                if app.settings.lock().remote_screen == "off" { break; }
+                if !sound_allowed(&app, speaker) { break; }
+                let q = quiet.clone();
+                let _ = tokio::task::spawn_blocking(move || q.lock().follow()).await;
             }
         }
     }
     stop.store(true, Ordering::SeqCst);
+    let _ = tokio::task::spawn_blocking(move || drop(quiet)).await;
 }
+
+#[derive(Deserialize)]
+struct MicQuery {
+    s: Option<String>,
+    c: Option<String>,
+    m: Option<String>,
+    /// the phone's sample rate (its microphone's, usually 48000)
+    rate: Option<u32>,
+}
+
+async fn mic_ws(State(app): State<St>, ConnectInfo(addr): ConnectInfo<SocketAddr>, Query(q): Query<MicQuery>, up: WebSocketUpgrade) -> Response {
+    if !authorized(&app, &q.s, &q.c, &q.m, "/mic", false) {
+        return (StatusCode::UNAUTHORIZED, "bad key").into_response();
+    }
+    if !app.settings.lock().remote_mic {
+        return refuse(up, "The phone mic is off on the PC (Deck → Phone → Speaker and mic).".into());
+    }
+    let reg = match admit(&app, addr.ip()) {
+        Ok(r) => r,
+        Err(why) => return refuse(up, why),
+    };
+    let rate = q.rate.unwrap_or(48_000);
+    up.on_upgrade(move |socket| mic_client(socket, app, rate, reg))
+}
+
+/// A phone talking into the PC: its mic's samples (16-bit mono, binary messages) are played into
+/// VB-CABLE, which apps hear as a microphone. Ends when the phone stops or leaves, or the PC turns
+/// the phone mic off.
+async fn mic_client(mut socket: WebSocket, app: Arc<App>, rate: u32, _reg: Registered) {
+    let def = app.settings.lock().remote_mic_default;
+    let started = tokio::task::spawn_blocking(move || crate::phonemic::Mic::start(rate, def)).await.unwrap_or_else(|_| Err("The phone mic couldn't start".into()));
+    let mic = match started {
+        Ok(m) => m,
+        Err(why) => {
+            let _ = socket.send(Message::Text(json!({ "t": "refused", "text": why }).to_string().into())).await;
+            let _ = socket.send(Message::Close(None)).await;
+            return;
+        }
+    };
+    PHONE_MICS.fetch_add(1, Ordering::Relaxed);
+    app.changed("remote");
+    let mut check = tokio::time::interval(Duration::from_millis(1000));
+    loop {
+        tokio::select! {
+            msg = socket.recv() => {
+                match msg {
+                    Some(Ok(Message::Binary(b))) => mic.push(crate::phonemic::samples(&b)),
+                    Some(Ok(Message::Close(_))) | None | Some(Err(_)) => break,
+                    _ => {}
+                }
+            }
+            _ = check.tick() => {
+                // the PC turned the mic off, or the player stopped (the phone then reconnects)
+                if !app.settings.lock().remote_mic || !mic.alive() { break; }
+            }
+        }
+    }
+    let _ = tokio::task::spawn_blocking(move || drop(mic)).await;
+    PHONE_MICS.fetch_sub(1, Ordering::Relaxed);
+    app.changed("remote");
+}
+
+/// Phones talking into the PC right now (Deck's Phone page shows it).
+static PHONE_MICS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 #[derive(serde::Deserialize)]
 struct ScreenQuery {
@@ -1088,6 +1192,12 @@ fn handle(app: &Arc<App>, v: &Value) -> Option<Value> {
         "master" => crate::audio::set_master(f("vol").map(|x| x as f32), v.get("muted").and_then(Value::as_bool)),
         "appvol" => crate::audio::set_app(&s("key"), f("vol").map(|x| x as f32), v.get("muted").and_then(Value::as_bool)),
         "output" => crate::audio::set_default_output(&s("id")),
+        // the phone mic's own switch: its mic is the PC's default while it talks (restored after)
+        "mic_default" => {
+            app.settings.lock().remote_mic_default = v.get("on").and_then(Value::as_bool).unwrap_or(false);
+            app.save_settings();
+            Ok(())
+        }
         "profile" => {
             let (kind, id, a2) = (s("kind"), s("id"), app.clone());
             if kind == "cpu" || kind == "gpu" {

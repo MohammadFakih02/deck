@@ -24,7 +24,7 @@ await send("Emulation.setDeviceMetricsOverride", { width: +w, height: +hgt, devi
 const fs = await import("node:fs"), path = await import("node:path"), { pathToFileURL, fileURLToPath } = await import("node:url");
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ui = pathToFileURL(path.resolve(here, "../../../ui")).href + "/";
-const html = fs.readFileSync(path.resolve(here, "../../../ui/index.html"), "utf8").replace("<head>", `<head><base href="${ui}"><script src="${pathToFileURL(path.join(here, "mock.js")).href}"></script><script src="${pathToFileURL(path.join(here, "mock-data.js")).href}"></script>`);
+const html = fs.readFileSync(path.resolve(here, "../../../ui/index.html"), "utf8").replace("<head>", `<head><base href="${ui}"><script src="${pathToFileURL(path.join(here, "mock.js")).href}"></script><script src="${pathToFileURL(path.join(here, "mock-tweaks.js")).href}"></script><script src="${pathToFileURL(path.join(here, "mock-data.js")).href}"></script>`);
 const harness = path.join(here, `harness-${port}.html`); fs.writeFileSync(harness, html);
 const url = pathToFileURL(harness).href;
 await send("Page.navigate", { url });

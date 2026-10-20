@@ -65,6 +65,7 @@
     osd_on: true, osd_items: ["gpu_temp", "gpu_usage", "gpu_mem", "gpu_clock", "gpu_power", "cpu_temp", "cpu_usage", "cpu_clock", "ram", "fps", "frametime", "fps_1low"], osd_hotkey: "Ctrl+Alt+O", osd_reset_hotkey: "", osd_ms: 500, rtss_autostart: true, mahm_on: false,
     breaks_on: false, theme_auto: false, theme_mode: "times", light_at: "07:00", dark_at: "19:00",
     remote_on: true, // remote_info says the phone server is running
+    remote_speaker: true, remote_mic: true, remote_mic_default: false,
   };
   const speed = { phase: "done", down_mbps: 487.3, up_mbps: 42.8, ping_ms: 11.2, jitter_ms: 1.4, progress: 1, error: null, at: Date.now() - 3600 * 5 * 1000 };
   const valve = [["Frankfurt", "Germany", 18, 0], ["Amsterdam", "Netherlands", 24, 0], ["Vienna", "Austria", 27, 0], ["Stockholm", "Sweden", 39, 0], ["Warsaw", "Poland", 41, 0], ["Madrid", "Spain", 46, 0.02], ["London", "United Kingdom", 52, 0], ["Helsinki", "Finland", 58, 0], ["Istanbul", "Turkey", 71, 0], ["Dubai", "UAE", 112, 0], ["Virginia", "United States", 128, 0], ["Singapore", "Singapore", 184, 0.05], ["Tokyo", "Japan", 241, 0], ["Sydney", "Australia", null, 1]];

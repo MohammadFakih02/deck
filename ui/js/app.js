@@ -14,7 +14,7 @@ export const NAV = [
   ["Hardware", [["cpu", null, "CPU", "chip"], ["gpu", null, "GPU", "gpu"], ["fans", null, "Fans", "fan"], ["lighting", null, "Lighting", "bulb"], ["lcd", null, "Cooler display", "monitor"], ["thispc", null, "This PC", "info"]]],
   ["Monitor", [["sensors", null, "Sensors", "gauge"], ["overlay", null, "Overlay", "gamepad"], ["controller", null, "Controller", "joystick"], ["deaths", null, "Deaths", "skull"], ["drives", null, "Drives", "disk"], ["system", "processes", "Processes", "cpu"], ["system", "network", "Network", "wifi"]]],
   ["Desktop", [["windows", null, "Windows", "windows"], ["system", "display", "Display", "monitor"], ["clipboard", null, "Clipboard", "clipboard"], ["audio", null, "Sound", "volume"], ["claudesync", null, "Claude Code sync", "terminal"]]],
-  ["Maintenance", [["files", "space", "Disk space", "disk"], ["files", "cleanup", "Clean up", "broom"], ["system", "startup", "Startup apps", "rocket"], ["tools", null, "Tools", "tools"]]],
+  ["Maintenance", [["files", "space", "Disk space", "disk"], ["files", "cleanup", "Clean up", "broom"], ["system", "startup", "Startup apps", "rocket"], ["tweaks", null, "Tweaks", "sliders"], ["tools", null, "Tools", "tools"]]],
   ["Power & time", [["power", "awake", "Keep awake", "coffee"], ["power", "timers", "Timers & breaks", "timer"], ["power", "plan", "Shut down when…", "power"]]],
 ];
 /** Hardware pages only show when this PC has something for them (the backend says which). */
@@ -25,7 +25,7 @@ export const navShown = (page) => page === "claudesync" ? !!(S.state?.settings?.
 export const NAV_GROUP_ICON = { Hardware: "sliders", Monitor: "activity", Desktop: "layout", Maintenance: "shield", "Power & time": "clock" };
 export const NAV_END = [["transfer", null, "PC to PC", "swap"], ["phone", null, "Phone", "smartphone"], ["settings", null, "Settings", "gear"]];
 /** Which part of a page opens when only the page is given. */
-export const DEFAULT_SUB = { transfer: "send", claudesync: "status", windows: "open", files: "space", system: "processes", power: "awake", tools: "screen" };
+export const DEFAULT_SUB = { transfer: "send", claudesync: "status", windows: "open", files: "space", system: "processes", power: "awake", tools: "screen", tweaks: "overview" };
 export const curSub = () => S.sub || DEFAULT_SUB[S.page] || null;
 
 /** A small bubble on the page's icon: a count, or a dot for a state (its word is the tooltip and what a

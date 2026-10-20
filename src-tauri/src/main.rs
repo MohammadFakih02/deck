@@ -42,6 +42,10 @@ mod media;
 mod net;
 mod netcmd;
 mod phoneauth;
+mod phonemic;
+mod phonetls;
+mod tweaks;
+mod tweakscmd;
 mod phonecmd;
 mod picker;
 mod power;
@@ -1385,9 +1389,19 @@ fn selftest_remote() {
     std::env::set_var("DECK_PROFILE", "test");
     let app = App::new();
     app.settings.lock().remote_port = 47839;
+    // a test profile whose key can't be unsealed here (made by another account) reads as empty
+    if app.settings.lock().remote_token.len() < 16 {
+        app.settings.lock().remote_token = util::random_token(22);
+    }
     // DECK_SELFTEST_SCREEN: the Screen view on (it's off in a new profile), for stream tests
     if std::env::var("DECK_SELFTEST_SCREEN").is_ok() {
         app.settings.lock().remote_screen = "view".into();
+    }
+    // DECK_SELFTEST_AUDIO: the phone as speaker and mic on (both off in a new profile)
+    if std::env::var("DECK_SELFTEST_AUDIO").is_ok() {
+        let mut s = app.settings.lock();
+        s.remote_speaker = true;
+        s.remote_mic = true;
     }
     let tmp = std::env::temp_dir().join("deck-share-test.txt");
     let _ = std::fs::write(&tmp, "hello from the PC");
@@ -1929,6 +1943,10 @@ fn main() {
                 });
             }
             handle_args(&handle, &std::env::args().collect::<Vec<_>>());
+            // a Deck that ended while a phone played or talked: the PC's sound and mic as they were
+            std::thread::spawn(phonemic::restore_after_crash);
+            // Tweaks Windows changed back (feature updates): told once
+            tweaks::start_watch(app.clone());
             if app.settings.lock().remote_on {
                 remote::start(app.clone(), remote_state.clone());
             }
@@ -2005,7 +2023,7 @@ fn main() {
             displaycmd::display_state, displaycmd::set_refresh, displaycmd::set_brightness, displaycmd::set_hdr, displaycmd::set_dark, displaycmd::locate,
             netcmd::net_info, netcmd::net_public_ip, netcmd::net_ping, netcmd::net_speed, netcmd::net_speed_cancel, netcmd::game_ping_games, netcmd::game_ping, index_rebuild, index_info,
             boostcmd::boost_state, boostcmd::boost_apps, boostcmd::boost_run, boostcmd::boost_pick,
-            screen_tool, phonecmd::remote_info, phonecmd::remote_reset_token, phonecmd::rdesk_status, phonecmd::rdesk_do, phonecmd::transfer_state, phonecmd::transfer_do, pick_many, phonecmd::share_state, phonecmd::share_create, phonecmd::share_stop, phonecmd::transfer_apps, phonecmd::transfer_setup_preview, phonecmd::claude_sync_state, phonecmd::claude_sync_do, share_to_phone, phonecmd::shared_remove,
+            screen_tool, phonecmd::remote_info, phonecmd::remote_reset_token, phonecmd::rdesk_status, phonecmd::phone_mic_state, phonecmd::phone_mic_do, tweakscmd::tweaks_state, tweakscmd::tweaks_set, tweakscmd::tweaks_do, tweakscmd::tweaks_apps, tweakscmd::tweaks_app, tweakscmd::tweaks_store, phonecmd::rdesk_do, phonecmd::transfer_state, phonecmd::transfer_do, pick_many, phonecmd::share_state, phonecmd::share_create, phonecmd::share_stop, phonecmd::transfer_apps, phonecmd::transfer_setup_preview, phonecmd::claude_sync_state, phonecmd::claude_sync_do, share_to_phone, phonecmd::shared_remove,
             elevate_setup,
             hwcmd::hw_state, hwcmd::drive_health, hwcmd::hw_live, hwcmd::hw_hist, hwcmd::hw_table, hwcmd::hw_table_reset, hwcmd::hw_apply, hwcmd::hw_lights_off,
             hwcmd::hw_display_off, hwcmd::hw_report, hwcmd::hw_test_lights, hwcmd::hw_clear_ram, hwcmd::hw_mem, hwcmd::hw_import_moboctl, hwcmd::hw_open_folder,

@@ -61,6 +61,7 @@
   .qa:active { transform: scale(.97); }
   .qa.on { background: color-mix(in srgb, var(--acc) 22%, transparent); border-color: color-mix(in srgb, var(--acc) 55%, transparent); }
   .qa.on svg { color: var(--acc); }
+  .qa:disabled { opacity: .45; cursor: default; }
   .qa.danger svg { color: var(--bad); }
   .stat { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
   .stat div { background: var(--tile2); border-radius: 12px; padding: 8px 10px; }
@@ -194,6 +195,7 @@ const P = {
   dl: '<path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/>', ext: '<path d="M14 3h7v7"/><path d="M10 14L21 3"/><path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"/>',
   up: '<path d="M12 21V9"/><path d="M7 14l5-5 5 5"/><path d="M5 3h14"/>', clip: '<rect x="6" y="4" width="12" height="17" rx="2"/><path d="M9 4V3h6v1"/>',
 };
+P.mic = '<rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v4"/>';
 P.tune = '<path d="M4 7h9"/><path d="M17 7h3"/><circle cx="15" cy="7" r="2"/><path d="M4 17h3"/><path d="M11 17h9"/><circle cx="9" cy="17" r="2"/>';
 const ic = (n) => `<svg viewBox="0 0 24 24">${P[n] || ""}</svg>`;
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -382,6 +384,7 @@ function render() {
   if (st.master) h += volRow("Everything", st.master.vol, st.master.muted, "__master");
   for (const a of apps.slice(0, showAllVol ? 30 : 2)) h += volRow(a.name, a.vol, a.muted, a.key);
   h += `</div>`;
+  h += spkMicCard();
   const aw = pw.awake_active;
   const bo = st.boost || {};
   h += `<div class="card"><div class="h">${ic("power")}PC</div>
@@ -483,6 +486,11 @@ document.addEventListener("click", (e) => {
     msg("Set. The PC warns you first.");
   }
   else if (d.a === "plan_cancel") send({ a: "plan_cancel" });
+  else if (d.a === "spk") { if (SA.spk && SA.ws) speakerStop(); else speakerStart(); render(); }
+  else if (d.a === "spkquiet") { spkQuietSet(!spkQuiet()); render(); }
+  else if (d.a === "mic") { if (MIC.ws) micStop(); else micStart(); render(); }
+  else if (d.a === "micdef") send({ a: "mic_default", on: !st.mic_default });
+  else if (d.a === "micsecure") location.href = `https://${location.host}/#k=${encodeURIComponent(key || "")}`;
   else if (d.a === "awake") send({ a: "awake", mode: st.power.awake_active ? "off" : "on" });
   else if (d.prof) { const [kind, id] = d.prof.split(":"); send({ a: "profile", kind, id }); msg("Switching…"); }
   else if (d.a === "boost") { send({ a: "boost" }); msg(st.boost?.on ? "Putting everything back…" : "Turning on Full power…"); }
@@ -650,7 +658,7 @@ function screenClose(fromBack) {
   $("skeys").classList.remove("on"); $("sKeys").classList.remove("on");
   if (SC.ws) { SC.ws.onclose = null; SC.ws.close(); SC.ws = null; }
   videoStop();
-  soundStop();
+  if (!SA.spk) soundStop();
   try { if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock(); } catch (e) {}
   if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
 }
@@ -685,7 +693,7 @@ function screenConnect(hosts) {
       if (SC.vmode !== "jpeg") videoFrame(buf, ts);
       else createImageBitmap(new Blob([new Uint8Array(buf, 8)], { type: "image/jpeg" })).then((bmp) => { ssend({ t: "ack" }); present(bmp, ts); }, () => ssend({ t: "ack" }));
       if ($("smsg").textContent.startsWith("Connecting")) smsg("");
-      if (!SC.host) { SC.host = host; if (soundWanted()) soundStart(); }
+      if (!SC.host) { SC.host = host; if (soundWanted() && !SA.spk) soundStart(false); }
       return;
     }
     const v = JSON.parse(e.data);
@@ -1184,7 +1192,7 @@ function soundChoice() { try { return localStorage.getItem("deck_sound_q") || "a
 function soundAuto() {
   const k = SC.rate && SC.rate.kbps;
   // away, the PC's upload carries it (often 1 Mb/s): the smallest
-  if (!k) return SC.via === "Tailscale" ? "medium" : "best";
+  if (!k) return SC.via === "Tailscale" || (SA.spk && /^100\./.test(location.hostname)) ? "medium" : "best";
   return k >= 8000 ? "best" : k >= 2000 ? "good" : k >= 600 ? "medium" : "low";
 }
 const ASTEPS = [7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 19, 21, 23, 25, 28, 31, 34, 37, 41, 45, 50, 55, 60, 66, 73, 80, 88, 97, 107, 118, 130, 143, 157, 173, 190, 209, 230, 253, 279, 307, 337, 371, 408, 449, 494, 544, 598, 658, 724, 796, 876, 963, 1060, 1166, 1282, 1411, 1552, 1707, 1878, 2066, 2272, 2499, 2749, 3024, 3327, 3660, 4026, 4428, 4871, 5358, 5894, 6484, 7132, 7845, 8630, 9493, 10442, 11487, 12635, 13899, 15289, 16818, 18500, 20350, 22385, 24623, 27086, 29794, 32767];
@@ -1238,9 +1246,14 @@ function resample(L, R, step) {
   SA.tail = [L[n - 1], R[n - 1]];
   return [oL.subarray(0, k), oR.subarray(0, k)];
 }
-function soundStart() {
-  soundStop();
-  try { SA.ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: "interactive" }); } catch (e) { msg("This browser can't play sound here"); return; }
+function soundStart(spk = SA.spk) {
+  // the sound player is kept across reconnects and quality changes: Android lets a page start
+  // sound only from a tap, so a new one made by a reconnect after a Wi-Fi blip would stay silent
+  const keep = SA.ctx && SA.ctx.state !== "closed" ? SA.ctx : null;
+  soundStop(!!keep);
+  SA.spk = !!spk;
+  try { SA.ctx = keep || new (window.AudioContext || window.webkitAudioContext)({ latencyHint: "interactive" }); } catch (e) { msg("This browser can't play sound here"); return; }
+  if (SA.ctx.state === "suspended") SA.ctx.resume().catch(() => {});
   // Android plays sound in chunks (often 20-40 ms, Chrome's baseLatency): the cushion has to
   // cover a couple of those as well as Wi-Fi's hiccups, or it runs dry right at a chunk boundary
   SA.min = Math.max(0.06, 2 * (SA.ctx.baseLatency || 0.01) + 0.03);
@@ -1249,9 +1262,10 @@ function soundStart() {
   SA.frame = 0; SA.buf = SA.floor; SA.lastArr = 0; SA.srcs = []; SA.lastCt = null; SA.lastWall = 0; SA.played = false; SA.calm = SA.ctx.currentTime; SA.off = null; SA.pos = 0; SA.tail = [0, 0]; SA.speed = 1; SA.drops = 0;
   SA.q = soundChoice() === "auto" ? soundAuto() : soundChoice();
   const proto = location.protocol === "https:" ? "wss" : "ws";
-  const w = new WebSocket(`${proto}://${SC.host || location.host}/audio?${signed("/audio")}&q=${SA.q}`);
+  const w = new WebSocket(`${proto}://${SA.spk ? location.host : SC.host || location.host}/audio?${signed("/audio")}&q=${SA.q}${SA.spk ? "&spk=1" : ""}`);
   w.binaryType = "arraybuffer";
   SA.ws = w;
+  if (SA.spk) w.onopen = () => w.send(JSON.stringify({ t: "quiet", on: spkQuiet() }));
   // how long this page stalls (sound pieces are handled here, between the pictures)
   clearInterval(SA.stallT); SA.tick = 0; SA.stallMax = 0;
   SA.stallT = setInterval(() => {
@@ -1310,15 +1324,22 @@ function soundStart() {
     SA.off = SA.off == null ? heard - pk.ts : SA.off * 0.95 + (heard - pk.ts) * 0.05;
     SA.frame += oL.length; SA.played = true; SA.lastArr = arrived;
   };
-  w.onclose = () => { if (SA.ws === w && SC.open) setTimeout(() => { if (SA.ws === w && SC.open) soundStart(); }, 2000); };
+  w.onclose = () => { if (SA.ws === w && (SC.open || SA.spk)) setTimeout(() => { if (SA.ws === w && (SC.open || SA.spk)) soundStart(); }, 2000); };
   soundUi(true);
 }
-function soundStop() {
+function soundStop(keepCtx) {
   clearInterval(SA.stallT);
   if (SA.ws) { const w = SA.ws; SA.ws = null; w.onclose = null; w.close(); }
-  if (SA.ctx) { SA.ctx.close().catch(() => {}); SA.ctx = null; }
+  for (const [src] of SA.srcs || []) { try { src.stop(); } catch (e) {} }
+  SA.srcs = [];
+  if (SA.ctx && !keepCtx) { SA.ctx.close().catch(() => {}); SA.ctx = null; }
   soundUi(false);
 }
+// a phone that held the sound (the page was in the background, a call came in): the next tap resumes it
+document.addEventListener("pointerdown", () => {
+  if (SA.ctx && SA.ctx.state === "suspended") SA.ctx.resume().catch(() => {});
+  if (MIC.ctx && MIC.ctx.state === "suspended") MIC.ctx.resume().catch(() => {});
+}, true);
 function soundUi(on) {
   $("sSQ").closest(".srow").style.display = on ? "" : "none";
   $("sSnd").innerHTML = ic(on ? "snd" : "sndoff") + (on ? "Sound on" : "Sound off");
@@ -1327,6 +1348,138 @@ function soundUi(on) {
 // the most the cushion may grow to: watching, 1 s; controlling the PC, 0.3 s
 function soundCap() { return ctl() ? 0.3 : 1; }
 function soundDelay() { const c = SA.ctx; return c ? Math.round((SA.buf + (c.baseLatency || 0) + (c.outputLatency || 0)) * 1000) : 0; }
+
+// ---- the phone as the PC's speaker and mic (Deck → Phone → Speaker and mic turns each on)
+// Speaker: the same sound stream as the Screen view, on its own. "PC speakers off" mutes the PC
+// while this phone plays (the PC puts its sound back when the phone stops or leaves).
+// Mic: this phone's mic, 16-bit mono in 10 ms pieces, into VB-CABLE on the PC ("CABLE Output" is
+// the mic apps pick, or the default while talking with that switch on). Phones only allow the mic
+// on a secure page, so a plain-http page offers to open the same page over https.
+function spkQuiet() { try { return localStorage.getItem("deck_spk_quiet") !== "0"; } catch (e) { return true; } }
+function spkQuietSet(on) {
+  try { localStorage.setItem("deck_spk_quiet", on ? "1" : "0"); } catch (e) {}
+  if (SA.spk && SA.ws && SA.ws.readyState === 1) SA.ws.send(JSON.stringify({ t: "quiet", on }));
+}
+function speakerStart() { soundStart(true); keepAwake(); }
+function speakerStop() { SA.spk = false; soundStop(); keepAwake(); }
+let MIC = { ws: null };
+async function micStart() {
+  micStop();
+  const me = MIC = { ws: null, starting: true };
+  let stream, ctx;
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.AudioWorkletNode) {
+    MIC = { ws: null }; render();
+    return msg("This browser can't send its mic from here: use Chrome");
+  }
+  // made in the tap itself: Android lets a page start sound only from one
+  try { ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: "interactive" }); } catch (e) {}
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } });
+  } catch (e) {
+    if (ctx) ctx.close().catch(() => {});
+    if (MIC === me) { MIC = { ws: null }; render(); }
+    return msg(e && e.name === "NotAllowedError" ? "The mic wasn't allowed: allow it for this page in the browser's site settings" : "This phone's mic couldn't start");
+  }
+  try {
+    if (!ctx) throw new Error("no audio");
+    await ctx.audioWorklet.addModule("/mic-worklet-1.js");
+    if (ctx.state === "suspended") await ctx.resume();
+  } catch (e) {
+    stream.getTracks().forEach((t) => t.stop());
+    if (ctx) ctx.close().catch(() => {});
+    if (MIC === me) { MIC = { ws: null }; render(); }
+    return msg("This browser can't send the mic from here");
+  }
+  // turned off (or on again) while the phone asked for the mic
+  if (MIC !== me) { stream.getTracks().forEach((t) => t.stop()); ctx.close().catch(() => {}); return; }
+  const src = ctx.createMediaStreamSource(stream), node = new AudioWorkletNode(ctx, "deck-mic"), mute = ctx.createGain();
+  // the worklet runs only while it leads somewhere: into a silent gain, so nothing is heard here
+  mute.gain.value = 0; src.connect(node); node.connect(mute); mute.connect(ctx.destination);
+  const per = Math.round(ctx.sampleRate / 100);
+  let acc = new Int16Array(per), k = 0, peak = 0, shown = 0;
+  MIC = { ws: null, stream, ctx, node, wanted: true };
+  const track = stream.getAudioTracks()[0];
+  if (track) {
+    track.onmute = () => msg("The phone paused its mic (a call, or another app is using it)");
+    track.onended = () => { if (MIC.stream === stream) { micStop(); render(); msg("The phone's mic stopped"); } };
+  }
+  const open = () => {
+    if (!MIC.wanted) return;
+    const proto = location.protocol === "https:" ? "wss" : "ws";
+    const w = new WebSocket(`${proto}://${location.host}/mic?${signed("/mic")}&rate=${ctx.sampleRate}`);
+    w.binaryType = "arraybuffer";
+    MIC.ws = w;
+    w.onmessage = (e) => { if (typeof e.data === "string") { const v = JSON.parse(e.data); if (v.t === "refused") { MIC.refused = true; msg(v.text); } } };
+    w.onclose = () => {
+      if (MIC.ws !== w) return;
+      if (MIC.refused) { micStop(); render(); return; }
+      setTimeout(() => { if (MIC.ws === w && MIC.wanted) open(); }, 2000);
+    };
+  };
+  node.port.onmessage = (e) => {
+    const f = e.data, w = MIC.ws;
+    for (let i = 0; i < f.length; i++) {
+      const v = Math.max(-1, Math.min(1, f[i]));
+      if (Math.abs(v) > peak) peak = Math.abs(v);
+      acc[k++] = v * 32767;
+      if (k === per) {
+        // a backed-up connection drops pieces rather than letting the delay grow
+        if (w && w.readyState === 1 && w.bufferedAmount < 16000) w.send(acc.buffer.slice(0));
+        k = 0;
+      }
+    }
+    const t = performance.now();
+    if (t - shown > 80) { shown = t; const el = $("micLvl"); if (el) el.style.width = Math.min(100, Math.round(Math.sqrt(peak) * 100)) + "%"; peak = 0; }
+  };
+  open();
+  keepAwake();
+  render();
+}
+function micStop() {
+  const m = MIC;
+  MIC = { ws: null };
+  m.wanted = false;
+  if (m.ws) { m.ws.onclose = null; m.ws.close(); }
+  if (m.stream) m.stream.getTracks().forEach((t) => t.stop());
+  if (m.ctx) m.ctx.close().catch(() => {});
+  keepAwake();
+}
+// the screen stays on while the phone plays or talks (a sleeping phone stops both); secure pages only
+let wake = null;
+async function keepAwake() {
+  const want = !!(MIC.ws || MIC.starting || (SA.spk && SA.ws));
+  try {
+    if (want && !wake && navigator.wakeLock) { wake = await navigator.wakeLock.request("screen"); wake.addEventListener("release", () => { wake = null; }); }
+    else if (!want && wake) { const w = wake; wake = null; w.release(); }
+  } catch (e) {}
+}
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") keepAwake(); });
+function spkMicCard() {
+  // the PC turned one off: stop it here too
+  if (!st.speaker && SA.spk) speakerStop();
+  if (!st.mic && (MIC.ws || MIC.stream)) micStop();
+  // off on the PC (both start off): the card still shows, so the phone says where to turn them on
+  if (!st.speaker && !st.mic) return `<div class="card"><div class="h">${ic("spk")}Speaker and mic</div><div class="grid" style="grid-template-columns:1fr 1fr">
+    <button class="qa" disabled>${ic("sndoff")}Phone as speaker</button><button class="qa" disabled>${ic("mic")}Phone as mic</button></div>
+    <div class="muted" style="margin-top:8px">Turn these on at the PC: Deck → Phone → Speaker and mic on your phone.</div></div>`;
+  const spkOn = !!(SA.spk && SA.ws), micOn = !!(MIC.ws || MIC.stream);
+  let c = `<div class="card"><div class="h">${ic("spk")}Speaker and mic</div><div class="grid" style="grid-template-columns:1fr 1fr">`;
+  c += st.speaker ? `<button class="qa ${spkOn ? "on" : ""}" data-a="spk" aria-pressed="${spkOn}">${ic(spkOn ? "snd" : "sndoff")}${spkOn ? "Playing the PC's sound" : "Phone as speaker"}</button>` : "";
+  if (st.mic) {
+    if (!window.isSecureContext) c += `<button class="qa" data-a="micsecure">${ic("lock")}Mic: open the secure page</button>`;
+    else c += `<button class="qa ${micOn ? "on" : ""}" data-a="mic" aria-pressed="${micOn}" ${st.cable ? "" : "disabled"}>${ic("mic")}${micOn ? "Talking into the PC" : "Phone as mic"}</button>`;
+  }
+  c += `</div>`;
+  if (st.speaker) c += `<div class="chips" style="margin-top:10px"><button class="chip ${spkQuiet() ? "on" : ""}" data-a="spkquiet" aria-pressed="${spkQuiet()}">${ic(spkQuiet() ? "sndoff" : "snd")}${spkQuiet() ? "PC speakers off while playing" : "PC speakers stay on"}</button></div>`;
+  if (st.mic && window.isSecureContext && st.cable) {
+    c += `<div class="chips" style="margin-top:8px"><button class="chip ${st.mic_default ? "on" : ""}" data-a="micdef" aria-pressed="${!!st.mic_default}">${ic("mic")}${st.mic_default ? "The PC's default mic while talking" : "Make it the PC's default mic"}</button></div>`;
+    if (micOn) c += `<div class="bar" aria-hidden="true"><i id="micLvl" style="width:0"></i></div>`;
+  }
+  if (spkOn || micOn) c += `<div class="muted" style="margin-top:8px">Keep this page open. No sound? Tap the page once.${micOn ? " In Discord or a game pick “CABLE Output” as the mic." : ""}</div>`;
+  if (st.mic && !window.isSecureContext) c += `<div class="muted" style="margin-top:8px">Phones allow the mic only on a secure page. The first time, the phone warns that Deck's certificate isn't from a known company: tap Advanced, then Proceed.</div>`;
+  else if (st.mic && !st.cable) c += `<div class="muted" style="margin-top:8px">The PC needs VB-CABLE (free) for the phone mic: set it up in Deck → Phone → Speaker and mic.</div>`;
+  return c + `</div>`;
+}
 
 // fit the picture into the view, then zoom/pan on top
 function layoutScreen() {
@@ -1497,6 +1650,7 @@ $("fCtl").innerHTML = ic("hand"); $("fCtl").onclick = toggleControl;
 $("fKb").innerHTML = ic("kb"); $("fKb").onclick = () => { skb.value = SENT; skb.focus(); };
 soundUi(false);
 $("sSnd").onclick = () => {
+  if (SA.spk) return msg("This phone is the PC's speaker now: turn that off in its card first");
   const on = !SA.ws;
   try { localStorage.setItem("deck_sound", on ? "1" : "0"); } catch (e) {}
   if (on) soundStart(); else soundStop();

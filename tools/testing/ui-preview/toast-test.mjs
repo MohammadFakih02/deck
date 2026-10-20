@@ -4,11 +4,12 @@ import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL, fileURLToPath } from "node:url";
+import { BROWSER } from "./harness.mjs";
 
 const port = +(process.env.PORT || 9391);
 const here = path.dirname(fileURLToPath(import.meta.url));
 const uiDir = process.env.DECK_UI || path.resolve(here, "../../../ui");
-const edge = spawn("C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe", ["--headless=new", `--remote-debugging-port=${port}`, "--allow-file-access-from-files", "--disable-gpu", `--user-data-dir=${process.env.TEMP}\\deck-toast-edge-${process.pid}`, "--window-size=400,600", "about:blank"], { stdio: "ignore" });
+const edge = spawn(BROWSER, ["--headless=new", `--remote-debugging-port=${port}`, "--allow-file-access-from-files", "--disable-gpu", `--user-data-dir=${process.env.TEMP}\\deck-toast-edge-${process.pid}`, "--window-size=400,600", "about:blank"], { stdio: "ignore" });
 // Edge goes away even if a check below throws (a crash used to leave it running, holding the port)
 process.on("exit", () => spawnSync("taskkill", ["/pid", String(edge.pid), "/T", "/F"], { stdio: "ignore" }));
 // up to 30 s: a cold CI runner can take longer than 10 s to start Edge

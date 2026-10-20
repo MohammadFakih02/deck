@@ -232,7 +232,7 @@ export function txSetupTab(t) {
     h("div", { class: "dim" }, "Packs this PC's look and feel and Windhawk mods into a snapshot and sends it. On the other PC you pick what to apply; it backs up first, and you can undo."));
   if (!p) return (addTo(el, h("div", { class: "faint" }, "Checking…")), el);
   addTo(el, 
-    chk("look", `Windows look and feel (${p.look} settings)`, true, "Dark/light mode, accent colour, taskbar alignment and buttons, Explorer options, search box. Never display scaling, drivers or power settings."),
+    chk("look", `Windows look and feel (${p.look} settings${p.tweaks ? `, ${p.tweaks} tweak${p.tweaks > 1 ? "s" : ""}` : ""})`, true, "Dark/light mode, accent colour, taskbar alignment and buttons, Explorer options, search box, and the tweaks you set in Maintenance → Tweaks (the other PC can undo them one by one there). Never display scaling, drivers or power settings."),
     chk("wallpaper", "Wallpaper", p.wallpaper),
     chk("windhawk", p.windhawk_installed ? `Windhawk ${p.windhawk || ""}: ${plural(p.mods.length, "mod")}${p.mods.length ? " (" + p.mods.join(", ") + ")" : ""}` : "Windhawk mods (Windhawk isn't installed here)", p.windhawk_installed,
       "Both PCs need the same Windhawk version. Mods are added or updated there, never removed."),
@@ -252,12 +252,12 @@ export function txApplyPanel(it) {
   const chk = (key, label, on = true) => h("label", { class: "row", style: { opacity: on ? 1 : 0.5 } }, h("input", { type: "checkbox", disabled: !on, checked: on && o[key], onchange: (ev) => { o[key] = ev.target.checked; } }), label);
   return h("div", { class: "col tx-apply" },
     h("b", null, "Choose what to apply on this PC"),
-    chk("look", `Windows look and feel (${e.look || 0} settings)`, e.look > 0),
+    chk("look", `Windows look and feel (${e.look || 0} settings${e.tweaks ? `, ${e.tweaks} tweak${e.tweaks > 1 ? "s" : ""}` : ""})`, e.look > 0 || e.tweaks > 0),
     chk("wallpaper", "Wallpaper", !!e.wallpaper),
     chk("windhawk", e.windhawk ? `Windhawk ${e.windhawk}: ${plural(e.mods || 0, "mod")} with settings` : "Windhawk (not in this snapshot)", !!e.windhawk),
     chk("restart", "Restart Explorer afterwards so the taskbar updates (closes open folder windows)"),
     h("div", { class: "row" },
-      h("button", { class: "btn primary", onclick: () => { S.cache.txApplyOpen = null; tx("setup_apply", { dir: it.dir, look: o.look && e.look > 0, wallpaper: o.wallpaper && !!e.wallpaper, windhawk: o.windhawk && !!e.windhawk, restart: o.restart }); } }, "Apply now"),
+      h("button", { class: "btn primary", onclick: () => { S.cache.txApplyOpen = null; tx("setup_apply", { dir: it.dir, look: o.look && (e.look > 0 || e.tweaks > 0), wallpaper: o.wallpaper && !!e.wallpaper, windhawk: o.windhawk && !!e.windhawk, restart: o.restart }); } }, "Apply now"),
       h("button", { class: "btn ghost", onclick: () => { S.cache.txApplyOpen = null; render(); } }, "Cancel")));
 }
 

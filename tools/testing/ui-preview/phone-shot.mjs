@@ -5,6 +5,7 @@ import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL, fileURLToPath } from "node:url";
+import { BROWSER } from "./harness.mjs";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const [, , outDir = "phone-shots", src = path.resolve(here, "../../../src-tauri/phone/index.html")] = process.argv;
 const port = +(process.env.PORT || 9380);
@@ -23,6 +24,8 @@ const STATE = {
   profiles: { cpu: [{ id: "eco", name: "Eco" }, { id: "mid", name: "Mid" }, { id: "max", name: "Max" }], gpu: [{ id: "ab5", name: "AB Profile 5" }, { id: "q", name: "Quiet" }], active_cpu: "mid", active_gpu: "ab5" },
   shared: [{ id: 1, kind: "link", text: "https://youtu.be/dQw4w9WgXcQ", from: "phone" }, { id: 2, kind: "file", name: "IMG_2041.jpg", size: 2400000, from: "pc" }],
   toasts: [],
+  // the phone as speaker and mic (its card), with VB-CABLE on the PC
+  speaker: false, mic: false, mic_default: false, cable: true,
 };
 const FAKE = `<script>
 window.__sent = [];
@@ -47,7 +50,7 @@ const html = page0.replace("<head>", `<head><meta http-equiv="Content-Security-P
 const file = path.join(here, `phone-harness-${port}.html`);
 fs.writeFileSync(file, html);
 
-const edge = spawn("C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe", ["--headless=new", `--remote-debugging-port=${port}`, "--allow-file-access-from-files", "--disable-gpu", "--hide-scrollbars", `--user-data-dir=${process.env.TEMP}\\deck-phone-edge-${process.pid}`, "about:blank"], { stdio: "ignore" });
+const edge = spawn(BROWSER, ["--headless=new", `--remote-debugging-port=${port}`, "--allow-file-access-from-files", "--disable-gpu", "--hide-scrollbars", `--user-data-dir=${process.env.TEMP}\\deck-phone-edge-${process.pid}`, "about:blank"], { stdio: "ignore" });
 let list;
 for (let i = 0; i < 150; i++) { try { list = await (await fetch(`http://127.0.0.1:${port}/json`)).json(); if (list.find((t) => t.type === "page" && t.url === "about:blank")) break; } catch {} await new Promise((r) => setTimeout(r, 200)); }
 const ws = new WebSocket(list.find((x) => x.type === "page" && x.url === "about:blank").webSocketDebuggerUrl);
