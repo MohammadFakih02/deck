@@ -1,10 +1,20 @@
 # Deck — project state
 
-The dated history of the work. Last updated: 2026-10-20 (v2.7.5).
+The dated history of the work. Last updated: 2026-10-21.
 
 **Start with `DECK.md`** (full overview: features, hardware, files, build/test, status). This file is the dated history.
 
 > **RULE: before every commit, update the docs.** Add today's dated entry here, add user-visible changes to `CHANGELOG.md`, update `DECK.md` / `README.md` when facts change, and stage them in the same commit. The pre-commit hook enforces it; never bypass it. No personal data in these files (that goes in the git-ignored `PRIVATE_NOTES.md`).
+
+## 2026-10-21: Workspace Sync — project files, programs, MCP servers, per-project sessions (unreleased)
+
+- "Claude Code sync" is now **Workspace Sync for Claude Code** in the UI (internal ids, ports, data folder and hook names unchanged, so existing setups keep working).
+- New sync group `Class::Code`: each project's folder as `code/@alias/<path>`, raw bytes (no path tokens). `code_wanted` is the single rule for sending, receiving and passing on deletions: project code on, project `sync` + `code` on, never the home alias, never `.git/.svn/.hg/.vs`, `BUILD_DIRS` only with `sync_build`. Projects over the limits, or whose folder is a drive / the home folder or above / in the Claude folder, are skipped (shown on Projects); a missing folder or a skipped project never creates tombstones. `remap` and `delete_project` forget the project's code bookkeeping so nothing is deleted elsewhere.
+- `ProjectMap.sessions` / `.code` (default true): sessions off keeps memory and files syncing.
+- `mcp.rs`: `.claude.json`'s `mcpServers` (user and per project) mirrored to `deck-mcp.json` (Config group, needs approval in `guard.rs`); first import unions, later ones replace.
+- `tools.rs`: installed programs published in `Manifest.tools` (refreshed every 15 min, PATH re-read from the registry); Status → Programs lists what's missing here; Install writes a validated PowerShell script and opens it unelevated via `launch_as_user`.
+- Review pass, same day: conflict's `.jsonl` handling limited to Claude's own logs (project `.jsonl` files are ordinary files); `deck-mcp.json` conflicts merge with `mcp::union`, newer side winning a shared name, the same on both PCs; `HashCache` saved only when changed (`dirty`); projects too big to copy re-walked every 10 min, not every cycle; `code_wanted` refuses `auto` (guessed) projects until the user keeps/moves the folder (Projects → Keep this folder = `remap` to the same path), and per-PC files (`.claude/settings.local.json`, desktop.ini, Thumbs.db); learned paths under the other PC's home are rebased onto this home (`rebase_home`); guard covers project `.claude/settings.json`, `.claude/hooks/`, `.mcp.json`; `git.rs` publishes each project's origin URL + branch (`Manifest.git`) and `git_setup` writes `git-setup.ps1` (init, fetch, `reset FETCH_HEAD`, upstream; inputs validated); `Manifest.arch` (native, from the registry, also when Deck runs emulated) — build paths aren't received from another architecture; a project stops receiving below 2 GB free; toolchains published by channel; `msvc` (vswhere) added to programs, installed first. Tailscale switch (`Config.tailscale`) + `rdesk::tailscale_summary()` shown on Workspace Sync (Settings, Status "Away from home", per-PC "Tailscale"/"LAN") and PC to PC (peer line, empty state, Pairing).
+- Tests: `code_choices`, `sessions_off_for_one_project`, `project_paths_follow_the_home_folder`, git `reads_origin_and_branch` / `nothing_odd_reaches_the_script`, mcp and tools unit tests, `two_engines_sync_project_code` (ignored; opens ports), `detect_here` (ignored; ran on the dev PC and listed rustup, 3 extra targets, tauri-cli, node + 1 npm global, Python, Git).
 
 ## 2026-10-20: v2.7.5 — phone speaker and mic, Tweaks, Store apps, bug hunt, a sealed undo journal
 

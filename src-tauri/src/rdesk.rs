@@ -189,6 +189,20 @@ pub fn tailscale_pcs() -> Vec<std::net::IpAddr> {
         .unwrap_or_default()
 }
 
+/// What Deck's pages show about Tailscale: whether it's installed and connected, the account, and
+/// the user's other computers on it.
+pub fn tailscale_summary() -> Value {
+    let ts = tailscale(false);
+    let pcs: Vec<Value> = ts["peers"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|p| matches!(p["os"].as_str().unwrap_or("").to_ascii_lowercase().as_str(), "windows" | "linux" | "macos"))
+        .map(|p| json!({ "name": p["name"], "online": p["online"] }))
+        .collect();
+    json!({ "installed": ts["installed"] == true, "on": ts["on"] == true, "ip": ts["ip"], "account": ts["account"], "pcs": pcs })
+}
+
 /// An address on Tailscale (100.64.0.0/10).
 pub fn is_tailscale(ip: std::net::IpAddr) -> bool {
     matches!(ip, std::net::IpAddr::V4(v) if v.octets()[0] == 100 && (64..128).contains(&v.octets()[1]))

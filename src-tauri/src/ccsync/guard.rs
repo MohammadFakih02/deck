@@ -6,9 +6,19 @@
 /// Whether writing `incoming` over `current` (None: no file here yet) at `rel` (relative to the
 /// Claude folder, '/'-separated) could change what Claude Code runs or may do on this PC.
 pub fn needs_approval(rel: &str, current: Option<&[u8]>, incoming: &[u8]) -> bool {
-    let low = rel.to_ascii_lowercase();
-    // hook scripts and plugins are programs Claude Code runs
-    if low.starts_with("hooks/") || low.starts_with("plugins/") {
+    let mut low = rel.to_ascii_lowercase();
+    // a project's own Claude Code settings, hooks and MCP servers (`.claude/` and `.mcp.json` in the
+    // project folder) run things just like the user's
+    if let Some((_, rest)) = crate::ccsync::scan::code_parts(&low) {
+        low = match rest {
+            ".claude/settings.json" => "settings.json".into(),
+            ".mcp.json" => crate::ccsync::scan::MCP_FILE.into(),
+            r if r.starts_with(".claude/hooks/") => format!("hooks/{}", &r[".claude/hooks/".len()..]),
+            _ => return false,
+        };
+    }
+    // hook scripts, plugins and MCP servers are programs Claude Code runs
+    if low.starts_with("hooks/") || low.starts_with("plugins/") || low == crate::ccsync::scan::MCP_FILE {
         return current != Some(incoming);
     }
     if low != "settings.json" {
@@ -98,6 +108,13 @@ mod tests {
         assert!(needs_approval("hooks/pre.ps1", Some(b"echo hi"), b"rm -r ~"));
         assert!(needs_approval("plugins/marketplaces/x/plugin.json", None, b"{}"));
         assert!(!needs_approval("hooks/pre.ps1", Some(b"same"), b"same"));
+        assert!(needs_approval("deck-mcp.json", None, br#"{"user":{"x":{"command":"x.exe"}}}"#));
+        // the same inside a project's folder
+        assert!(needs_approval("code/@deck/.mcp.json", None, b"{}"));
+        assert!(needs_approval("code/@deck/.claude/hooks/a.ps1", Some(b"a"), b"b"));
+        assert!(needs_approval("code/@deck/.claude/settings.json", None, BASE.as_bytes()));
+        assert!(!needs_approval("code/@deck/.claude/settings.json", Some(BASE.as_bytes()), BASE.replacen("{", r#"{"theme":"dark","#, 1).as_bytes()));
+        assert!(!needs_approval("code/@deck/src/main.rs", Some(b"a"), b"b"));
     }
 
     /// A held change waits for the user; "apply" lets exactly that version through, "keep this

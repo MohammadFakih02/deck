@@ -1,5 +1,5 @@
 // Your other PCs: Transfer (files, folders, installers, apps and setups between your PCs) and
-// Claude Code sync (Claude Code's sessions, memory and settings kept the same on your PCs).
+// Workspace Sync for Claude Code (sessions, memory, settings, project files and programs kept the same on your PCs).
 import { I, Pages, S, ago, confirmBox, fmtBytes, h, invoke, note, run, seg, toggle } from "./core.js";
 import { copyAnswer } from "./search.js";
 import { head, plural } from "./pages1.js";
@@ -68,13 +68,14 @@ export function txPeers(t) {
   const peers = t.peers || [];
   if (!peers.length) return h("div", { class: "card col" },
     h("div", { class: "row" }, h("span", { class: "chip warn" }, I("search", "sm"), "Looking for your other PC…")),
-    h("div", { class: "dim" }, "Open Deck on the other PC and switch PC to PC on there too. Both PCs need the same pairing code (Settings tab); on the same network they then find each other by themselves."),
+    h("div", { class: "dim" }, "Open Deck on the other PC and switch PC to PC on there too. Both PCs need the same pairing code (Settings tab); on the same network they then find each other by themselves. Away from home, they find each other over Tailscale."),
+    t.tailscale ? csTailscale(t.tailscale, () => tx("tailscale_open")) : null,
     row("This PC's code", h("b", { class: "num grow", style: { userSelect: "text" } }, t.code), h("button", { class: "icon-btn sm", title: "Copy", "aria-label": "Copy", onclick: () => copyAnswer(t.code) }, I("copy", "sm"))),
     row("Code from the other PC", saveBox("", (v) => v && tx("set", { key: "code", value: v }, "Code saved. Looking for the other PC…"), { placeholder: "XXXX-XXXX-XXXX-XXXX-XXXX", class: "grow mono" })));
   const cur = txPeer(t);
   return h("div", { class: "tx-peers" }, peers.map((p) => h("button", {
     class: "tx-peer" + (cur && cur.id === p.id ? " on" : ""), onclick: () => { S.cache.txPeer = p.id; render(); },
-  }, I("monitor"), h("span", { class: "grow col", style: { gap: "2px", alignItems: "flex-start" } }, h("b", null, p.name), h("small", { class: "faint" }, p.ip)),
+  }, I("monitor"), h("span", { class: "grow col", style: { gap: "2px", alignItems: "flex-start" } }, h("b", null, p.name), h("small", { class: "faint" }, `${p.ip} · ${p.tailscale ? "over Tailscale" : "home network"}`)),
     h("span", { class: "btn sm", role: "button", title: "See this PC's shared folders and copy from them", onclick: (e) => { e.stopPropagation(); S.cache.txPeer = p.id; tx("browse", { peer: p.id, path: "" }); } }, I("folder", "sm"), "Browse"))));
 }
 
@@ -383,6 +384,8 @@ export function txSettingsTab(t) {
       row("Pairing code", h("b", { class: "num grow", style: { userSelect: "text" } }, t.code), h("button", { class: "icon-btn sm", title: "Copy", "aria-label": "Copy", onclick: () => copyAnswer(t.code) }, I("copy", "sm"))),
       row("Use the other PC's code", saveBox("", (v) => v && set("code", v, "Code saved"), { placeholder: "XXXX-XXXX-XXXX-XXXX-XXXX", class: "grow" })),
       row("Other PC's address", saveBox((t.manual_peers || []).join(", "), (v) => set("manual_peers", v, "Saved"), { placeholder: "only if it isn't found by itself, e.g. LAPTOP or 192.168.1.20", class: "grow" })),
+      h("div", { class: "faint", style: { fontSize: "12px" } }, "Away from home: your PCs find each other over Tailscale."),
+      t.tailscale ? csTailscale(t.tailscale, () => tx("tailscale_open")) : null,
       h("div", { class: "row" }, h("button", { class: "btn sm ghost", onclick: async () => { if (await confirmBox("Make a new pairing code?", "The other PC stops finding this one until you give it the new code too.", "New code")) set("new_code", true, "New code made"); } }, I("refresh", "sm"), "Make a new code"))),
     h("div", { class: "card col" },
       h("div", { class: "tile-head" }, I("folder"), h("span", null, "Shared folders")),
@@ -459,7 +462,7 @@ Pages.transfer = {
   },
 };
 
-// ---------------------------------------------------------------------------------------- Claude Code sync
+// ---------------------------------------------------------------------------------------- Workspace Sync (Claude Code)
 
 export const CS_TABS = [["status", "Status"], ["sessions", "Sessions"], ["projects", "Projects"], ["settings", "Settings"], ["log", "Log"]];
 
@@ -493,15 +496,17 @@ export function csStatusTab(c) {
           h("button", { class: "btn sm ghost", onclick: () => cs("held", { apply: false }, "Kept this PC's") }, "Keep this PC's"))) : null,
       c.last_error ? h("div", { class: "bad-t" }, c.last_error) : null,
       h("div", { class: "cs-grid" },
-        [["Sessions", cfg.sessions ? c.local_files[0] : "not synced"], ["Memory files", cfg.memory ? c.local_files[1] : "not synced"], ["Settings, skills, plugins", cfg.config ? c.local_files[2] : "not synced"],
-        ["Total size", fmtBytes(c.local_bytes)], ["Network", !cfg.lan ? "off" : c.lan_port ? `port ${c.lan_port}` : "not listening"], ["Cloud folder", cfg.hub ? cfg.hub_dir : "off"],
+        [["Sessions", cfg.sessions ? c.local_files[0] : "not synced"], ["Memory files", cfg.memory ? c.local_files[1] : "not synced"], ["Settings, skills, plugins", cfg.config ? c.local_files[2] : "not synced"], ["Project files", cfg.code ? c.local_files[3] : "not copied"],
+        ["Total size", fmtBytes(c.local_bytes)], ["Network", !cfg.lan ? "off" : c.lan_port ? `port ${c.lan_port}` : "not listening"], ["Away from home", !cfg.lan || !cfg.tailscale ? (cfg.hub ? "cloud folder only" : "off") : tsShort(c.tailscale)], ["Cloud folder", cfg.hub ? cfg.hub_dir : "off"],
         ["Received since start", `${plural(c.received, "file")}, ${plural(c.conflicts, "conflict")}`]].map(([k, v]) => h("div", null, h("small", { class: "faint" }, k), h("b", { class: "ell", title: String(v) }, String(v)))))),
     h("div", { class: "card col" },
       h("div", { class: "tile-head" }, I("monitor"), h("span", null, "Your other PCs")),
       c.machines.length ? h("div", { class: "list" }, c.machines.map((m) => h("div", { class: "item" },
         h("span", { class: "dot " + (m.online ? "good" : "") }), h("b", { class: "grow" }, m.name),
-        h("span", { class: "faint" }, `${m.via} · changed ${agoMs(m.ago)} · ${plural(m.files, "file")} · Deck ${m.version}`))))
-        : h("div", { class: "dim" }, "None yet. Switch Claude Code sync on in Deck on the other PC and give it the same sync key (Settings tab). On the same network they find each other; away from home use the same cloud folder on both.")),
+        h("span", { class: "faint" }, `${m.via} · changed ${agoMs(m.ago)} · ${plural(m.files, "file")} · Deck ${m.version}${m.arch ? ` · ${m.arch === "ARM64" ? "ARM" : m.arch === "AMD64" ? "Intel/AMD" : m.arch}` : ""}`),
+        m.other_arch && cfg.code && cfg.build ? h("span", { class: "warn-t" }, "Other processor kind: its build files aren't copied here") : null)))
+        : h("div", { class: "dim" }, "None yet. Switch Workspace Sync on in Deck on the other PC and give it the same sync key (Settings tab). On the same network they find each other; away from home use Tailscale or the same cloud folder on both (Settings tab).")),
+    cfg.tools ? csToolsCard(c) : null,
     h("div", { class: "card col" },
       h("div", { class: "tile-head" }, I("terminal"), h("span", null, "Open Claude Code sessions")),
       !cfg.session_lock ? h("div", { class: "faint" }, "Session lock is off (Settings): the same session can be continued on two PCs at once.") : null,
@@ -513,8 +518,41 @@ export function csStatusTab(c) {
         c.open_elsewhere.map((o) => h("div", { class: "item" }, h("span", { class: "dot warn" }), h("span", { class: "grow ell" }, `On ${o.machine}: ${sess(o.name, o.sid, o.alias)}`),
           o.taken ? [h("span", { class: "chip on" }, "Taken over here"), h("button", { class: "btn sm ghost", onclick: () => cs("take_back", { sid: o.sid }) }, "Undo")]
             : h("button", { class: "btn sm", title: "Switches off the safety lock for this session. If both PCs then add messages, they can't be merged and you get two copies. Safer: close it there and /resume it here.",
-              onclick: async () => { if (await confirmBox("Take this session over?", `It stays open on ${o.machine}. If both PCs add messages to it, Claude Code sync keeps two separate copies. Safer: close it there, then /resume it here.`, "Take over")) cs("take_over", { sid: o.sid }); } }, "Take over"))))),
+              onclick: async () => { if (await confirmBox("Take this session over?", `It stays open on ${o.machine}. If both PCs add messages to it, Workspace Sync keeps two separate copies. Safer: close it there, then /resume it here.`, "Take over")) cs("take_over", { sid: o.sid }); } }, "Take over"))))),
   ];
+}
+
+/** Programs another PC has that this one doesn't, with a button that installs them. */
+export function csToolsCard(c) {
+  const t = c.tools || { missing: [] };
+  return h("div", { class: "card col" },
+    h("div", { class: "tile-head" }, I("download"), h("span", { class: "grow" }, "Programs"),
+      h("button", { class: "btn sm ghost", onclick: () => cs("tools_refresh", {}, "Checking this PC") }, I("refresh", "sm"), "Check again")),
+    !t.ready ? h("div", { class: "faint" }, "Checking what this PC has…")
+      : !t.missing.length ? h("div", { class: "faint" }, `This PC has every program your other PCs have (${plural(t.count, "item")} checked: Rust, cargo tools, Node, npm, Python, pipx, Git).`)
+      : t.missing.map((m) => h("div", { class: "col", style: { gap: "6px" } },
+        h("div", { class: "row" }, h("b", { class: "grow" }, `${m.name} has, this PC doesn't:`),
+          h("button", { class: "btn sm", onclick: async () => {
+            if (await confirmBox(`Install ${plural(m.items.length, "program")}?`, `A PowerShell window opens and installs: ${m.items.map((x) => x.label).join(", ")}. It runs with your normal rights; nothing else is changed.`, "Install")) cs("tools_install", { machine: m.id }, "Installing in a new window");
+          } }, I("download", "sm"), "Install all")),
+        h("div", { class: "list" }, m.items.map((x) => h("div", { class: "item" }, h("span", { class: "grow ell" }, x.label),
+          h("button", { class: "btn sm ghost", onclick: () => cs("tools_install", { machine: m.id, keys: [x.key] }, "Installing in a new window") }, "Install")))))));
+}
+
+/** One line for a status grid: Tailscale's state. */
+export const tsShort = (t) => !t ? "…" : !t.installed ? "Tailscale not installed" : !t.on ? "Tailscale not connected" : `Tailscale, ${plural((t.pcs || []).filter((p) => p.online).length, "other PC")} online`;
+
+/** Tailscale's state under its switch: get it, connect it, or which PCs it reaches. */
+export function csTailscale(t, open = () => cs("tailscale_open")) {
+  const small = { fontSize: "12px" };
+  if (!t.installed) return h("div", { class: "row" }, h("span", { class: "faint grow", style: small }, "Tailscale (free) connects your PCs from anywhere. Install it here and on your other PC and sign in with the same account."),
+    h("button", { class: "btn sm", onclick: open }, I("download", "sm"), "Get Tailscale"));
+  if (!t.on) return h("div", { class: "row" }, h("span", { class: "warn-t grow", style: small }, "Tailscale is installed but not connected."),
+    h("button", { class: "btn sm", onclick: open }, "Open Tailscale"));
+  const pcs = t.pcs || [];
+  return h("div", { class: "faint", style: small },
+    `Connected${t.account ? ` as ${t.account}` : ""}${t.ip ? ` (${t.ip})` : ""}. `,
+    pcs.length ? `Your other PCs on it: ${pcs.map((p) => p.online ? p.name : `${p.name} (offline)`).join(", ")}.` : "No other PC is on it yet: install Tailscale on the other PC and sign in with the same account.");
 }
 
 export function csSessionsTab(c) {
@@ -530,8 +568,8 @@ export function csSessionsTab(c) {
       const title = r.title || r.first || "(empty session)";
       const del = async (everywhere) => {
         const names = [...(r.here ? ["this PC"] : []), ...r.elsewhere];
-        const text = everywhere ? `Deletes it on ${names.join(" and ")}. A PC that is off, or has it open, deletes it once it syncs and it's closed. It can be recovered from each PC's Claude Code sync trash folder.`
-          : `Deletes it on this PC only${r.elsewhere.length ? `; it stays on ${r.elsewhere.join(" and ")}` : ""}. It won't be received here again. It can be recovered from the Claude Code sync trash folder.`;
+        const text = everywhere ? `Deletes it on ${names.join(" and ")}. A PC that is off, or has it open, deletes it once it syncs and it's closed. It can be recovered from each PC's Workspace Sync trash folder.`
+          : `Deletes it on this PC only${r.elsewhere.length ? `; it stays on ${r.elsewhere.join(" and ")}` : ""}. It won't be received here again. It can be recovered from the Workspace Sync trash folder.`;
         if (await confirmBox("Delete this session?", text, "Delete", true)) cs("session_delete", { sid: r.sid, everywhere }, "Deleted");
       };
       return h("div", { class: "card col cs-sess" },
@@ -562,12 +600,21 @@ export function csProjectsTab(c) {
       h("div", { class: "row" }, h("b", { class: "grow" }, csWhere(p.alias)), h("span", { class: "faint" }, plural(p.sessions, "session") + " here")),
       row("Folder on this PC", h("code", { class: "grow ell", title: p.path }, p.path),
         p.home ? null : h("button", { class: "btn sm", onclick: async () => { const d = await invoke("pick", { folder: true, title: `Where is ${p.alias} on this PC?` }); if (d) cs("remap", { alias: p.alias, path: d }, "Moving…"); } }, "Move…")),
-      p.auto ? h("div", { class: "warn-t" }, `Guessed: same folder as on ${p.origin}. Move it if the project lives elsewhere on this PC.`) : !p.exists ? h("div", { class: "warn-t" }, "That folder doesn't exist on this PC") : null,
+      p.auto ? h("div", { class: "row wrap" }, h("span", { class: "warn-t grow" }, `Guessed from ${p.origin}. Keep this folder, or Move it to where the project lives on this PC.${c.cfg.code ? " Its files arrive once you choose." : ""}`),
+        h("button", { class: "btn sm", onclick: () => cs("remap", { alias: p.alias, path: p.path }, "Kept") }, "Keep this folder"))
+        : !p.exists ? h("div", { class: "warn-t" }, "That folder doesn't exist on this PC") : null,
       p.elsewhere.map((e) => h("div", { class: "faint", style: { fontSize: "12px" } }, `On ${e.machine}: ${e.path}`)),
       swRow("Sync this project", p.sync, (v) => cs("project_sync", { alias: p.alias, on: v })),
-      !p.sync ? h("div", { class: "faint", style: { fontSize: "12px" } }, "Not syncing: its sessions and memory stay on this PC only, and nothing arrives for it.") : null,
+      !p.sync ? h("div", { class: "faint", style: { fontSize: "12px" } }, "Not syncing: its sessions, memory and files stay on this PC only, and nothing arrives for it.") : null,
+      p.sync ? swRow("Its sessions (conversations)", p.sessions_on, (v) => cs("project_sessions", { alias: p.alias, on: v })) : null,
+      p.sync && !p.sessions_on ? h("div", { class: "faint", style: { fontSize: "12px" } }, "Its memory (and files, if copied) still sync, so you can start a new session on the other PC and carry on with the project.") : null,
+      p.sync && c.cfg.code && !p.home ? swRow("Its files (the project folder)", p.code_on, (v) => cs("project_code", { alias: p.alias, on: v })) : null,
+      p.sync && c.cfg.code && p.code_on && p.code_skipped ? h("div", { class: "warn-t" }, `Files not copied: ${p.code_skipped}.`) : null,
+      p.sync && c.cfg.code && p.code_on && p.exists && !p.has_git && p.git_from ? h("div", { class: "row wrap" },
+        h("span", { class: "faint grow", style: { fontSize: "12px" } }, `Git history isn't here (it isn't copied with the files). ${p.git_from.machine} gets it from ${p.git_from.url}, branch ${p.git_from.branch}.`),
+        h("button", { class: "btn sm", onclick: async () => { if (await confirmBox("Set up git here?", `A PowerShell window connects this folder to ${p.git_from.url} and downloads its history. Your files stay as they are; git then shows what differs.`, "Set up")) cs("git_setup", { alias: p.alias }, "Setting up git in a new window"); } }, "Get git history")) : null,
       p.home ? null : h("div", { class: "row" }, h("button", { class: "btn sm ghost", onclick: async () => {
-        if (await confirmBox(`Delete ${p.alias} everywhere?`, "Its Claude Code sessions and memory are deleted on this PC and every other connected one. Your project files aren't touched. Close Claude Code in this project first. Deleted items go to Claude Code sync's trash folder.", "Delete everywhere", true)) cs("project_delete", { alias: p.alias }, "Deleting…");
+        if (await confirmBox(`Delete ${p.alias} everywhere?`, "Its Claude Code sessions and memory are deleted on this PC and every other connected one. Your project files aren't touched. Close Claude Code in this project first. Deleted items go to Workspace Sync's trash folder.", "Delete everywhere", true)) cs("project_delete", { alias: p.alias }, "Deleting…");
       } }, I("trash", "sm"), "Delete everywhere…")))),
   ];
 }
@@ -588,18 +635,25 @@ export function csSettingsTab(c) {
     h("div", { class: "card col" },
       h("div", { class: "tile-head" }, I("wifi"), h("span", null, "How your PCs reach each other")),
       swRow("Directly, on the same network", cfg.lan, (v) => set("lan", v)),
+      cfg.lan ? swRow("Over Tailscale, from anywhere (free; both PCs need to be on)", cfg.tailscale, (v) => set("tailscale", v)) : null,
+      cfg.lan && cfg.tailscale ? csTailscale(c.tailscale || {}) : null,
       row("Other PC's address", saveBox(cfg.manual_peers, (v) => set("manual_peers", v, "Saved"), { class: "grow", placeholder: "only if they don't find each other, e.g. LAPTOP or 192.168.1.20" })),
-      swRow("Also through a cloud-synced folder (works away from home)", cfg.hub, (v) => set("hub", v)),
+      swRow("Also through a cloud folder (the other PC catches up later, even if this one is off)", cfg.hub, (v) => set("hub", v)),
       cfg.hub ? row("Cloud folder", h("code", { class: "grow ell", title: cfg.hub_dir }, cfg.hub_dir || "not chosen"),
         c.onedrive ? h("button", { class: "btn sm ghost", onclick: () => set("hub_dir", c.onedrive, "Saved") }, "Use OneDrive") : null,
         h("button", { class: "btn sm", onclick: async () => { const d = await invoke("pick", { folder: true, title: "A folder OneDrive, Google Drive or Dropbox syncs" }); if (d) set("hub_dir", d, "Saved"); } }, "Choose…")) : null,
-      cfg.hub ? h("div", { class: "faint", style: { fontSize: "12px" } }, "A Deck-ClaudeSync-hub folder is made inside it. Pick the same cloud folder on every PC; what's in it is encrypted with the sync key.") : null),
+      cfg.hub ? h("div", { class: "faint", style: { fontSize: "12px" } }, "Any folder a sync app keeps up to date works: OneDrive, Google Drive for desktop, Dropbox, MEGA, pCloud or Syncthing. A Deck-ClaudeSync-hub folder is made inside it. Pick the same one on every PC; what's in it is encrypted with the sync key.") : null),
     h("div", { class: "card col" },
       h("div", { class: "tile-head" }, I("list"), h("span", null, "What to sync")),
       swRow("Sessions (conversations, subagents, file history for /rewind)", cfg.sessions, (v) => set("sessions", v)),
       swRow("Memory (each project's memory folder)", cfg.memory, (v) => set("memory", v)),
-      swRow("Settings, CLAUDE.md, skills, agents, commands, plugins", cfg.config, (v) => set("config", v)),
-      h("div", { class: "faint", style: { fontSize: "12px" } }, "Sign-in details and per-PC files (.credentials.json, settings.local.json, caches) are never synced."),
+      swRow("Settings, CLAUDE.md, skills, agents, commands, plugins, MCP servers", cfg.config, (v) => set("config", v)),
+      h("div", { class: "faint", style: { fontSize: "12px" } }, "Sign-in details and per-PC files (.credentials.json, settings.local.json, caches) are never synced. Hooks, permissions, plugins and MCP servers from another PC wait for your OK."),
+      swRow("Project files (each project's folder, so the code is there too)", cfg.code, (v) => set("code", v)),
+      cfg.code ? h("div", { class: "faint", style: { fontSize: "12px" } }, "Leaves out .git, Claude Code's settings.local.json and build output (target, node_modules, .venv, venv, __pycache__, dist, build, obj, .next…). Very big folders (over 40,000 files or 3 GB) aren't copied. Changes to a project's .claude settings, hooks or .mcp.json wait for your OK. Turn single projects off under Projects. Switching this off deletes nothing.") : null,
+      cfg.code ? swRow("Also build files (target, node_modules, .venv…)", cfg.build, (v) => set("build", v)) : null,
+      cfg.code && cfg.build ? h("div", { class: "warn-t" }, "Build folders can be several GB and change on every build. Usually it's quicker to build again on the other PC.") : null,
+      swRow("Programs: show what the other PCs have that this one is missing (Rust, Node, Python, Git…)", cfg.tools, (v) => set("tools", v)),
       row("Check every", h("span", { class: "grow" }), h("select", { onchange: (e) => set("interval", +e.target.value) },
         [[10, "10 seconds"], [20, "20 seconds"], [60, "minute"], [300, "5 minutes"]].map(([v, l]) => h("option", { value: v, selected: cfg.interval === v }, l))))),
     h("div", { class: "card col" },
@@ -617,18 +671,19 @@ Pages.claudesync = {
   async load() { S.cache.cs = await invoke("claude_sync_state"); },
   render() {
     const c = S.cache.cs || {};
-    const el = h("div", null, head("Claude Code sync", "Keeps Claude Code's sessions, memory and settings the same on your PCs, so you can carry on where you left off.",
-      h("label", { class: "row" }, h("span", { class: "dim" }, c.on ? "On" : "Off"), toggle(!!c.on, (v) => cs("on", { on: v }, v ? "Claude Code sync is on" : "Claude Code sync is off")))));
+    const el = h("div", null, head("Workspace Sync", "For Claude Code. Keeps your sessions, memory, settings, project files and programs the same on your PCs, so you can carry on where you left off.",
+      h("label", { class: "row" }, h("span", { class: "dim" }, c.on ? "On" : "Off"), toggle(!!c.on, (v) => cs("on", { on: v }, v ? "Workspace Sync is on" : "Workspace Sync is off")))));
     if (!c.on) {
       addTo(el, h("div", { class: "card col", style: { maxWidth: "680px" } },
-        h("div", { class: "tile-head" }, I("terminal"), h("span", null, "Claude Code sync is off")),
-        h("div", { class: "dim" }, "For people who use Claude Code on more than one PC. When it's on, Deck syncs your Claude Code conversations, memory and settings with your other PCs that run Deck (directly on your network, or through a cloud folder), and rewrites project paths so /resume works on each PC."),
+        h("div", { class: "tile-head" }, I("terminal"), h("span", null, "Workspace Sync is off")),
+        h("div", { class: "dim" }, "For people who use Claude Code on more than one PC. When it's on, Deck syncs your Claude Code conversations, memory and settings with your other PCs that run Deck (directly on your network, or through a cloud folder), and rewrites project paths so /resume works on each PC. It can also copy your project folders and tell you which programs (Rust, Node, Python…) a PC is missing."),
         h("ul", { class: "dim", style: { margin: 0, paddingLeft: "18px", lineHeight: 1.7 } },
           h("li", null, "Encrypted with a sync key only your PCs know"),
+          h("li", null, "Works at home, from anywhere with Tailscale, or through a cloud folder (OneDrive, Google Drive, Dropbox…)"),
           h("li", null, "Sign-in details are never synced"),
           h("li", null, "Adds two small hooks to Claude Code's settings (removed again when you switch it off)")),
         c.standalone ? h("div", { class: "chip warn" }, I("alert", "sm"), "The ClaudeSync app is running here. Close it first (tray icon → Exit).") : null,
-        h("div", { class: "row" }, h("button", { class: "btn primary", onclick: () => cs("on", { on: true }, "Claude Code sync is on") }, "Switch on"))));
+        h("div", { class: "row" }, h("button", { class: "btn primary", onclick: () => cs("on", { on: true }, "Workspace Sync is on") }, "Switch on"))));
       return el;
     }
     const sub = curSub();

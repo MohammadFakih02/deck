@@ -412,7 +412,7 @@ Pages.settings = {
     add(h("div", { class: "settings-card" },
       row("Order", "Drag a group's name, or a page inside its group, up or down in the sidebar. Folded groups stay folded after a restart.",
         h("button", { class: "btn sm", disabled: s.nav_order ? null : "", onclick: async () => { await set("nav_order")(null); resetSide(); } }, I("undo", "sm"), "Reset the order")),
-      row("Show Claude Code sync", "For people who use Claude Code on more than one PC. It sits under Desktop, and stays there while it's switched on.",
+      row("Show Workspace Sync", "Workspace Sync for Claude Code: for people who use Claude Code on more than one PC. It sits under Desktop, and stays there while it's switched on.",
         toggle(!!s.claude_sync_nav || !!s.claude_sync_on, async (v) => { await set("claude_sync_nav")(v); resetSide(); }))));
 
     cur = "general";

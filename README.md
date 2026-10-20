@@ -81,7 +81,7 @@ Hardware control (fans, lighting, CPU power limits, GPU tuning), most Windows tw
 | **Phone as speaker or mic** | The phone plays the PC's sound (the PC's own speakers can stay quiet meanwhile), or its microphone becomes a mic on the PC that Discord, games and recorders can pick (through VB-CABLE, free; Deck sets it up). Optionally the default mic while the phone talks, and put back after. Over Wi-Fi, about a tenth of a second behind. |
 | **PC to PC** | Send files, folders, installers, apps and your Windows setup (look and feel, and your tweaks, each undoable there) between your PCs running Deck, at home or over Tailscale. Each PC has its own key; installers from another PC always ask on this one. **Share links** send a file or folder to anyone, opened in any browser. |
 | **Remote desktop** | See and control the PC from your phone or another computer with RustDesk (free); Deck installs and sets it up. |
-| **Claude Code sync** | Keeps Claude Code's sessions, memory and settings the same on your PCs. Changes that could make it run something new wait for your OK. Off until you turn it on. |
+| **Workspace Sync for Claude Code** | Keeps Claude Code's sessions, memory, settings and MCP servers the same on your PCs, and can copy your project folders and install the programs (Rust, Node, Python…) another PC has. Each project's sessions can be left out, to start fresh on another PC with the same files and memory. Changes that could make Claude Code run something new wait for your OK. Off until you turn it on. |
 
 ### Quality of life
 
@@ -153,7 +153,7 @@ The UI is plain HTML, CSS and JavaScript in [`ui/`](ui), as native ES modules (`
 | `src-tauri/src/deaths/` | Death counter (per-game history files, game recognition, the game catalogue, the in-game counter) |
 | `src-tauri/src/tweaks/` | Tweaks (recipes, live state, the undo journal), built-in apps, Store apps from Microsoft's servers |
 | `src-tauri/src/remote.rs`, `phonemic.rs`, `phonetls.rs` | Phone remote, the phone as speaker and mic, https for the phone |
-| `src-tauri/src/beam/`, `ccsync/` | PC to PC, Claude Code sync |
+| `src-tauri/src/beam/`, `ccsync/` | PC to PC, Workspace Sync |
 | `ui/` | The app's pages (`js/`), styles and the toast / snap-zone windows |
 | `src-tauri/phone/` | The phone remote web app |
 

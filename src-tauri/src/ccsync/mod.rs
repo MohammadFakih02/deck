@@ -15,9 +15,12 @@ pub mod guard;
 pub mod hub;
 pub mod lan;
 pub mod locks;
+pub mod git;
+pub mod mcp;
 pub mod model;
 pub mod scan;
 pub mod sessions;
+pub mod tools;
 pub mod winutil;
 
 use crate::app::App;
@@ -217,7 +220,7 @@ pub fn state(app: &App) -> Value {
         .iter()
         .map(|m| {
             json!({ "id": m.id, "name": m.name, "via": m.via, "ago": ago_ms(m.generated_at), "files": m.files, "online": live.contains(&m.id),
-                    "version": config::app_version(&m.app),
+                    "version": config::app_version(&m.app), "arch": m.arch, "other_arch": !m.arch.is_empty() && m.arch != scan::native_arch(),
                     // the same version number, another build (a test build, say): not "older"
                     "same": config::app_version(&m.app) == config::app_version(&config::app_id()), "cmp": match config::compare_app(&m.app) { std::cmp::Ordering::Less => -1, std::cmp::Ordering::Equal => 0, _ => 1 } })
         })
@@ -228,6 +231,10 @@ pub fn state(app: &App) -> Value {
         .map(|(a, p)| {
             let elsewhere: Vec<Value> = st.machines.iter().filter_map(|m| m.aliases.get(a).map(|path| json!({ "machine": m.name, "path": path }))).collect();
             json!({ "alias": a, "home": a == HOME_ALIAS, "path": p.path, "auto": p.auto, "origin": p.origin, "sync": p.sync, "exists": Path::new(&p.path).is_dir(),
+                    "sessions_on": p.sessions, "code_on": p.code, "code_skipped": st.code_skipped.get(a),
+                    // git history: here, or where it could come from
+                    "has_git": Path::new(&p.path).join(".git").exists(),
+                    "git_from": st.machines.iter().find_map(|m| m.git.get(a).map(|g| json!({ "machine": m.name, "url": g.url, "branch": g.branch }))),
                     "sessions": st.sessions_per_alias.get(a).copied().unwrap_or(0), "elsewhere": elsewhere })
         })
         .collect();
@@ -250,6 +257,19 @@ pub fn state(app: &App) -> Value {
                     "open_here": open_here, "open_there": open_there, "waiting": waiting })
         })
         .collect();
+    // programs another PC has and this one doesn't
+    let here_tools = if cfg.sync_tools { tools::current() } else { None };
+    let tools_missing: Vec<Value> = match (&here_tools, cfg.sync_tools) {
+        (Some(here), true) => st
+            .machines
+            .iter()
+            .filter_map(|m| {
+                let miss = tools::missing(here, m.tools.as_deref()?);
+                (!miss.is_empty()).then(|| json!({ "id": m.id, "name": m.name, "items": miss.iter().map(|t| json!({ "key": t.key(), "label": t.label() })).collect::<Vec<_>>() }))
+            })
+            .collect(),
+        _ => vec![],
+    };
     let logs: Vec<String> = sh.log.lock_anyway().iter().rev().take(200).cloned().collect();
     json!({
         "on": on && !sh.off.load(Ordering::Relaxed),
@@ -259,11 +279,14 @@ pub fn state(app: &App) -> Value {
         "received": st.received_total, "conflicts": st.conflicts_total, "hook_note": st.hook_note, "pending": st.pending.len(),
         // changes from another PC that would alter what Claude Code runs here, waiting for an OK
         "held": sh.undecided().into_iter().map(|(p, who)| json!({ "path": p, "from": who })).collect::<Vec<_>>(),
+        "tailscale": crate::rdesk::tailscale_summary(),
+        "tools": { "ready": here_tools.is_some(), "count": here_tools.as_ref().map(|v| v.len()).unwrap_or(0), "missing": tools_missing },
         "machines": machines, "projects": projects, "open_here": open_here, "open_elsewhere": open_elsewhere, "sessions": sessions,
         "version": config::app_version(&config::app_id()),
         "cfg": {
-            "name": cfg.machine_name, "key": cfg.sync_key, "lan": cfg.lan_enabled, "manual_peers": cfg.manual_peers.join(", "),
+            "name": cfg.machine_name, "key": cfg.sync_key, "lan": cfg.lan_enabled, "tailscale": cfg.tailscale, "manual_peers": cfg.manual_peers.join(", "),
             "hub": cfg.hub_enabled, "hub_dir": cfg.hub_dir, "sessions": cfg.sync_sessions, "memory": cfg.sync_memory, "config": cfg.sync_config,
+            "code": cfg.sync_code, "build": cfg.sync_build, "tools": cfg.sync_tools,
             "interval": cfg.interval_secs, "paused": cfg.paused, "session_lock": cfg.session_lock, "machine_note": cfg.machine_note,
         },
         "onedrive": std::env::var("OneDrive").ok(),
@@ -331,6 +354,53 @@ pub fn act(app: &Arc<App>, what: &str, a: &Value) -> Result<Value, String> {
             }
             push(Cmd::DeleteProject { alias });
         }
+        "project_sessions" | "project_code" => {
+            let (alias, on) = (s(a, "alias").to_string(), a["on"].as_bool().unwrap_or(true));
+            let code = what == "project_code";
+            sh.set_cfg(|c| {
+                if let Some(p) = c.projects.get_mut(&alias) {
+                    if code {
+                        p.code = on;
+                    } else {
+                        p.sessions = on;
+                    }
+                }
+            });
+            sh.wake();
+        }
+        "tools_refresh" => tools::refresh(),
+        "tailscale_open" => crate::rdesk::open_tailscale(),
+        "git_setup" => {
+            let alias = s(a, "alias");
+            let cfg = sh.cfg();
+            let p = cfg.projects.get(alias).ok_or("Unknown project")?;
+            let g = sh.status.lock_anyway().machines.iter().find_map(|m| m.git.get(alias).cloned()).ok_or("No other PC has git for this project")?;
+            let dir = Path::new(&p.path);
+            if !dir.is_dir() {
+                return Err("The project's folder isn't on this PC yet".into());
+            }
+            if dir.join(".git").exists() {
+                return Err("This project already has git here".into());
+            }
+            let file = sh.paths.data.join("git-setup.ps1");
+            crate::fsguard::write_for_user(&file, git::setup_script(&p.path, &g).ok_or("That git address can't be used")?.as_bytes()).map_err(|e| e.to_string())?;
+            crate::util::launch_as_user("powershell.exe", &format!("-NoProfile -ExecutionPolicy Bypass -NoExit -File \"{}\"", file.display()), &sh.paths.home)?;
+            sh.log(format!("Setting up git history for {alias} from {}", g.url));
+        }
+        "tools_install" => {
+            let id = s(a, "machine");
+            let m = sh.status.lock_anyway().machines.iter().find(|m| m.id == id).cloned().ok_or("That PC isn't known")?;
+            let here = tools::current().ok_or("Still checking what this PC has; try again in a moment")?;
+            let keys: Vec<String> = a["keys"].as_array().map(|k| k.iter().filter_map(|x| x.as_str().map(String::from)).collect()).unwrap_or_default();
+            let items: Vec<tools::Tool> = tools::missing(&here, m.tools.as_deref().unwrap_or(&[])).into_iter().filter(|t| keys.is_empty() || keys.contains(&t.key())).collect();
+            if items.is_empty() {
+                return Err("Nothing to install".into());
+            }
+            let file = sh.paths.data.join("install-from-other-pc.ps1");
+            crate::fsguard::write_for_user(&file, tools::script(&m.name, &items).as_bytes()).map_err(|e| e.to_string())?;
+            crate::util::launch_as_user("powershell.exe", &format!("-NoProfile -ExecutionPolicy Bypass -NoExit -File \"{}\"", file.display()), &sh.paths.home)?;
+            sh.log(format!("Installing {} program(s) {} has", items.len(), m.name));
+        }
         "session_delete" => push(Cmd::DeleteSession { sid: s(a, "sid").to_string(), everywhere: a["everywhere"].as_bool().unwrap_or(false) }),
         "open_data" => {
             let _ = std::process::Command::new("explorer.exe").arg(&sh.paths.data).spawn();
@@ -352,12 +422,16 @@ pub fn act(app: &Arc<App>, what: &str, a: &Value) -> Result<Value, String> {
                 },
                 "new_key" => c.sync_key = crypto::gen_sync_key(),
                 "lan" => c.lan_enabled = v.as_bool().unwrap_or(true),
+                "tailscale" => c.tailscale = v.as_bool().unwrap_or(true),
                 "manual_peers" => c.manual_peers = v.as_str().unwrap_or("").split([',', ';', ' ']).map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect(),
                 "hub" => c.hub_enabled = v.as_bool().unwrap_or(false),
                 "hub_dir" => c.hub_dir = v.as_str().unwrap_or("").trim().to_string(),
                 "sessions" => c.sync_sessions = v.as_bool().unwrap_or(true),
                 "memory" => c.sync_memory = v.as_bool().unwrap_or(true),
                 "config" => c.sync_config = v.as_bool().unwrap_or(true),
+                "code" => c.sync_code = v.as_bool().unwrap_or(false),
+                "build" => c.sync_build = v.as_bool().unwrap_or(false),
+                "tools" => c.sync_tools = v.as_bool().unwrap_or(true),
                 "session_lock" => c.session_lock = v.as_bool().unwrap_or(true),
                 "machine_note" => c.machine_note = v.as_bool().unwrap_or(true),
                 "interval" => c.interval_secs = v.as_u64().unwrap_or(20).clamp(5, 3600),
@@ -400,6 +474,7 @@ mod tests {
             // no hooks in a test: nothing touches a real settings.json
             c.session_lock = false;
             c.machine_note = false;
+            c.sync_tools = false;
         });
         let lan = Arc::new(Lan::new());
         lan::start(sh.clone(), lan.clone(), Some(port));
@@ -463,6 +538,71 @@ mod tests {
         b.wake();
         std::thread::sleep(Duration::from_secs(2));
         assert_eq!(b.status.lock_anyway().phase, "Off");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Project code: a project's files reach the other PC's folder for it (not .git, not build
+    /// output), a deletion is passed on, switching code off deletes nothing there, and a project
+    /// with its sessions off sends its memory but not its sessions.
+    #[test]
+    #[ignore = "opens network ports; run with --ignored"]
+    fn two_engines_sync_project_code() {
+        let root = std::env::temp_dir().join(format!("deck-csync-code-{}", model::now_ms()));
+        let (a, home_a, claude_a) = engine(&root, "PCA", 47913, 47914);
+        let (b, home_b, claude_b) = engine(&root, "PCB", 47914, 47913);
+        let (pa, pb) = (home_a.join("dev").join("game"), home_b.join("work").join("game"));
+        std::fs::create_dir_all(pa.join("src")).unwrap();
+        std::fs::create_dir_all(pa.join(".git")).unwrap();
+        std::fs::create_dir_all(pa.join("target").join("debug")).unwrap();
+        std::fs::write(pa.join("src").join("main.rs"), "fn main() {}").unwrap();
+        std::fs::write(pa.join("Cargo.lock"), "# lock").unwrap();
+        std::fs::write(pa.join("gone.txt"), "bye").unwrap();
+        std::fs::write(pa.join(".git").join("HEAD"), "ref").unwrap();
+        std::fs::write(pa.join("target").join("debug").join("game.exe"), "MZ").unwrap();
+        for (sh, p) in [(&a, &pa), (&b, &pb)] {
+            sh.set_cfg(|c| {
+                c.sync_code = true;
+                let mut m = config::ProjectMap::new(p.display().to_string(), false, "local");
+                m.sessions = false;
+                c.projects.insert("game".into(), m);
+            });
+        }
+        // a session and a memory file of that project on A
+        let enc = claude_a.join("projects").join(canon::encode_dir(&pa.display().to_string()));
+        std::fs::create_dir_all(enc.join("memory")).unwrap();
+        let sid = "0123abcd-0000-4000-8000-000000000002";
+        std::fs::write(enc.join(format!("{sid}.jsonl")), format!("{}
+", serde_json::json!({ "type": "user", "sessionId": sid, "cwd": pa.display().to_string() }))).unwrap();
+        std::fs::write(enc.join("memory").join("MEMORY.md"), "notes").unwrap();
+        let wait = |what: &str, f: &dyn Fn() -> bool| {
+            let t0 = Instant::now();
+            while !f() {
+                assert!(t0.elapsed() < Duration::from_secs(60), "{what}; B's log: {:?}", b.log.lock_anyway());
+                std::thread::sleep(Duration::from_millis(250));
+                a.wake();
+                b.wake();
+            }
+        };
+        wait("code didn't arrive", &|| pb.join("src").join("main.rs").exists() && pb.join("Cargo.lock").exists() && pb.join("gone.txt").exists());
+        let enc_b = claude_b.join("projects").join(canon::encode_dir(&pb.display().to_string()));
+        wait("memory didn't arrive", &|| enc_b.join("memory").join("MEMORY.md").exists());
+        std::thread::sleep(Duration::from_secs(2));
+        assert!(!pb.join(".git").exists(), "never .git");
+        assert!(!pb.join("target").exists(), "no build output without build files on");
+        assert!(!enc_b.join(format!("{sid}.jsonl")).exists(), "sessions off for this project");
+        // a file deleted on A goes on B too (to Claude Sync's trash)
+        std::fs::remove_file(pa.join("gone.txt")).unwrap();
+        wait("deletion not passed on", &|| !pb.join("gone.txt").exists());
+        // project code switched off on A: nothing is deleted on B
+        a.set_cfg(|c| c.sync_code = false);
+        for _ in 0..12 {
+            a.wake();
+            b.wake();
+            std::thread::sleep(Duration::from_millis(250));
+        }
+        assert!(pb.join("src").join("main.rs").exists() && pb.join("Cargo.lock").exists(), "switching off deletes nothing");
+        a.off.store(true, Ordering::Relaxed);
+        b.off.store(true, Ordering::Relaxed);
         let _ = std::fs::remove_dir_all(&root);
     }
 }

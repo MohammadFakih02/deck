@@ -223,7 +223,7 @@ pub fn state() -> Value {
     let sh = &t.sh;
     sh.reload_inbox_if_changed();
     let cfg = sh.cfg();
-    let peers: Vec<Value> = t.lan.live_peers().iter().map(|p| json!({ "id": p.id, "name": p.name, "ip": p.addr.ip().to_string() })).collect();
+    let peers: Vec<Value> = t.lan.live_peers().iter().map(|p| json!({ "id": p.id, "name": p.name, "ip": p.addr.ip().to_string(), "tailscale": crate::rdesk::is_tailscale(p.addr.ip()) })).collect();
     let xfers: Vec<Value> = sh
         .xfers
         .lock()
@@ -279,6 +279,7 @@ pub fn state() -> Value {
     let logs: Vec<String> = sh.logs.lock_anyway().iter().rev().take(200).cloned().collect();
     json!({
         "on": !sh.off.load(Ordering::Relaxed),
+        "tailscale": crate::rdesk::tailscale_summary(),
         "name": cfg.machine_name, "code": cfg.code, "manual_peers": cfg.manual_peers, "inbox_dir": cfg.inbox_dir,
         "ask_before_receive": cfg.ask_before_receive, "trust_install": cfg.trust_install, "shared_folders": cfg.shared_folders,
         "trusted": cfg.trusted.iter().filter(|t| t.until == 0 || t.until > config::now_ms()).map(|t| json!({ "id": t.id, "name": t.name, "until": t.until })).collect::<Vec<_>>(),
@@ -325,6 +326,10 @@ pub fn act(app: &Arc<App>, what: &str, a: &Value) -> Result<Value, String> {
     }
     let t = T.get().ok_or("PC to PC is off")?;
     let sh = &t.sh;
+    if what == "tailscale_open" {
+        crate::rdesk::open_tailscale();
+        return Ok(state());
+    }
     match what {
         // files: sent now; folders: counted first (the page shows what goes and the options)
         "send" => {

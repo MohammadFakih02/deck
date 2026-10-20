@@ -13,7 +13,7 @@ export const NAV = [
   [null, [["home", null, "Home", "home"], ["boost", null, "Game boost", "zap"]]],
   ["Hardware", [["cpu", null, "CPU", "chip"], ["gpu", null, "GPU", "gpu"], ["fans", null, "Fans", "fan"], ["lighting", null, "Lighting", "bulb"], ["lcd", null, "Cooler display", "monitor"], ["thispc", null, "This PC", "info"]]],
   ["Monitor", [["sensors", null, "Sensors", "gauge"], ["overlay", null, "Overlay", "gamepad"], ["controller", null, "Controller", "joystick"], ["deaths", null, "Deaths", "skull"], ["drives", null, "Drives", "disk"], ["system", "processes", "Processes", "cpu"], ["system", "network", "Network", "wifi"]]],
-  ["Desktop", [["windows", null, "Windows", "windows"], ["system", "display", "Display", "monitor"], ["clipboard", null, "Clipboard", "clipboard"], ["audio", null, "Sound", "volume"], ["claudesync", null, "Claude Code sync", "terminal"]]],
+  ["Desktop", [["windows", null, "Windows", "windows"], ["system", "display", "Display", "monitor"], ["clipboard", null, "Clipboard", "clipboard"], ["audio", null, "Sound", "volume"], ["claudesync", null, "Workspace Sync", "terminal"]]],
   ["Maintenance", [["files", "space", "Disk space", "disk"], ["files", "cleanup", "Clean up", "broom"], ["system", "startup", "Startup apps", "rocket"], ["tweaks", null, "Tweaks", "sliders"], ["tools", null, "Tools", "tools"]]],
   ["Power & time", [["power", "awake", "Keep awake", "coffee"], ["power", "timers", "Timers & breaks", "timer"], ["power", "plan", "Shut down when…", "power"]]],
 ];

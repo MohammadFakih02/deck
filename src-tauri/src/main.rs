@@ -1966,7 +1966,7 @@ fn main() {
                     beam::set_on(&app, t);
                     if c {
                         if let Err(e) = ccsync::set_on(&app, true) {
-                            app.toast(app::Toast::simple("claude-sync", "Claude Code sync didn't start", &e));
+                            app.toast(app::Toast::simple("claude-sync", "Workspace Sync didn't start", &e));
                         }
                     } else {
                         ccsync::cleanup_when_off();

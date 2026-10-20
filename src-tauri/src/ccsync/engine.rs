@@ -19,11 +19,12 @@ use crate::ccsync::lan::{self, Client, Lan, ServeSnap};
 use crate::ccsync::locks::{self, LocksFile, RemoteLock, RunLock};
 use crate::ccsync::model::{from_ms, now_ms, to_ms, Entry, Manifest, CHUNK};
 use crate::ccsync::sessions::{is_sid, SessionMeta};
-use crate::ccsync::scan::{self, canonical_bytes, classify, enabled, resolve_projects, safe_rel, to_local_rel, Class, HashCache, LocalFile, ProjDirs, Scan};
+use crate::ccsync::scan::{self, canonical_bytes, classify, code_parts, code_wanted, enabled, resolve_projects, safe_rel, to_local_rel, Class, HashCache, LocalFile, ProjDirs, Scan};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use crate::ccsync::mcp;
 
 const DAY: i64 = 86_400_000;
 
@@ -58,6 +59,9 @@ struct State {
     /// sessions the user deleted "on all machines" here: published so the other machines delete them too
     #[serde(default)]
     my_dead_sess: BTreeMap<String, i64>,
+    /// hash of the MCP server list as last exported to / imported from `deck-mcp.json`
+    #[serde(default)]
+    mcp_hash: String,
 }
 
 enum Via {
@@ -196,6 +200,16 @@ fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
         }
     }
     Ok(())
+}
+
+/// A project path from another PC: one under that PC's home folder goes under this PC's
+/// (`C:\Users\Me\dev\x` there is `C:\Users\Laptop\dev\x` here); anything else stays as it is.
+fn rebase_home(path: &str, their_home: Option<&str>, home: &str) -> String {
+    let Some(h) = their_home.map(norm_path).filter(|h| h.len() > 3) else { return path.to_string() };
+    match path.get(..h.len()) {
+        Some(head) if head.eq_ignore_ascii_case(&h) && (path.len() == h.len() || path[h.len()..].starts_with('\\')) => format!("{}{}", norm_path(home), &path[h.len()..]),
+        _ => path.to_string(),
+    }
 }
 
 fn replace_all(d: &[u8], from: &[u8], to: &[u8]) -> Vec<u8> {
@@ -418,7 +432,10 @@ impl Engine {
             // a project we deleted but that exists here again (new sessions) is no longer "deleted"
             self.state.my_dead.retain(|a, _| !cfg.projects.contains_key(a));
             let canon = Arc::new(Canon::new(&cfg.aliases()));
-            let scan = scan::scan(&claude, &cfg, &canon, &dirs, &mut self.cache);
+            if cfg.sync_config {
+                self.sync_mcp();
+            }
+            let scan = scan::scan_with_home(&claude, &cfg, &canon, &dirs, &mut self.cache, &self.sh.paths.home);
             self.cache.save(&self.sh.paths.data.join("hashcache.json"));
             self.update_tombs(&cfg, &scan);
             let mut man = self.build_manifest(&cfg, &scan);
@@ -500,14 +517,14 @@ impl Engine {
             for r in &remotes {
                 for (a, p) in &r.m.aliases {
                     if !cfg.projects.contains_key(a) && self.dead_allows(a, &r.m.entries) && !learned.iter().any(|(x, _, _): &(String, String, String)| x == a) && !a.contains([':', '/', '\\']) && !a.is_empty() {
-                        learned.push((a.clone(), norm_path(p), r.m.machine_name.clone()));
+                        learned.push((a.clone(), rebase_home(&norm_path(p), r.m.aliases.get(HOME_ALIAS).map(String::as_str), &self.sh.paths.home), r.m.machine_name.clone()));
                     }
                 }
             }
             if !learned.is_empty() && round < 2 {
                 self.sh.set_cfg(|c| {
                     for (a, p, from) in &learned {
-                        c.projects.entry(a.clone()).or_insert(ProjectMap { path: p.clone(), auto: true, origin: from.clone(), sync: true });
+                        c.projects.entry(a.clone()).or_insert(ProjectMap::new(p.clone(), true, from));
                     }
                 });
                 for (a, p, from) in &learned {
@@ -601,7 +618,7 @@ impl Engine {
     }
 
     fn local_status(&self, scan: &Scan) {
-        let mut counts = [0usize; 3];
+        let mut counts = [0usize; 4];
         let mut bytes = 0u64;
         let mut per: BTreeMap<String, usize> = BTreeMap::new();
         for (p, f) in &scan.files {
@@ -615,7 +632,9 @@ impl Engine {
                 }
             }
         }
+        let skipped = scan.code_skipped.clone();
         self.sh.status(|s| {
+            s.code_skipped = skipped;
             s.local_files = counts;
             s.local_bytes = bytes;
             s.sessions_per_alias = per;
@@ -632,6 +651,9 @@ impl Engine {
             .filter(|p| !present(p))
             .filter(|p| classify(p).map(|c| c != Class::Session && enabled(cfg, c)).unwrap_or(false))
             .filter(|p| scan::proj_synced(cfg, p))
+            // project files: only while still copied (switching build files or a project's code off,
+            // or its folder missing, deletes nothing on the other PCs)
+            .filter(|p| code_wanted(cfg, p) && !code_parts(p).is_some_and(|(a, _)| scan.code_no_tombs.contains(a)))
             .cloned()
             .collect();
         // a whole category vanishing is far more likely a broken/moved folder than a real clean-up
@@ -652,7 +674,7 @@ impl Engine {
     fn build_manifest(&self, cfg: &Config, scan: &Scan) -> Manifest {
         let mut entries: BTreeMap<String, Entry> = scan.files.iter().map(|(p, f)| (p.clone(), f.e.clone())).collect();
         for (p, t) in &self.state.tombs {
-            if classify(p).map(|c| enabled(cfg, c)).unwrap_or(false) && scan::proj_synced(cfg, p) {
+            if classify(p).map(|c| enabled(cfg, c)).unwrap_or(false) && scan::proj_synced(cfg, p) && code_wanted(cfg, p) {
                 entries.entry(p.clone()).or_insert(Entry { hash: String::new(), size: 0, mtime: *t, chunks: vec![], deleted: true });
             }
         }
@@ -667,6 +689,13 @@ impl Engine {
             dead_sessions: self.state.my_dead_sess.clone(),
             sessions: BTreeMap::new(),
             app: crate::ccsync::config::app_id(),
+            tools: if cfg.sync_tools { crate::ccsync::tools::current() } else { None },
+            arch: scan::native_arch().to_string(),
+            git: if cfg.sync_code {
+                cfg.projects.iter().filter(|(a, p)| a.as_str() != HOME_ALIAS && p.sync && p.code && !p.auto).filter_map(|(a, p)| Some((a.clone(), crate::ccsync::git::read(Path::new(&p.path))?))).collect()
+            } else {
+                BTreeMap::new()
+            },
         }
     }
 
@@ -722,7 +751,7 @@ impl Engine {
         if cfg.lan_enabled {
             let mut addrs: Vec<(std::net::SocketAddr, String)> = self.lan.live_peers().into_iter().map(|p| (p.addr, p.name)).collect();
             // the user's other PCs on Tailscale (away from home): tried quietly, after the ones found here
-            let ts: Vec<std::net::SocketAddr> = crate::rdesk::tailscale_pcs().into_iter().map(|ip| std::net::SocketAddr::new(ip, cfg.lan_port)).collect();
+            let ts: Vec<std::net::SocketAddr> = if !cfg.tailscale { vec![] } else { crate::rdesk::tailscale_pcs() }.into_iter().map(|ip| std::net::SocketAddr::new(ip, cfg.lan_port)).collect();
             for m in &cfg.manual_peers {
                 match lan::resolve(m, cfg.lan_port) {
                     Some(a) if !addrs.iter().any(|(x, _)| *x == a) => addrs.push((a, m.clone())),
@@ -746,8 +775,9 @@ impl Engine {
                         match c.manifest() {
                             Ok(Some(m)) if m.machine_id == c.peer_id => {
                                 let v = via_names.entry(m.machine_id.clone()).or_default();
-                                if !v.contains(&"LAN") {
-                                    v.push("LAN");
+                                let how = if crate::rdesk::is_tailscale(addr.ip()) { "Tailscale" } else { "LAN" };
+                                if !v.contains(&how) {
+                                    v.push(how);
                                 }
                                 by_id.insert(m.machine_id.clone(), Remote { m, via: Via::Lan(c) });
                             }
@@ -785,6 +815,9 @@ impl Engine {
                 files: r.m.entries.values().filter(|e| !e.deleted).count(),
                 aliases: r.m.aliases.clone(),
                 app: r.m.app.clone(),
+                tools: r.m.tools.clone(),
+                git: r.m.git.clone(),
+                arch: r.m.arch.clone(),
             })
             .collect();
         self.sh.status(|s| {
@@ -873,8 +906,15 @@ impl Engine {
                 return Err(format!("{p} and {owner} are the same file on this PC; two projects share one folder, fix it under Projects"));
             }
         }
-        let abs = self.sh.paths.claude.join(local_rel.replace('/', "\\"));
-        // Claude is writing this file right now: leave it for the next cycle
+        let abs = if code_parts(p).is_some() {
+            if !code_wanted(cfg, p) || !cfg.projects.get(scan::alias_of(p).unwrap_or("")).is_some_and(|m| scan::code_root_ok(&m.path, &self.sh.paths.home, &self.sh.paths.claude)) {
+                return Err("not copying this project's files here".into());
+            }
+            scan::code_abs(cfg, p).ok_or("no local folder for this project")?
+        } else {
+            self.sh.paths.claude.join(local_rel.replace('/', "\\"))
+        };
+        // Claude (or an editor) is writing this file right now: leave it for the next cycle
         if let Ok(m) = std::fs::metadata(&abs) {
             if let Ok(t) = m.modified() {
                 if t.elapsed().map(|d| d.as_secs() < 15).unwrap_or(true) {
@@ -882,7 +922,7 @@ impl Engine {
                 }
             }
         }
-        let bytes = canon.decode(data);
+        let bytes = scan::decode(canon, p, data);
         if !self.allowed_here(p, &local_rel, &abs, data, &bytes, from) {
             return Ok(false);
         }
@@ -906,8 +946,13 @@ impl Engine {
         let entries = std::mem::take(&mut r.m.entries);
         let mut dead_ok: HashMap<String, bool> = HashMap::new();
         let hidden: Vec<String> = self.state.hidden.keys().cloned().collect();
+        let mut low_space: HashMap<String, bool> = HashMap::new();
         for (p, re) in &entries {
-            if !safe_rel(p) || !scan::proj_synced(cfg, p) {
+            if !safe_rel(p) || !scan::proj_synced(cfg, p) || !code_wanted(cfg, p) {
+                continue;
+            }
+            // a project too big to copy (or one that can't be) neither sends nor receives
+            if code_parts(p).is_some_and(|(a, _)| scan.code_skipped.contains_key(a)) {
                 continue;
             }
             // a session deleted on this PC stays deleted (its log, subagent logs, file history, todos)
@@ -926,6 +971,11 @@ impl Engine {
                 }
             }
             let Some(class) = classify(p) else { continue };
+            // build output made for another kind of processor (an ARM laptop and an Intel/AMD PC)
+            // wouldn't run here: this PC builds its own
+            if !r.m.arch.is_empty() && r.m.arch != scan::native_arch() && scan::is_build_path(p) {
+                continue;
+            }
             if !enabled(cfg, class) || scan.busy.contains(p) {
                 continue;
             }
@@ -986,6 +1036,21 @@ impl Engine {
             match a {
                 A::Skip => {}
                 A::Take => {
+                    // a project file onto a drive that is nearly full: stop that project for now
+                    // (asked once per project per sync, not for every file)
+                    if let Some((alias, _)) = code_parts(p) {
+                        let full = *low_space.entry(alias.to_string()).or_insert_with(|| {
+                            let root = cfg.projects.get(alias).map(|m| m.path.clone()).unwrap_or_default();
+                            let probe = Path::new(&root).ancestors().find(|a| a.exists()).map(Path::to_path_buf).unwrap_or_else(|| PathBuf::from(&root));
+                            crate::util::free_bytes(&probe).is_some_and(|f| f < 2 << 30)
+                        });
+                        if full {
+                            if !t.errors.iter().any(|e| e.contains(&format!("project {alias}"))) {
+                                t.errors.push(format!("Not copying more files of project {alias}: less than 2 GB free on its drive"));
+                            }
+                            continue;
+                        }
+                    }
                     let res = self.fetch(re, local, canon, &mut r.via, hub).and_then(|d| self.write_remote(cfg, dirs, scan, canon, p, &d, re.mtime, Some(who.as_str())));
                     match res {
                         Ok(true) => {
@@ -1030,7 +1095,7 @@ impl Engine {
         if hash(&ldata) != l.e.hash {
             return Ok(None);
         }
-        if p.ends_with(".jsonl") {
+        if p.ends_with(".jsonl") && code_parts(p).is_none() {
             if rdata.starts_with(&ldata) {
                 // they continued the conversation we have: take the longer log
                 return Ok(self.write_remote(cfg, dirs, scan, canon, p, &rdata, re.mtime, Some(who))?.then_some(true));
@@ -1073,11 +1138,23 @@ impl Engine {
                 return Ok(Some(true));
             }
         }
+        // MCP servers changed on both PCs: keep both lists. Both PCs merge the same way (the newer
+        // file's server wins a name both have), so they end up with the same file.
+        if p == scan::MCP_FILE {
+            if let (Ok(lv), Ok(rv)) = (serde_json::from_slice::<serde_json::Value>(&ldata), serde_json::from_slice::<serde_json::Value>(&rdata)) {
+                let remote_newer = (re.mtime, &re.hash) > (l.e.mtime, &l.e.hash);
+                let merged = mcp::to_bytes(&if remote_newer { mcp::union(&lv, &rv) } else { mcp::union(&rv, &lv) });
+                if merged == ldata {
+                    return Ok(Some(false));
+                }
+                return Ok(self.write_remote(cfg, dirs, scan, canon, p, &merged, re.mtime.max(l.e.mtime), Some(who))?.then_some(true));
+            }
+        }
         // anything else: newest wins, the other version goes to the conflicts folder
         let remote_wins = (re.mtime, &re.hash) > (l.e.mtime, &l.e.hash);
         let dir = self.sh.paths.data.join("conflicts").join(stamp());
         // held for the user's OK: no copy to the conflicts folder every cycle while it waits
-        if remote_wins && !self.allowed_here(p, &l.local_rel, &l.abs, &rdata, &canon.decode(&rdata), Some(who)) {
+        if remote_wins && !self.allowed_here(p, &l.local_rel, &l.abs, &rdata, &scan::decode(canon, p, &rdata), Some(who)) {
             return Ok(None);
         }
         if remote_wins {
@@ -1090,10 +1167,56 @@ impl Engine {
             self.sh.log(format!("{} changed here and on {who}; kept {who}'s newer copy, ours is in {}", l.local_rel, dir.display()));
         } else {
             let dst = dir.join(format!("{}.from-{}", l.local_rel.replace('/', "\\"), who));
-            let _ = crate::fsguard::write_for_user(&dst, &canon.decode(&rdata));
+            let _ = crate::fsguard::write_for_user(&dst, &scan::decode(canon, p, &rdata));
             self.sh.log(format!("{} changed here and on {who}; kept ours (newer), theirs is in {}", l.local_rel, dir.display()));
         }
         Ok(Some(remote_wins))
+    }
+
+    /// Claude Code keeps MCP servers in `.claude.json`, beside sign-in and per-PC state that must not
+    /// sync. Their part (`mcpServers`, and each project's) is mirrored into `deck-mcp.json` in the
+    /// Claude folder, which syncs like the settings (an incoming change waits for the user's OK, see
+    /// guard.rs). A newer mirror (from another PC) goes into `.claude.json`; otherwise a change in
+    /// `.claude.json` goes out to the mirror.
+    fn sync_mcp(&mut self) {
+        let claude = self.sh.paths.claude.clone();
+        let cj = mcp::claude_json(&claude, &self.sh.paths.home);
+        let mirror = claude.join(scan::MCP_FILE);
+        let Ok(raw) = std::fs::read(&cj) else { return };
+        let Ok(mut doc) = serde_json::from_slice::<serde_json::Value>(&raw) else { return };
+        let here = mcp::extract(&doc);
+        let here_b = mcp::to_bytes(&here);
+        match std::fs::read(&mirror).ok() {
+            // arrived from another PC since last time: into .claude.json
+            Some(m) if hash(&m) != self.state.mcp_hash && m != here_b => {
+                let Ok(theirs) = serde_json::from_slice::<serde_json::Value>(&m) else { return };
+                // the very first time, servers only this PC has are kept (and go out next cycle)
+                let first = self.state.mcp_hash.is_empty();
+                let merged = if first { mcp::union(&here, &theirs) } else { theirs };
+                mcp::apply(&mut doc, &merged);
+                match crate::fsguard::write_for_user(&cj, &serde_json::to_vec_pretty(&doc).unwrap_or_default()) {
+                    Ok(()) => {
+                        self.sh.log("MCP servers from another PC added to Claude Code (restart open Claude Code sessions to use them)");
+                        let b = mcp::to_bytes(&merged);
+                        if first && b != m {
+                            let _ = write_file(&mirror, &b, 0);
+                        }
+                        self.state.mcp_hash = hash(&b);
+                    }
+                    Err(e) => self.sh.log(format!("Couldn't add MCP servers to {}: {e}", cj.display())),
+                }
+            }
+            Some(m) if m == here_b => self.state.mcp_hash = hash(&m),
+            // changed here (or no mirror yet): out to the mirror
+            _ => {
+                if mcp::is_empty(&here) && !mirror.exists() {
+                    return;
+                }
+                if write_file(&mirror, &here_b, 0).is_ok() {
+                    self.state.mcp_hash = hash(&here_b);
+                }
+            }
+        }
     }
 
     /// moves a project's synced files to the folder Claude uses for `new_path`, and rewrites paths
@@ -1244,11 +1367,13 @@ impl Engine {
         self.sh.set_cfg(|c| {
             c.projects.remove(alias);
         });
-        let prefix = format!("projects/@{alias}/");
-        self.state.known.retain(|p| !p.starts_with(&prefix));
-        self.state.tombs.retain(|p, _| !p.starts_with(&prefix));
+        // its project files stay where they are; this PC just stops keeping track of them
+        let prefixes = [format!("projects/@{alias}/"), format!("code/@{alias}/")];
+        let ours = |p: &String| prefixes.iter().any(|x| p.starts_with(x.as_str()));
+        self.state.known.retain(|p| !ours(p));
+        self.state.tombs.retain(|p, _| !ours(p));
         for b in self.state.base.values_mut() {
-            b.retain(|p, _| !p.starts_with(&prefix));
+            b.retain(|p, _| !ours(p));
         }
         match from {
             None => {
@@ -1275,10 +1400,11 @@ impl Engine {
         old_cfg.sync_sessions = true;
         old_cfg.sync_memory = true;
         old_cfg.sync_config = true;
+        old_cfg.sync_code = false;
         let (dirs, _) = resolve_projects(&claude, &mut old_cfg, &self.sh.paths.home);
         let Some(old) = old_cfg.projects.get(alias).cloned() else { return Err("unknown project".into()) };
         let mut new_cfg = old_cfg.clone();
-        new_cfg.projects.insert(alias.into(), ProjectMap { path: new_path.clone(), auto: false, origin: old.origin.clone(), sync: old.sync });
+        new_cfg.projects.insert(alias.into(), ProjectMap { path: new_path.clone(), auto: false, ..old.clone() });
         let canon_old = Canon::new(&old_cfg.aliases());
         let canon_new = Canon::new(&new_cfg.aliases());
         let mut tmp_cache = HashCache::default();
@@ -1318,8 +1444,17 @@ impl Engine {
             }
         }
         self.sh.set_cfg(|c| {
-            c.projects.insert(alias.into(), ProjectMap { path: new_path.clone(), auto: false, origin: old.origin.clone(), sync: old.sync });
+            c.projects.insert(alias.into(), ProjectMap { path: new_path.clone(), auto: false, ..old.clone() });
         });
+        // the project's files at the new folder are compared afresh (missing ones are fetched, not
+        // deleted on the other PCs)
+        let prefix = format!("code/@{alias}/");
+        self.state.known.retain(|p| !p.starts_with(&prefix));
+        self.state.tombs.retain(|p, _| !p.starts_with(&prefix));
+        for b in self.state.base.values_mut() {
+            b.retain(|p, _| !p.starts_with(&prefix));
+        }
+        self.save_state();
         self.cache = HashCache::default();
         self.sh.wake();
         Ok(format!("{alias} now maps to {new_path}: moved {moved} file(s), updated paths in {rewritten} more"))
@@ -1329,6 +1464,15 @@ impl Engine {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn project_paths_follow_the_home_folder() {
+        assert_eq!(rebase_home(r"C:\Users\Me\dev\x", Some(r"C:\Users\Me"), r"C:\Users\Laptop"), r"C:\Users\Laptop\dev\x");
+        assert_eq!(rebase_home(r"c:\users\me\dev", Some(r"C:\Users\Me"), r"C:\Users\Laptop"), r"C:\Users\Laptop\dev");
+        assert_eq!(rebase_home(r"C:\Users\Mel\x", Some(r"C:\Users\Me"), r"C:\Users\Laptop"), r"C:\Users\Mel\x", "not a prefix of a name");
+        assert_eq!(rebase_home(r"D:\work\x", Some(r"C:\Users\Me"), r"C:\Users\Laptop"), r"D:\work\x");
+        assert_eq!(rebase_home(r"D:\work\x", None, r"C:\Users\Laptop"), r"D:\work\x");
+    }
 
     #[test]
     fn fork_ids_look_like_uuids_and_are_stable() {

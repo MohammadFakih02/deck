@@ -4,6 +4,17 @@ All notable changes to Deck. Setups for each version are on the [Releases](https
 
 ## Unreleased
 
+### Added
+- **Workspace Sync for Claude Code** (was "Claude Code sync") carries more than conversations now, so a project can be picked up on another PC:
+  - **Project files** (Settings → What to sync, off until you turn it on): each project's folder is kept the same on your PCs, without `.git` and build output. Folders over 40,000 files or 3 GB, a drive, or your user folder are never copied. Deleted files go to the trash folder on the other PCs, and switching it off deletes nothing. **Build files** (target, node_modules, .venv…) can be included too.
+  - **Per project:** switch a project's sessions off and keep its memory and files syncing, to start a new session on the other PC and carry on with the project. Its files can be switched off on their own as well.
+  - **Programs:** each PC shares which Rust toolchains, targets and components, cargo tools, Node and global npm packages, Python, pipx tools and Git it has. The Status tab lists what another PC has and this one doesn't, with Install (a PowerShell window with your normal rights; nothing installs on its own).
+  - **Tailscale is visible:** Settings has an "Over Tailscale, from anywhere" switch with its state (not installed / not connected / which of your PCs are on it, with Get or Open Tailscale), the Status tab shows "Away from home", each PC says whether it is reached over the home network or Tailscale, and PC to PC shows the same. The cloud folder works with any synced folder (OneDrive, Google Drive, Dropbox, MEGA, pCloud, Syncthing).
+  - **MCP servers** (yours and each project's, from `.claude.json`) sync with the settings, and wait for your OK like hooks and plugins do. Added on two PCs at once, both lists are kept.
+  - **Git history:** files are copied without `.git`; on a PC whose copy has no git, Projects offers **Get git history** (connects the folder to the same remote and branch, files untouched).
+  - **Safer with different PCs:** a project folder only guessed from another PC waits until you keep or move it before files arrive, and a guess under the other PC's user folder becomes the same place under this PC's. Build files aren't copied between an ARM and an Intel/AMD PC. A project stops copying when its drive has under 2 GB free. Rust toolchains are compared as "stable" and the like, so each PC installs its own kind. The program check also covers Microsoft's C++ build tools, which Rust needs.
+  - A project's own `.claude` settings, hooks and `.mcp.json` wait for your OK too; `.claude/settings.local.json` stays on each PC.
+
 ### Changed
 - The design notes moved to `docs/design/`.
 
