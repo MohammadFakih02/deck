@@ -2,6 +2,11 @@
 
 All notable changes to Deck. Setups for each version are on the [Releases](https://github.com/MohammadFakih02/deck/releases) page.
 
+## Unreleased
+
+### Changed
+- The design notes moved to `docs/design/`.
+
 ## 2.7.5 — 2026-10-20
 
 ### Added

@@ -1,5 +1,5 @@
 //! The death counter: deaths per game and per boss, in any game. See
-//! `docs/superpowers/specs/2026-10-19-death-counter-design.md`.
+//! `docs/design/specs/2026-10-19-death-counter-design.md`.
 //!
 //! One thread looks at the game in front every second and draws the in-game pill; actions
 //! (tray, page, hotkeys) come in through `act`. Every event is saved before it's shown.

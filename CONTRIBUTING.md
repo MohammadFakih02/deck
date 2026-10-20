@@ -17,7 +17,7 @@ Turn on the hook once after cloning, and it will refuse code commits that skip `
 git config core.hooksPath .githooks
 ```
 
-AI assistants (Claude and others) follow the same rule; it is also written in `CLAUDE.md` and `DECK.md` §0 and §9. Don't bypass the hook with `--no-verify`.
+The rule is also written in `DECK.md` §0 and §9. Don't bypass the hook with `--no-verify`.
 
 ## Keep it public-safe
 

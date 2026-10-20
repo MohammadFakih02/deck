@@ -1,14 +1,12 @@
 # Controller overlay + controller battery Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** Move Controller Overlay (Python) into Deck completely and add a universal controller battery with one tray icon per controller.
 
 **Architecture:** A new `src-tauri/src/pad/` module. One battery thread merges five sources and publishes readings; one overlay thread owns the native layered windows, a high-resolution waitable-timer frame clock and the Raw Input window; SDL3 is loaded at run time from an embedded, gzipped `SDL3.dll` (XInput when it can't load). Art is SVG strings rasterised once per look with `resvg`, then composited per frame. Settings are a `pad` object in `settings.json`; the UI is a new "Controller" page with tabs.
 
 **Tech Stack:** Rust (Tauri 2, `windows` 0.62, `windows-sys` 0.61), `resvg` 0.48 (text only), SDL 3.4.16 (zlib licence), vanilla JS UI.
 
-**Spec:** `docs/superpowers/specs/2026-10-18-controller-overlay-design.md`
+**Spec:** `docs/design/specs/2026-10-18-controller-overlay-design.md`
 
 ## Global Constraints
 
@@ -85,5 +83,5 @@ Each has a unit test in the owning task (`battery::tests::zero_mac_is_off`, `bat
 
 ### Task 6: Docs + parity pass
 
-- [ ] `DECK.md` (rule 3: Raw Input allowed for keyboard & mouse mode only; code layout; data files), `CLAUDE.md` rule, `README.md`, `CHANGELOG.md`, `PROJECT_STATE.md`, `THIRD_PARTY_NOTICES.md` (SDL3 zlib, resvg MIT/Apache), `hooks.nsh` + `uninstall.ps1` remove `SDL3.dll`.
+- [ ] `DECK.md` (rule 3: Raw Input allowed for keyboard & mouse mode only; code layout; data files), `README.md`, `CHANGELOG.md`, `PROJECT_STATE.md`, `THIRD_PARTY_NOTICES.md` (SDL3 zlib, resvg MIT/Apache), `hooks.nsh` + `uninstall.ps1` remove `SDL3.dll`.
 - [ ] Walk spec §3 line by line against the running build.

@@ -1,6 +1,6 @@
 //! The controller overlay (Controller Overlay, merged into Deck) and the universal controller
 //! battery: one tray icon per controller that reports a battery, and the battery pill on the
-//! overlay. See `docs/superpowers/specs/2026-10-18-controller-overlay-design.md`.
+//! overlay. See `docs/design/specs/2026-10-18-controller-overlay-design.md`.
 //!
 //! Two threads: `battery` (polls every 2 s while the tray icons or the overlay are on) and
 //! `overlay` (the native windows and the frame clock). Settings are `pad` in settings.json.

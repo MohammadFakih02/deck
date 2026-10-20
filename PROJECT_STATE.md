@@ -1,6 +1,6 @@
 # Deck — project state
 
-Handoff notes so work can resume later. Last updated: 2026-10-20 (v2.7.5).
+The dated history of the work. Last updated: 2026-10-20 (v2.7.5).
 
 **Start with `DECK.md`** (full overview: features, hardware, files, build/test, status). This file is the dated history.
 
@@ -10,7 +10,7 @@ Handoff notes so work can resume later. Last updated: 2026-10-20 (v2.7.5).
 
 Released at the user's request as **2.7.5** (tag `v2.7.5`, built and published by `release.yml`): everything in the three entries below plus this one.
 - **Security (found while updating `docs/trust-boundaries.md` for the release):** Tweaks' undo writes the journal's before-values with admin rights, and `%APPDATA%\Deck	weaks.json` is user-writable, so a program running as the user could have planted, say, `HKCR\ms-gamebar\shell\open\command` (a recipe key) or any HKLM value and had it written at the next Undo. Now: the journal is sealed (`seal` name `tweaks-journal`, recorded on every save, checked at the first load; a mismatch is renamed `tweaks.changed-outside.json`, `journal_set_aside` in the state, a notice on the overview), and `before_allowed` refuses any before-value outside the tweak's own recipe (test `undo_only_touches_what_the_tweaks_recipe_touches`), and an entry for an unknown tweak. "Unpin everything from Start" no longer trusts the journal's backup path (fixed `tweaks-start2.bin`, read and written with the user's rights). Store downloads write through `fsguard::Dir` (`open_for_user`), so a junction can't redirect the elevated writes. Not live-tested: a real tampered journal at an admin start (the seal path is the hardware settings' one).
-- **Docs for the release:** README rewritten around every feature (Everyday, Gaming, Hardware, Windows, Your other devices, Quality of life), new screenshots `tweaks.png` and `phone.png` from the fake-data preview, credits for Win11Debloat / WinUtil / VB-CABLE / RustDesk / Tailscale; `trust-boundaries.md` (journal row, VB-CABLE and Store downloads, phone speaker/mic row, https residual risk, tweaks residual risk); `SECURITY.md` scope; `CONTRIBUTING.md` (registry scratch key, `run_for`, stall timeouts); `DECK.md` (version, gotchas, data files, the phone mic cushion, Tweaks/Store/updater rows). GitHub's About text and topics are repo settings (not in git).
+- **Docs for the release:** README rewritten around every feature (Everyday, Gaming, Hardware, Windows, Your other devices, Quality of life), new screenshots `tweaks.png` and `phone.png` from the fake-data preview, credits for Win11Debloat / WinUtil / VB-CABLE / RustDesk / Tailscale; `trust-boundaries.md` (journal row, VB-CABLE and Store downloads, phone speaker/mic row, https residual risk, tweaks residual risk); `SECURITY.md` scope; `CONTRIBUTING.md` (registry scratch key, `run_for`, stall timeouts); `DECK.md` (version, gotchas, data files, the phone mic cushion, Tweaks/Store/updater rows). GitHub's About text and topics are repo settings (not in git). After the tag: the contributor notes in DECK.md §0/§9 and CONTRIBUTING were reworded, and the design notes moved to `docs/design/` (every link updated).
 - **Checked:** clippy `-D warnings` clean; `cargo test --locked` 404 pass (the known rtss user-folder test fails only in this checkout's location); regress 40/40; a11y clean; toast-test, phone-shot, phone-sign pass.
 
 ## 2026-10-20: bug hunt after the first real use
@@ -31,7 +31,7 @@ Released at the user's request as **2.7.5** (tag `v2.7.5`, built and published b
 
 ## 2026-10-20: Tweaks, built-in apps, Store apps without the Store (released in 2.7.5)
 
-Design: `docs/superpowers/specs/2026-10-20-tweaks-design.md` (the user asked for everything at once and will judge the look at the end).
+Design: `docs/design/specs/2026-10-20-tweaks-design.md` (the user asked for everything at once and will judge the look at the end).
 - **Data:** `tools/tweaks/build.py` reads Win11Debloat (`a2d63c7`) and WinUtil (`7514faf`) at pinned commits (cache in `tools/tweaks/.cache`, git-ignored) and writes `src-tauri/tweaks/tweaks.json` (132 tweaks, 4 presets), `apps.json` (138 apps, Edge left out) and `start2.bin`. Undo files are in `Regfiles/Undo` (one in `Regfiles`), names differ in case (resolved through the repo tree). A value two tweaks write goes to the first that claims it (Activity history, Feedback, Edge ads before Telemetry, Edge extras). WinScript (GPL-3.0): ideas only. Left out: Edge/WebView2 removal, Windows Update/Defender off, services to Manual, Razer/Logitech folder-ACL scripts, MAS.
 - **This PC was debloated before** (WinUtil-like): the first read had 17 tweaks "mixed". Sticky Keys and Num Lock are bit flags in text values (`bits` on numeric strings), animations use MinAnimate + TaskbarAnimations instead of comparing the whole UserPreferencesMask; the rest are honestly partial and show "Partly · n of m" with the switch where most steps lean.
 - **Bugs found while testing:** DISM run without admin hangs (it sat 10 minutes): every program the engine runs now has a time limit (`tweaks::run`) and DISM isn't asked without admin. A first `sed` with `\|` in its pattern rewrote six strings in `apps.rs` (reverted). PC to PC's own Explorer restart (`beam/snapshot.rs restart_explorer`) started `explorer.exe` from the elevated Deck (an elevated shell): it now uses `tweaks::restart_explorer` (Winlogon restarts it as the user).
@@ -54,7 +54,7 @@ Design: `docs/superpowers/specs/2026-10-20-tweaks-design.md` (the user asked for
 
 ## 2026-10-20: v2.7.0 — death counter: new in-game look, sessions, boss cards, records
 
-The user found the counter "very underwhelming" and the History tab bad. Designed with them from browser mockups (spec `docs/superpowers/specs/2026-10-20-death-counter-look-design.md`, plan `docs/superpowers/plans/2026-10-20-death-counter-look.md`): "B while you play, C after you die", plus ring and huge-number styles, an optional red edge, everything switchable; then "do whatever you think is best" for the page.
+The user found the counter "very underwhelming" and the History tab bad. Designed with them from browser mockups (spec `docs/design/specs/2026-10-20-death-counter-look-design.md`, plan `docs/design/plans/2026-10-20-death-counter-look.md`): "B while you play, C after you die", plus ring and huge-number styles, an optional red edge, everything switchable; then "do whatever you think is best" for the page.
 - **History model:** `Ev::Play` with `Event.ms` (a play session's length; one line per start, rewritten in place every 5 min by `put_play`); `Book.deaths` now keeps each death's time, `Book.wins`, `Book.plays`. Old Deck versions skip the play lines (unknown lines are skipped on load).
 - **`deaths/stats.rs`:** tries (fight start or last death/win to a death/win; > 30 min = unknown), sessions (play lines < 15 min apart merge; history before the first play line is estimated, split at 1 h gaps), records, `death_note` (milestones 1, 10, 50, 100, every 100th; "Your longest try yet" from 3 tries).
 - **Sessions are recorded** by `session_step` in the counter's loop (the counted game in front; another game ends it at once; nothing in front for 15 min ends it).
@@ -107,7 +107,7 @@ Built and tested 2026-10-20 (see above). Fixed:
 
 ## 2026-10-19: Updates from GitHub, one-step setup, crash protection (unreleased)
 
-Spec and plan: `docs/superpowers/specs/2026-10-19-updates-and-crash-protection-design.md`. Not installed, not committed, not pushed.
+Spec and plan: `docs/design/specs/2026-10-19-updates-and-crash-protection-design.md`. Not installed, not committed, not pushed.
 
 - **Why "Set up" came back after every install:** the NSIS finish page (`RunMainBinary`) and `/R` start Deck with `RunAsUser`, so Deck ran unelevated even though the admin tasks survived the update. The 2026-10-18/19 log shows the tasks being re-created each time.
 - **One UAC, in the setup:** `hooks.nsh` `NSIS_HOOK_POSTINSTALL` runs `deck.exe --setup-task` (the setup is elevated: per-machine) and, for silent, passive and update installs, starts Deck through the new `\Deck\Background` task (`--minimized`: no window, no focus). An uninstall now removes the four tasks and `updates`. A GUI install's "Run Deck" box still starts it as the user; `elevation::handover` (called in `main` before the window exists) passes any plain unelevated start (no args: `\Deck\Open`; `--minimized`: `\Deck\Background`) to the admin task when it runs this exe; a 20 s marker file stops a loop. `ensure_quit_task` also makes the Background task for installs that lack it.
@@ -217,7 +217,7 @@ Spec and plan: `docs/superpowers/specs/2026-10-19-updates-and-crash-protection-d
 ## 2026-10-19: Death counter, stage 1 (unreleased)
 
 - **What:** Monitor → **Deaths** + tray submenu "Death counter" + in-game pill + two hotkeys.
-  Design: `docs/superpowers/specs/2026-10-19-death-counter-design.md` (stages: 1 manual counting
+  Design: `docs/design/specs/2026-10-19-death-counter-design.md` (stages: 1 manual counting
   [this], 2 save-file readers starting with Elden Ring, 3 screen detection after the capture spike).
 - **User's choices (2026-10-19):** counting automatic + hotkeys + controller combo, shown on Deck's own
   pill; any game counts ("don't want it to just detect these games"), the catalogue only adds extras;
@@ -245,8 +245,8 @@ Spec and plan: `docs/superpowers/specs/2026-10-19-updates-and-crash-protection-d
 ## 2026-10-19: Controller Overlay merged into Deck + universal controller battery (unreleased)
 
 The standalone Controller Overlay (Python, pygame-ce + tkinter) is now a Deck feature: Monitor →
-**Controller**. Design: `docs/superpowers/specs/2026-10-18-controller-overlay-design.md`; plan:
-`docs/superpowers/plans/2026-10-18-controller-overlay.md`.
+**Controller**. Design: `docs/design/specs/2026-10-18-controller-overlay-design.md`; plan:
+`docs/design/plans/2026-10-18-controller-overlay.md`.
 
 - **Backend `src-tauri/src/pad/`** (see DECK.md §5). Battery thread: GameSir vendor protocol (dongle
   3537:1098 MI_02, `01 01`, byte 19), Sony DS4/DualSense input reports read passively (never a feature
@@ -279,7 +279,7 @@ The standalone Controller Overlay (Python, pygame-ce + tkinter) is now a Deck fe
   shows as 3537:2106 (one vendor interface) while the controller is off, as expected.
 - **Not yet done live** (the user was in a game the whole session, so Deck wasn't restarted): the overlay
   window on screen, the tray icons, the GameSir reading with the controller on, CPU per the budget, Raw Input
-  next to tao's own registration. Do these first next session; then the user uninstalls the old app.
+  next to tao's own registration. Do these first next time; then the user uninstalls the old app.
 ## 2026-10-19 (later): overlay clocks = Afterburner's (ratio x bus), Afterburner look, busiest-thread core load (not released)
 
 - **Why:** the user (i5-14600KF, the "friend" of the 2.5.10 entry) still saw 2.5.10's overlay differ from Afterburner: Deck's thread lines 4931-5199 (P) / 3487-3666 (E), Afterburner a flat 5292 / 3994 with an occasional 799. Two causes: (1) the overlay's thread table never used 2.5.10's counters: `rtss::snapshot` filled `thread_reads` from its own PDH `ThreadClocks`; only the CPU line used `Cpu::clock`. (2) APERF/MPERF is the average clock while awake; Afterburner shows the current ratio (`IA32_PERF_STATUS` 15:8) x bus. Its 799 is a read that landed on a sleeping core (ratio 8), which only a ratio read gives. On a freely boosting CPU in a light game load the step moves within the second, so the average sits 2-4 % under the snapshot; with the clock locked (a fixed ratio) both agree, which is why the earlier HWiNFO check matched. Cinebench R23 multi on the same PC: ~23,700, normal for the part.
@@ -319,7 +319,7 @@ The standalone Controller Overlay (Python, pygame-ce + tkinter) is now a Deck fe
 
 - **Installed on moudi's PC (24c5ae1 + install fix):** user report "a lot of times the install does nothing, I have to use the GitHub installer". Checked: a UI-only change does rebuild (Tauri tracks `ui/`), and WebView2's cache holds no Deck UI files. The cause was `install.ps1`: with Deck running it printed a yellow warning in the elevated window, waited 4 s and exited 1 without copying. It now quits Deck (`--quit`, then kills Deck and its watchdog), retries the copy until the installed exe's hash matches the build (`Fail` keeps the window open 20 s otherwise), and starts `\Deck\Open` at the end. Verified: installed == build, Deck restarted from Program Files, launch test admin=true child=Medium.
 
-- **Why:** this session's findings: a cap toggled on at the slider's top still capped (the friend's 5,300 MHz "Normal" cap), "Plan's own" EPP hid Balanced's saving lean, and the board's 130 W PL1/PL2 cost ~6.5 % all-core with nothing on the page showing it. Done with the impeccable skill (no PRODUCT.md/DESIGN.md: the existing app is the visual reference). User's choices: editor on the page (not a modal), plain settings first with Windows plan details under Advanced, power-limit status, no silent caps, plan's own values shown, per-core live view. Nothing CPU- or board-specific (user rule).
+- **Why:** this round's findings: a cap toggled on at the slider's top still capped (the friend's 5,300 MHz "Normal" cap), "Plan's own" EPP hid Balanced's saving lean, and the board's 130 W PL1/PL2 cost ~6.5 % all-core with nothing on the page showing it. Done with the impeccable skill (no PRODUCT.md/DESIGN.md: the existing app is the visual reference). User's choices: editor on the page (not a modal), plain settings first with Windows plan details under Advanced, power-limit status, no silent caps, plan's own values shown, per-core live view. Nothing CPU- or board-specific (user rule).
 - **Backend:** `CpuProfile::without_silent_caps(top)` + `cpu::effective` (only when `limits().turbo_known`) in `cpu_save`, `write_plan`, `apply_extras`, `cpu_state`. `Shared.power_now` / `power_board` set by the power thread every 2 s (`powermode::board`: the captured stock register or the current one; `Rapl::decode`). `cpu_live` gains `limits`, `board`, `limits_by_deck`, `cores` (`profcmd::core_rows` from the sensor table). `cpu_state` profiles gain `plan_epp`. Tests: `a_cap_at_the_top_is_no_cap`, `limits_decode_from_the_register`, `cores_come_from_the_sensor_table` (223 total).
 - **UI:** `ui/js/profiles.js` (Pages.cpu, `cpuRail`, `cpuEditor` / `editorBody`, `endSlider`: a slider whose end is off), `.cpu-page` / `.rail-*` / `.ce-*` in `app.css`, help texts `cpu.limit`, `cpu.turbo_mode` and updated cap / EPP / power / clock-floor entries. `editCpu(x)` now opens the on-page editor (still exported to `window` for tests). Regress tests 14b and 17 updated for the on-page editor; mock data has limits, board limits, cores and a plan-own EPP profile. Screenshots checked at 1260 and 900 wide; impeccable's detector findings in the new CSS fixed (bar fills animate transform, chevron icon).
 
@@ -404,7 +404,7 @@ process still trusting user-controlled locations. All fixed with tests:
   rebuilt in minutes). Clippy runs in the same profile (99 s cold), clean. Two redundant tests removed (`boost::guid_round_trip`,
   `util::free_space_is_read`). UI suites wait for the page instead of fixed sleeps: `regress` 31 s -> 13 s (39/39, stable over
   3 runs), `a11y` 27 s -> 5 s (0 issues); harness files are deleted after a run.
-- **Independent review of the newest Rust (a separate reviewer agent, read-only) found, now fixed with tests:**
+- **Independent review of the newest Rust (a separate read-only review) found, now fixed with tests:**
   - A plug/unplug during Game boost or a hardware hold was used up and never applied; it now waits and switches once the
     hold ends (`power_step`, tests `a_power_change_while_held_waits_until_the_hold_ends`, `a_deleted_profile_is_not_switched_to`).
   - `rewrite_active` (turning "Profiles also apply on battery" on) ignored the seal hold and re-activated a plan the user may
@@ -662,7 +662,7 @@ crash-guard behaviour on a real reset, installers. No hardware was changed.
 - **32-bit RivaTuner helper was never in the setups.** The i686 Rust target wasn't installed on the build PC, so `build.rs` skipped `rtss-osd32.exe` with a warning. Released builds could neither read nor flip RivaTuner's 32-bit switch, the one its own window shows; that is the root of the limiter-key report. The target is now installed (`rustup target add i686-pc-windows-msvc`). The 64-bit read added above works without the helper anyway.
 - Report (owner): Open RivaTuner showed a busy cursor for a moment and nothing opened. RivaTuner had restarted (new RTSS.exe), and its main window existed but was hidden: its config had `StartMinimized=1` (Profiles\Config, [Settings]), so the fresh start that `open_rtss_window` relies on stayed in the tray, with the tray icon hidden by Deck. Now: set it to 0 before the start, wait for `IsWindowVisible` on the "RivaTunerStatisticsServer" window (up to 5 s), read the file again and set it back to 1. Not tested live (owner can't test now).
 - Report (owner, screenshot): on the Phone page some Screen view options "can't be changed". They were saved; the page didn't redraw. The `changed` listener in `app.js` only calls `renderSide()` for the "settings" topic, and `Pages.phone.tick` only redraws when `remote_info` changes. The Phone page's controls now do `setSetting(k, v).then(render)` (the codebase's idiom).
-- `/code-review` on that change, then a full review (superpowers code-reviewer) of 0fc0f76..working tree (2.5.4 + this). Fixed:
+- A review of that change, then a full review of 0fc0f76..working tree (2.5.4 + this). Fixed:
   - `render()` keeps `<details>` fold cards open across redraws of the same page/sub-tab (by summary text); before, every redraw (also the live tick) folded them shut. A card that is open by default and was closed by the user opens again (unchanged).
   - `setSetting()` puts the previous value back when `set_setting` fails (only if no newer write for that key is pending).
   - Bitrate "Type…": Cancel / not a number keeps the old value (was saved as 0 = Auto).
@@ -859,8 +859,8 @@ Everything since 1.1.2, built and tested on the maintainer's PC between releases
 
 ## 2026-10-11: hardware control (MoboCtl merged, Afterburner replaced)
 
-Spec `docs/superpowers/specs/2026-10-11-hardware-control-design.md`, plan + ledger with every ruling in
-`docs/superpowers/plans/` (`progress.md`).
+Spec `docs/design/specs/2026-10-11-hardware-control-design.md`, plan + ledger with every ruling in
+`docs/design/plans/` (`progress.md`).
 - **Runs elevated** through scheduled tasks `\Deck\Deck` (logon, `--minimized`) and `\Deck\Open` (Start menu via `run.vbs`);
   installed to `C:\Program Files\Deck` by `install.ps1`; apps it opens still start as the normal user (`util::launch_as_user`).
 - **Hardware group**: CPU, GPU, Fans, Lighting, Cooler display, Sensors, This PC (pages hide when the PC has no such hardware).
@@ -1088,7 +1088,7 @@ Full report with before/after numbers and screenshots: `docs/audits/2026-10-12-u
   - Phone remote: zoom allowed, buttons and sliders named, bigger "All apps" target, album-art URL escaped, 640 px column on tablets.
 - **New test tools:** `regress.mjs`, `a11y.mjs`, `harness.mjs`, `phone-shot.mjs`, `all-sizes.sh`. `shot.mjs` takes a `PORT` env. `mock.js` has Cooler display data.
 - `restart-normal.ps1` must run **elevated**, or it leaves the debug instance running (it had been, since the earlier session). Noted in DECK.md.
-- Builds this session used `-j 8`. `cargo test --release` gives 55 passed. Installed and checked live over CDP (all 28 pages, no errors), then restarted normally; port 9222 is closed.
+- Builds this round used `-j 8`. `cargo test --release` gives 55 passed. Installed and checked live over CDP (all 28 pages, no errors), then restarted normally; port 9222 is closed.
 
 ## 2026-10-12 (night): feature audit, MicDrop removed from Deck
 Full report: `docs/audits/2026-10-12-feature-audit.md` (screenshots kept locally).
@@ -1132,7 +1132,7 @@ Full report: `docs/audits/2026-10-12-feature-audit.md` (screenshots kept locally
   - Small UI: Phone card shows only "off" while the connection is off; media without art shows a music note, not a play triangle (Home and Sound).
   - Final install 20:11 with every fix #1–#43 (no game open); restarted normally, port 9222 closed. One unplanned normal restart at about 20:09 (a restart chained after a build by mistake; no game was open).
   - cargo 75 passed; `regress.mjs` 29/29; `toast-test.mjs` 6/6; `a11y.mjs` 0 problems.
-- **Mistake this session:** the second install ran while a game was open (the window list wasn't read first). It re-applied the same profiles and gave the fans to the BIOS for about 2 s. There have been no restarts since. A memory note now requires the game check as its own step.
+- **Mistake this round:** the second install ran while a game was open (the window list wasn't read first). It re-applied the same profiles and gave the fans to the BIOS for about 2 s. There have been no restarts since. A memory note now requires the game check as its own step.
 
 ## 2026-10-12 (night) — sidebar merge, help tips, ping Start/Stop, overlay font list
 - **Notes removed** (page, Home tile, nav). `notes` dropped from ALL_TILES; the `notes` field stays in settings.json so saved notes aren't deleted. Settings' tile list skips tiles that no longer exist.
@@ -1162,5 +1162,5 @@ Full report: `docs/audits/2026-10-12-feature-audit.md` (screenshots kept locally
 ## 2026-10-13 — published on GitHub
 - Public repo https://github.com/MohammadFakih02/deck with README (screenshots from the fake-data preview, no real data), MIT `LICENSE`, `THIRD_PARTY_NOTICES.md` (PawnIO GPL-2.0 / modules LGPL-2.1, Fluent icons MIT), `CHANGELOG.md`, CI (`cargo test` + `node --check` on windows-latest), issue templates. Release v1.0.0 with the setup attached.
 - Docs cleaned of personal data; personal facts moved to git-ignored `PRIVATE_NOTES.md`, untouched originals in `private/originals/`. Audit reports moved to `docs/audits/` (screenshots stay local in `artifacts/`).
-- New rule, written into CLAUDE.md, DECK.md (§0, §9), this file and CONTRIBUTING.md: update the docs before every commit. Enforced by `.githooks/pre-commit` (`git config core.hooksPath .githooks`): code changes need `PROJECT_STATE.md` and `CHANGELOG.md` staged in the same commit.
+- New rule, written into DECK.md (§0, §9), this file and CONTRIBUTING.md: update the docs before every commit. Enforced by `.githooks/pre-commit` (`git config core.hooksPath .githooks`): code changes need `PROJECT_STATE.md` and `CHANGELOG.md` staged in the same commit.
 - CI fix: the UI check step failed on the first run (it also looked for `src-tauri/phone/*.js`, which doesn't exist, so the loop ended on a false test). Now checks `ui/js/*.js` and `ui/guard.js` and stops on the first real error.

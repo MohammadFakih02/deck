@@ -1,6 +1,6 @@
 // Maintenance → Tweaks: Windows settings with their live state and an exact undo, built-in apps,
 // and Store apps without the Microsoft Store. Backend: src-tauri/src/tweaks (design:
-// docs/superpowers/specs/2026-10-20-tweaks-design.md).
+// docs/design/specs/2026-10-20-tweaks-design.md).
 import { I, Pages, S, fmtBytes, h, invoke, modal, note, run, seg, toggle } from "./core.js";
 import { head } from "./pages1.js";
 import { go, render } from "./app.js";

@@ -1,14 +1,12 @@
 # Death counter look and page Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** A chosen-style in-game counter that opens into a boss card after a death (plus an optional red edge), and a Deaths page built on play sessions, tries, records, notes, all-games totals, a share picture and export.
 
 **Architecture:** New pure statistics (`deaths/stats.rs`) worked out from the existing event history plus a new `play` event; new overlay drawing (`deaths/look.rs`, `deaths/edge.rs`) on the existing SVG rasteriser and layered windows; `deaths::state()` grows the JSON the page reads; the page (`ui/js/deaths.js`) is rebuilt tab by tab with inline-SVG charts (`ui/js/deathcharts.js`).
 
 **Tech Stack:** Rust (Tauri 2, windows-sys, resvg via `pad::raster`), vanilla JS modules, the `tools/testing/ui-preview` harness.
 
-**Spec:** `docs/superpowers/specs/2026-10-20-death-counter-look-design.md`
+**Spec:** `docs/design/specs/2026-10-20-death-counter-look-design.md`
 
 ## Global Constraints
 

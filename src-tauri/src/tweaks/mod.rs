@@ -1,7 +1,7 @@
 //! Tweaks (Maintenance → Tweaks): Windows settings with their live state and an exact undo.
 //!
 //! The recipes are `tweaks/tweaks.json`, built by `tools/tweaks/build.py` from Win11Debloat and
-//! WinUtil (MIT) plus Deck's own (design: `docs/superpowers/specs/2026-10-20-tweaks-design.md`).
+//! WinUtil (MIT) plus Deck's own (design: `docs/design/specs/2026-10-20-tweaks-design.md`).
 //! Every tweak is a feature switch or a choice; its state is read from the PC each time. Before a
 //! step changes anything, what was there goes into the journal (`%APPDATA%\Deck\tweaks.json`), so
 //! undo puts back the PC's own old value, even months later. A tweak Windows changed back (a

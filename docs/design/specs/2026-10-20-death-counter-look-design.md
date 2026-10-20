@@ -30,12 +30,12 @@ counter something you enjoy glancing at mid-fight, and makes the page tell you h
   animation after a death.
 - Anything that steals focus, takes input or shows up in the user's screen captures unless they ask
   (`pill_in_recordings` keeps meaning what it means).
-- Merging the page's tabs into one (the user wants tabs kept; see `CLAUDE.md`/memory: never merge tabbed pages).
+- Merging the page's tabs into one (the user wants tabs kept: never merge tabbed pages).
 - Numbers that lie: a stat that Deck can't really know (boss health, "% through the fight") isn't shown.
 
 ## Part 1: the in-game counter
 
-Chosen with the user from mockups (`.superpowers/brainstorm/`, not committed): "B while you play, C after you die",
+Chosen with the user from mockups (not committed): "B while you play, C after you die",
 plus two more styles to choose from and an optional red edge.
 
 ### While you play: three styles (user picks; default "skull")
@@ -151,7 +151,7 @@ per week for the last few months. Below: the game list as now (Show, the shared 
 
 ## Constraints
 
-- Everything in `CLAUDE.md` for this repo: docs before every commit, no personal data, no local paths in the repo,
+- Everything in `DECK.md` §0 for this repo: docs before every commit, no personal data, no local paths in the repo,
   throttled builds, no windows popping up, the counter never takes focus or input.
 - The history file format only grows (new event kinds); old files keep working. Old Deck versions already skip
   lines they can't read (`store.rs` reads with `filter_map(.. .ok())`); an older version that deletes a line rewrites
@@ -160,7 +160,7 @@ per week for the last few months. Below: the game list as now (Show, the shared 
 - The UI preview harness (`tools/testing/ui-preview`) and its mock data get the new page so `regress.mjs` and
   `a11y.mjs` cover it.
 
-## Decided by Claude (the user said "do whatever you think is best")
+## Decided during design (the user said "do whatever you think is best")
 
 - Which page ideas and features: all three page redesigns; records, notes, all-games, share picture, export.
   Left out: named areas for deaths outside bosses (the game counter covers it), challenge goals, boss names from the

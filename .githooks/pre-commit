@@ -10,7 +10,7 @@ printf '%s\n' "$staged" | grep -qx 'PROJECT_STATE.md' || missing="$missing PROJE
 printf '%s\n' "$staged" | grep -qx 'CHANGELOG.md' || missing="$missing CHANGELOG.md"
 if [ -n "$missing" ]; then
   echo "pre-commit: this commit changes code but doesn't update:$missing" >&2
-  echo "  Rule (CLAUDE.md, DECK.md §9, CONTRIBUTING.md): update the docs before every commit." >&2
+  echo "  Rule (DECK.md §9, CONTRIBUTING.md): update the docs before every commit." >&2
   echo "  Add a dated entry to PROJECT_STATE.md and the user-visible changes to CHANGELOG.md," >&2
   echo "  update DECK.md / README.md if facts changed, stage them, and commit again." >&2
   exit 1

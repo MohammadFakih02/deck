@@ -1,14 +1,12 @@
 # Deck hardware control — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** Deck absorbs MoboCtl (fans, RGB, cooler display, sensors, CPU power) and Afterburner-style GPU tuning, with CPU and GPU profiles switched by hotkeys, desktop/Start shortcuts (pickable icons), tray, phone and Game boost; Deck runs elevated.
 
 **Architecture:** Deck (Tauri 2 + vanilla JS) gains `src-tauri/src/hw/` (MoboCtl's engine, ported nearly verbatim), `gpu/` (NVML official calls loaded with GetProcAddress + NvAPI undocumented VF-curve/volt calls), `profiles/` (CPU = Windows power plans + extras, GPU = NVML/NvAPI settings, switching, hotkeys, shortcuts, icons, Afterburner import) and `elevation.rs` (logon task, launch-as-user). UI pages go in `ui/js/hw.js`, `ui/js/profiles.js`, `ui/js/curve.js`.
 
 **Tech Stack:** Rust 2021, Tauri 2.12, windows 0.62 + windows-sys 0.61, nvml-wrapper 0.13 (reads), raw nvml.dll / nvapi64.dll (writes), PowerShell install scripts, vanilla JS UI.
 
-**Spec:** `docs/superpowers/specs/2026-10-11-hardware-control-design.md`
+**Spec:** `docs/design/specs/2026-10-11-hardware-control-design.md`
 
 ## Global Constraints
 

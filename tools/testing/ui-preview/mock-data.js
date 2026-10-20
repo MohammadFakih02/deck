@@ -216,7 +216,7 @@
 
   });
   const clips = [
-    { id: "c1", kind: "text", text: "https://github.com/anthropics/claude-code/issues/4821?utm_source=twitter&utm_medium=social", files: [], pinned: false, ts: now - 90e3, app: "Chrome" },
+    { id: "c1", kind: "text", text: "https://github.com/tauri-apps/tauri/issues/4821?utm_source=twitter&utm_medium=social", files: [], pinned: false, ts: now - 90e3, app: "Chrome" },
     { id: "c2", kind: "text", text: "const total = items.reduce((a, b) => a + b.price * b.qty, 0);\nconsole.log(total.toFixed(2));", files: [], pinned: true, ts: now - 12 * 60e3, app: "Code" },
     { id: "c3", kind: "image", text: "", files: [], image: "shot1", w: 1920, h: 1080, pinned: false, ts: now - 40 * 60e3, app: "Snipping Tool" },
     { id: "c4", kind: "files", text: "", files: ["D:\\Downloads\\Resume_final_v3.pdf", "D:\\Downloads\\cover-letter.docx"], pinned: false, ts: now - 3 * 3600e3, app: "Explorer" },

@@ -236,8 +236,8 @@ Threads:
 
    **Answered: A.** Raw Input, receive-only (`RIDEV_INPUTSINK`, no `RIDEV_NOLEGACY`, never
    blocks or alters input), registered only while keyboard & mouse mode is on and unregistered
-   when it's off. Phase 7 adds Raw Input to Deck's allowed-input list in `DECK.md` and
-   `CLAUDE.md`'s rules with this reasoning. `GetAsyncKeyState` stays for the stuck-key resync.
+   when it's off. Phase 7 adds Raw Input to Deck's allowed-input list in `DECK.md`
+   with this reasoning. `GetAsyncKeyState` stays for the stuck-key resync.
 2. **Retiring the old app:** answered — **the user uninstalls it themselves.** Deck never
    removes or touches the old install; it only imports its settings once (§6.7).
 3. **Test hardware:** answered — the user has **only the GameSir** (Nova 2 Lite on its
