@@ -84,35 +84,7 @@ pub fn find(id: &str) -> Option<&'static Tweak> {
 /// Runs a console program hidden, ending it after `secs` (DISM and PowerShell can hang; nothing
 /// here may wait forever).
 pub(crate) fn run(secs: u64, exe: &str, args: &[&str]) -> std::io::Result<std::process::Output> {
-    use std::io::Read;
-    use std::os::windows::process::CommandExt;
-    use std::process::{Command, Stdio};
-    let mut child = Command::new(exe).args(args).creation_flags(0x0800_0000).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
-    let (mut so, mut se) = (child.stdout.take().unwrap(), child.stderr.take().unwrap());
-    let ro = std::thread::spawn(move || {
-        let mut b = Vec::new();
-        let _ = so.read_to_end(&mut b);
-        b
-    });
-    let re = std::thread::spawn(move || {
-        let mut b = Vec::new();
-        let _ = se.read_to_end(&mut b);
-        b
-    });
-    let end = Instant::now() + Duration::from_secs(secs);
-    let status = loop {
-        if let Some(st) = child.try_wait()? {
-            break st;
-        }
-        if Instant::now() >= end {
-            let _ = child.kill();
-            let _ = child.wait();
-            crate::log::warn(format!("tweaks: {exe} took over {secs} s and was ended"));
-            return Err(std::io::Error::new(std::io::ErrorKind::TimedOut, format!("{exe} didn't finish in {secs} s")));
-        }
-        std::thread::sleep(Duration::from_millis(50));
-    };
-    Ok(std::process::Output { status, stdout: ro.join().unwrap_or_default(), stderr: re.join().unwrap_or_default() })
+    crate::util::run_for(secs, exe, args)
 }
 
 // ------------------------------------------------------------------------------------- journal
@@ -146,10 +118,31 @@ fn journal_path() -> std::path::PathBuf {
     crate::settings::Settings::dir().join("tweaks.json")
 }
 
+/// The journal's name in `seal` (its fingerprint is kept where only administrators can write).
+const SEAL: &str = "tweaks-journal";
+/// The journal was changed outside Deck and set aside (`tweaks.changed-outside.json`).
+static SET_ASIDE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// The journal as Deck last saved it. Undo writes its before-values back with Deck's admin rights,
+/// and the file is in the user's folder, where any of their programs can edit it: one whose
+/// fingerprint isn't the one Deck recorded is set aside and never acted on.
+fn load_journal() -> Journal {
+    let Ok(bytes) = std::fs::read(journal_path()) else { return Journal::default() };
+    if crate::seal::check(SEAL, &bytes) == crate::seal::Seal::Changed {
+        let aside = journal_path().with_file_name("tweaks.changed-outside.json");
+        let _ = std::fs::remove_file(&aside);
+        let _ = std::fs::rename(journal_path(), &aside);
+        SET_ASIDE.store(true, std::sync::atomic::Ordering::SeqCst);
+        crate::log::warn("tweaks: the undo list was changed outside Deck; it was set aside and isn't used");
+        return Journal::default();
+    }
+    serde_json::from_slice(&bytes).unwrap_or_default()
+}
+
 pub fn with_journal<R>(f: impl FnOnce(&mut Journal) -> R) -> R {
     let mut j = JOURNAL.lock();
     if j.is_none() {
-        *j = Some(std::fs::read_to_string(journal_path()).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default());
+        *j = Some(load_journal());
     }
     f(j.as_mut().unwrap())
 }
@@ -157,11 +150,33 @@ pub fn with_journal<R>(f: impl FnOnce(&mut Journal) -> R) -> R {
 pub(crate) fn save_journal() {
     with_journal(|j| {
         if let Ok(t) = serde_json::to_vec_pretty(j) {
-            if let Err(e) = crate::util::write_atomic(&journal_path(), &t) {
-                crate::log::warn(format!("tweaks: the journal couldn't be saved: {e}"));
+            match crate::util::write_atomic(&journal_path(), &t) {
+                Ok(()) => crate::seal::record(SEAL, &t),
+                Err(e) => crate::log::warn(format!("tweaks: the journal couldn't be saved: {e}")),
             }
         }
     });
+}
+
+/// Defence in depth for undo: a before-value may only touch what this tweak's own recipe touches
+/// (so even a forged journal entry can't reach other registry keys, services or features).
+fn before_allowed(t: &Tweak, b: &Before) -> bool {
+    let steps = || t.options.iter().flat_map(|o| o.steps.iter());
+    let eq = |a: &str, b: &str| a.eq_ignore_ascii_case(b);
+    match b {
+        Before::Value { path, name, .. } => steps().any(|s| {
+            s.reg.as_deref().is_some_and(|r| eq(r, path)) && !s.key_delete && !s.key_create && eq(s.name.as_deref().unwrap_or(""), name)
+                || s.dx.is_some() && eq(path, steps::DX_KEY) && eq(name, steps::DX_NAME)
+        }),
+        Before::Key { path, .. } => steps().any(|s| (s.key_delete || s.key_create) && s.reg.as_deref().is_some_and(|r| eq(r, path))),
+        // the first key on a step's path that wasn't there
+        Before::Created { path } => steps().any(|s| s.reg.as_deref().is_some_and(|r| eq(r, path) || r.to_ascii_lowercase().starts_with(&format!("{}\\", path.to_ascii_lowercase())))),
+        Before::Service { name, .. } => steps().any(|s| s.service.as_deref().is_some_and(|n| eq(n, name))),
+        Before::Feature { name, .. } => steps().any(|s| s.feature.as_deref().is_some_and(|n| eq(n, name))),
+        Before::Cmd { name, .. } => steps().any(|s| s.cmd.as_deref().is_some_and(|n| eq(n, name))),
+        Before::Dns { .. } => steps().any(|s| s.dns.is_some()),
+        Before::Dx { key, .. } => steps().any(|s| s.dx.as_deref().is_some_and(|k| eq(k, key))),
+    }
 }
 
 // ------------------------------------------------------------------------------------- slow reads
@@ -485,6 +500,7 @@ pub fn state() -> Value {
         "cats": data().cats, "presets": data().presets, "tweaks": tweaks, "build": build, "admin": admin,
         "pending": *PENDING.lock(), "checking": SLOW_BUSY.load(std::sync::atomic::Ordering::SeqCst),
         "restore_point": *RESTORE.lock(),
+        "journal_set_aside": SET_ASIDE.load(std::sync::atomic::Ordering::SeqCst),
     })
 }
 
@@ -524,8 +540,8 @@ pub fn after(app: &App, what: &str) -> Result<(), String> {
             PENDING.lock().explorer.clear();
             Ok(())
         }
-        "signout" => crate::tweaks::run(60, "shutdown.exe", &["/l"]).map(|_| ()).map_err(|e| e.to_string()),
-        "restart" => crate::tweaks::run(60, "shutdown.exe", &["/r", "/t", "0"]).map(|_| ()).map_err(|e| e.to_string()),
+        "signout" => crate::power::shutdown_exe(&["/l"]),
+        "restart" => crate::power::shutdown_exe(&["/r", "/t", "0"]),
         "later" => {
             PENDING.lock().explorer.clear();
             Ok(())
@@ -535,7 +551,8 @@ pub fn after(app: &App, what: &str) -> Result<(), String> {
 }
 
 /// Ends Explorer and lets Windows start it again as you (an Explorer Deck started would run with
-/// Deck's admin rights). Starts it itself only when Windows didn't within 5 s.
+/// Deck's admin rights). Starts it itself only when Windows didn't within 5 s (AutoRestartShell
+/// off, as some debloat scripts leave it): through a one-off task without admin rights.
 pub(crate) fn restart_explorer() {
     let running = || {
         let mut sys = sysinfo::System::new();
@@ -550,7 +567,18 @@ pub(crate) fn restart_explorer() {
         }
     }
     crate::log::warn("tweaks: Windows didn't restart Explorer by itself; Deck started it");
-    let _ = std::process::Command::new("explorer.exe").spawn();
+    let exe = crate::util::windows_dir().join("explorer.exe").display().to_string();
+    if crate::elevation::is_admin() {
+        const TASK: &str = "\\Deck\\Explorer";
+        let xml = crate::elevation::task_xml(&exe, "", false, "Starts File Explorer without admin rights (removed right after).").replace("<RunLevel>HighestAvailable</RunLevel>", "<RunLevel>LeastPrivilege</RunLevel>");
+        let started = crate::elevation::create_task(TASK, &xml).is_ok() && crate::elevation::run_task(TASK);
+        crate::elevation::delete_task(TASK);
+        if started {
+            return;
+        }
+    }
+    // no desktop at all is worse than an Explorer with Deck's rights
+    let _ = std::process::Command::new(exe).spawn();
 }
 
 // ------------------------------------------------------------------------------------- restore point
@@ -676,14 +704,18 @@ pub fn set_from_setup(id: &str, opt: &str) -> Result<(), String> {
 /// Puts everything tweak `id` changed back as it was before Deck.
 pub fn undo(id: &str) -> Result<(), String> {
     let e = with_journal(|j| j.entries.iter().find(|e| e.id == id).cloned()).ok_or("Deck didn't change this")?;
-    if let Some(t) = find(id) {
-        let (admin, same_user) = who_runs();
-        if let Some(why) = blocked(t, admin, same_user) {
-            return Err(why);
-        }
-        if t.kind == "action" {
-            actions::undo(t, &e)?;
-        }
+    // only what this Deck's recipe for it touches (an entry for a tweak it doesn't know isn't acted on)
+    let t = find(id).ok_or("This tweak isn't in this version of Deck: Forget it instead")?;
+    if let Some(b) = e.before.iter().find(|b| !before_allowed(t, b)) {
+        crate::log::warn(format!("tweaks: undo of {id} refused: its undo list names something its recipe doesn't touch ({b:?})"));
+        return Err("Its undo list names something this tweak never changes, so Deck won't use it".into());
+    }
+    let (admin, same_user) = who_runs();
+    if let Some(why) = blocked(t, admin, same_user) {
+        return Err(why);
+    }
+    if t.kind == "action" {
+        actions::undo(t, &e)?;
     }
     let mut first_err = None;
     for b in e.before.iter().rev() {
@@ -749,6 +781,11 @@ mod actions {
     /// Win11Debloat's empty Start layout (MIT): Start opens with nothing pinned.
     const EMPTY_START: &[u8] = include_bytes!("../../tweaks/start2.bin");
 
+    /// Where "Unpin everything" keeps your Start layout for its undo.
+    fn keep_path() -> std::path::PathBuf {
+        crate::settings::Settings::dir().join("tweaks-start2.bin")
+    }
+
     fn restart_start() {
         let _ = crate::tweaks::run(60, "taskkill.exe", &["/F", "/IM", "StartMenuExperienceHost.exe"]);
     }
@@ -757,9 +794,15 @@ mod actions {
         match t.action.as_deref() {
             Some("start_clear") => {
                 let file = start_dir().join("start2.bin");
-                let keep = crate::settings::Settings::dir().join("tweaks-start2.bin");
+                let keep = keep_path();
                 if file.exists() {
-                    std::fs::copy(&file, &keep).map_err(|e| format!("Couldn't keep your Start layout: {e}"))?;
+                    // read with your rights: the file is in your folder (it could be swapped for a link)
+                    let mut b = Vec::new();
+                    std::io::Read::read_to_end(&mut crate::fsguard::open_read_for_user(&file).map_err(|e| format!("Couldn't keep your Start layout: {e}"))?, &mut b).map_err(|e| format!("Couldn't keep your Start layout: {e}"))?;
+                    crate::util::write_atomic(&keep, &b).map_err(|e| format!("Couldn't keep your Start layout: {e}"))?;
+                } else {
+                    // a copy from an earlier time isn't this layout: undo leaves Windows' default
+                    let _ = std::fs::remove_file(&keep);
                 }
                 std::fs::create_dir_all(start_dir()).map_err(|e| e.to_string())?;
                 crate::util::write_atomic(&file, EMPTY_START).map_err(|e| e.to_string())?;
@@ -774,10 +817,15 @@ mod actions {
         match t.action.as_deref() {
             Some("start_clear") => {
                 let file = start_dir().join("start2.bin");
-                match e.backup.as_deref().map(std::path::Path::new).filter(|p| p.exists()) {
+                // Deck's own copy only (never a path from the journal), read with your rights
+                let keep = keep_path();
+                let _ = e;
+                match keep.exists().then_some(&keep) {
                     Some(keep) => {
-                        let b = std::fs::read(keep).map_err(|e| e.to_string())?;
+                        let mut b = Vec::new();
+                        std::io::Read::read_to_end(&mut crate::fsguard::open_read_for_user(keep).map_err(|e| e.to_string())?, &mut b).map_err(|e| e.to_string())?;
                         crate::util::write_atomic(&file, &b).map_err(|e| e.to_string())?;
+                        let _ = std::fs::remove_file(keep);
                     }
                     // there was no layout file: Windows makes its default one again
                     None => {
@@ -922,6 +970,27 @@ mod tests {
     }
 
     #[test]
+    fn undo_only_touches_what_the_tweaks_recipe_touches() {
+        let t = find("gaming.gamebar").unwrap();
+        let p = |s: &str| s.to_string();
+        // its own key (any case) and the key it made: fine
+        assert!(before_allowed(t, &Before::Key { path: p(r"hkcr\ms-gamebar\shell\open\command"), tree: None }));
+        // a forged journal: another key, a value it never sets, a service it never touches
+        assert!(!before_allowed(t, &Before::Key { path: p(r"HKCR\exefile\shell\open\command"), tree: None }));
+        assert!(!before_allowed(t, &Before::Value { path: p(r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run"), name: p("x"), data: None }));
+        assert!(!before_allowed(t, &Before::Service { name: p("WinDefend"), start: 2, delayed: None }));
+        let ext = find("explorer.ext").unwrap();
+        let step = ext.options.iter().flat_map(|o| o.steps.iter()).find(|s| s.reg.is_some()).unwrap();
+        let (path, name) = (step.reg.clone().unwrap(), step.name.clone().unwrap_or_default());
+        assert!(before_allowed(ext, &Before::Value { path: path.clone(), name: name.clone(), data: None }));
+        // the first missing key on its path, not a sibling that only starts the same
+        let parent = path.rsplit_once('\\').unwrap().0.to_string();
+        assert!(before_allowed(ext, &Before::Created { path: parent.clone() }));
+        assert!(!before_allowed(ext, &Before::Created { path: format!("{parent}X") }));
+        assert!(!before_allowed(ext, &Before::Value { path, name: format!("{name}2"), data: None }));
+    }
+
+    #[test]
     fn directx_settings_keep_the_other_keys() {
         let base = scratch("dx");
         let path = r"HKCU\Software\Microsoft\DirectX\UserGpuPreferences";
@@ -934,6 +1003,16 @@ mod tests {
         steps::apply(&unset).unwrap();
         assert_eq!(steps::matches(&unset, false), Some(true));
         assert_eq!(steps::matches(&step(json!({ "dx": "VRROptimizeEnable", "value": "1" })), false), Some(true));
+        // two tweaks in the one string: undoing the first keeps what the second set since
+        let vrr_off = step(json!({ "dx": "VRROptimizeEnable", "value": "0" }));
+        let b1 = steps::before(&vrr_off);
+        steps::apply(&vrr_off).unwrap();
+        steps::apply(&on).unwrap();
+        for b in &b1 {
+            steps::restore(b).unwrap();
+        }
+        assert_eq!(steps::matches(&step(json!({ "dx": "VRROptimizeEnable", "value": "1" })), false), Some(true));
+        assert_eq!(steps::matches(&on, false), Some(true), "the other tweak's key stays");
         cleanup(&base);
     }
 

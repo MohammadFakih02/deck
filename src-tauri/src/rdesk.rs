@@ -4,7 +4,6 @@
 //! tray icon and shows the addresses to connect to. Tailscale (free) is the private network that
 //! makes "away from home" work without opening anything to the internet.
 
-use crate::util::run_hidden;
 use parking_lot::Mutex;
 use serde_json::{json, Value};
 use std::io::Read;
@@ -113,7 +112,7 @@ fn ps_args(script: &str, secret: Option<&str>, admin: bool, secret_file: Option<
 
 /// A PowerShell single-quoted string. PowerShell also takes the typographic single quotes as
 /// quotes, so every kind is doubled.
-fn ps_str(s: &str) -> String {
+pub(crate) fn ps_str(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 2);
     out.push('\'');
     for c in s.chars() {
@@ -127,7 +126,7 @@ fn ps_str(s: &str) -> String {
 }
 
 fn service_running() -> bool {
-    run_hidden("sc.exe", &["query", "RustDesk"]).map(|o| String::from_utf8_lossy(&o.stdout).contains("RUNNING")).unwrap_or(false)
+    crate::util::run_for(15, "sc.exe", &["query", "RustDesk"]).map(|o| String::from_utf8_lossy(&o.stdout).contains("RUNNING")).unwrap_or(false)
 }
 
 /// RustDesk answers on its direct port (direct connections are on and the service runs).
@@ -138,7 +137,7 @@ fn direct_open() -> bool {
 /// Tailscale: installed, signed in and connected, and this PC's address on it.
 fn tailscale_now() -> Value {
     let Some(exe) = tailscale_exe() else { return json!({ "installed": false }) };
-    let v: Value = run_hidden(&exe.to_string_lossy(), &["status", "--json"]).ok().and_then(|o| serde_json::from_slice(&o.stdout).ok()).unwrap_or(Value::Null);
+    let v: Value = crate::util::run_for(15, &exe.to_string_lossy(), &["status", "--json"]).ok().and_then(|o| serde_json::from_slice(&o.stdout).ok()).unwrap_or(Value::Null);
     let ip = v["Self"]["TailscaleIPs"].as_array().and_then(|a| a.iter().filter_map(Value::as_str).find(|s| s.contains('.')).map(String::from));
     // the user's other devices on it (a phone has to be there to connect from away)
     let peers: Vec<Value> = v["Peer"]
@@ -212,7 +211,7 @@ fn tray_startups() -> Vec<crate::startup::Entry> {
 pub fn status() -> Value {
     let ts = tailscale(true);
     let Some(exe) = rustdesk_exe() else { return json!({ "installed": false, "tailscale": ts }) };
-    let id = run_hidden(&exe.to_string_lossy(), &["--get-id"]).ok().map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()).filter(|s| !s.is_empty() && s.chars().all(|c| c.is_ascii_digit()));
+    let id = crate::util::run_for(20, &exe.to_string_lossy(), &["--get-id"]).ok().map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()).filter(|s| !s.is_empty() && s.chars().all(|c| c.is_ascii_digit()));
     let trays = tray_startups();
     json!({
         "installed": true,
@@ -232,7 +231,8 @@ pub fn install() -> Result<(), String> {
     if rustdesk_exe().is_some() {
         return Ok(());
     }
-    let agent = ureq::AgentBuilder::new().timeout_connect(Duration::from_secs(10)).timeout(Duration::from_secs(300)).build();
+    // a stalled connection ends it, not a slow line (the setup is about 20 MB)
+    let agent = ureq::AgentBuilder::new().timeout_connect(Duration::from_secs(10)).timeout_read(Duration::from_secs(60)).build();
     let rel: Value = agent.get("https://api.github.com/repos/rustdesk/rustdesk/releases/latest").set("User-Agent", "Deck").call().map_err(|e| format!("Couldn't reach GitHub ({e})"))?.into_json().map_err(|e| e.to_string())?;
     let asset = rel["assets"].as_array().and_then(|a| a.iter().find(|x| x["name"].as_str().is_some_and(|n| n.ends_with("-x86_64.msi")))).ok_or("No Windows setup in RustDesk's newest release")?;
     let url = asset["browser_download_url"].as_str().ok_or("No download link")?;

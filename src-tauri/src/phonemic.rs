@@ -273,11 +273,13 @@ fn get_cable_inner() -> Result<(), String> {
     resp.into_reader().take(20 << 20).read_to_end(&mut body).map_err(|e| e.to_string())?;
     std::fs::write(&zip, &body).map_err(|e| e.to_string())?;
     let out = dir.join("VBCABLE");
+    // quoted for PowerShell (a user folder can be "O'Brien")
+    let q = |p: &std::path::Path| crate::rdesk::ps_str(&p.display().to_string());
     let ps = format!(
-        "$ErrorActionPreference='Stop'; Expand-Archive -LiteralPath '{}' -DestinationPath '{}' -Force; $s = Get-AuthenticodeSignature -LiteralPath '{}'; \"$($s.Status)|$($s.SignerCertificate.Subject)\"",
-        zip.display(),
-        out.display(),
-        out.join("VBCABLE_Setup_x64.exe").display()
+        "$ErrorActionPreference='Stop'; Expand-Archive -LiteralPath {} -DestinationPath {} -Force; $s = Get-AuthenticodeSignature -LiteralPath {}; \"$($s.Status)|$($s.SignerCertificate.Subject)\"",
+        q(&zip),
+        q(&out),
+        q(&out.join("VBCABLE_Setup_x64.exe"))
     );
     let o = crate::util::run_hidden("powershell.exe", &["-NoProfile", "-NonInteractive", "-Command", &ps]).map_err(|e| e.to_string())?;
     let sig = String::from_utf8_lossy(&o.stdout).trim().to_string();
@@ -521,7 +523,14 @@ fn play_run(device: &str, rate: u32, rx: std::sync::mpsc::Receiver<Vec<i16>>, st
         if !primed && q.len() >= prime {
             primed = true;
         }
-        let padding = unsafe { client.GetCurrentPadding() }.unwrap_or(size);
+        // the cable went away (turned off, its driver reset): end, so the phone hears it and reconnects
+        let padding = match unsafe { client.GetCurrentPadding() } {
+            Ok(p) => p,
+            Err(e) => {
+                crate::log::warn(format!("phone mic: VB-CABLE stopped answering: {}", e.message()));
+                break;
+            }
+        };
         if padding < device_fill {
             let free = (device_fill - padding).min(size - padding);
             let n = if primed { free.min(q.len() as u32) } else { 0 };

@@ -37,3 +37,5 @@ cd ..\tools\testing\ui-preview; node regress.mjs   # every line should say PASS
 - No input hooks, no injection into games (anti-cheat). Use `RegisterHotKey`, cursor polling or WinEvent hooks.
 - Hardware writes (fans, clocks, power limits) need a way back: Deck returns fans to the BIOS on quit and starts the GPU at stock after a crash. Keep it that way.
 - It must work on any PC: no hard-coded names, paths or device ids.
+- Windows changes (Tweaks) keep their exact before-value so they can be undone, and only touch what the tweak's recipe lists. Test registry changes on the scratch key (`tweaks::steps::use_scratch`, under `HKCU\Software\Deck-test`), never on the real registry.
+- Every program Deck runs gets a time limit (`util::run_for`), and downloads end on a stalled connection, not after a fixed time (slow lines).

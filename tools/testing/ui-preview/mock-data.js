@@ -115,7 +115,7 @@
       { id: "9NCBCSZSJRSB", title: "Spotify - Music and Podcasts", publisher: "Spotify AB", price: 0, display_price: "Free" },
       { id: "9NBLGGH5R558", title: "Microsoft To Do: Lists, Tasks & Reminders", publisher: "Microsoft Corporation", price: 0, display_price: "Free" },
       { id: "9N0DX20HK701", title: "Some Paid App", publisher: "Example", price: 4.99, display_price: "$4.99" }] }
-    : what === "jobs" ? { jobs: [{ id: "9NCBCSZSJRSB", title: "Spotify - Music and Podcasts", mode: "install", phase: "downloading", file: "SpotifyAB.SpotifyMusic_1.305.3058.0_x64__zpdnekdrzrea0.appx", done: 88e6, total: 221e6, speed: 1.4e6, eta: 95, files: [] }] }
+    : what === "jobs" ? { jobs: [{ id: "9NCBCSZSJRSB", title: "Spotify - Music and Podcasts", mode: "install", phase: "downloading", file: "SpotifyAB.SpotifyMusic_1.305.3058.0_x64__zpdnekdrzrea0.appx", done: 88e6, total: 221e6, speed: 1.4e6, eta: 95, files: [] }, { id: "9NKSQGP7F2NH", title: "WhatsApp", mode: "install", phase: "cancelled", file: "", done: 16e6, total: 311e6, speed: 0, eta: null, files: [] }] }
     : what === "links" ? { title: "Microsoft To Do", files: [
       { name: "Microsoft.UI.Xaml.2.8_8.2501.31001.0_x64__8wekyb3d8bbwe.appx", size: 4.3e6, main: false, have: true, url: null },
       { name: "Microsoft.VCLibs.140.00_14.0.33519.0_x64__8wekyb3d8bbwe.appx", size: 0.9e6, main: false, have: true, url: null },

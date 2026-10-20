@@ -185,10 +185,20 @@ pub fn idle_secs() -> u64 {
     0
 }
 
+/// Runs shutdown.exe and says when Windows refused (another shutdown already on its way, no rights).
+pub fn shutdown_exe(args: &[&str]) -> Result<(), String> {
+    let o = crate::util::run_for(60, "shutdown.exe", args).map_err(|e| e.to_string())?;
+    if o.status.success() {
+        return Ok(());
+    }
+    let why = String::from_utf8_lossy(&o.stderr).trim().to_string();
+    Err(if why.is_empty() { format!("Windows refused (code {})", o.status.code().unwrap_or(-1)) } else { why })
+}
+
 pub fn run_action(action: &str) -> Result<(), String> {
     match action {
-        "shutdown" => crate::util::run_hidden("shutdown.exe", &["/s", "/t", "0"]).map(|_| ()).map_err(|e| e.to_string()),
-        "restart" => crate::util::run_hidden("shutdown.exe", &["/r", "/t", "0"]).map(|_| ()).map_err(|e| e.to_string()),
+        "shutdown" => shutdown_exe(&["/s", "/t", "0"]),
+        "restart" => shutdown_exe(&["/r", "/t", "0"]),
         "sleep" => unsafe {
             if SetSuspendState(false, false, false) { Ok(()) } else { Err("Windows refused to sleep".into()) }
         },

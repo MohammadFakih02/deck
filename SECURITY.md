@@ -21,7 +21,8 @@ Fixes are listed under **Security** in [`CHANGELOG.md`](CHANGELOG.md).
 Deck runs with administrator rights, listens on the home network, and controls hardware. These are in scope:
 
 - **Admin rights from a normal account.** Any way for a program running as the signed-in user, with no admin rights, to make Deck do something only an administrator could do.
-- **Reaching Deck over the network without the right secret.** Any way for a device on the network to use the phone remote, PC to PC, Claude Code sync or a share link without that secret, or to do more than that caller is allowed to.
+- **Reaching Deck over the network without the right secret.** Any way for a device on the network to use the phone remote (including its screen view, speaker and mic), PC to PC, Claude Code sync or a share link without that secret, or to do more than that caller is allowed to.
+- **Windows changes Deck didn't mean.** Any way to make a tweak, its undo or a Store install change something other than what the tweak or app says (for example through Deck's undo journal or a downloaded package).
 - **Escaping the folders Deck may use.** Any way to make Deck read, write or delete files outside the folders a feature is meant to use.
 - **Hardware left unsafe.** Any way to leave the hardware in an unsafe state that Deck's guards don't catch.
 
@@ -30,4 +31,4 @@ Deck runs with administrator rights, listens on the home network, and controls h
 Out of scope:
 - **Physical access**, or anything that already requires admin rights.
 - **Overclocking settings the user chose.** Deck's guards limit them, but can't make every setting safe.
-- **Third-party tools Deck installs or drives** (RivaTuner, RustDesk, Tailscale, winget). Report those to their makers.
+- **Third-party tools Deck installs or drives** (RivaTuner, RustDesk, Tailscale, winget, VB-CABLE, FluxDM) and **Microsoft's Store and update servers**. Report those to their makers.

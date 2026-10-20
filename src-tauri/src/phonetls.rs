@@ -68,9 +68,10 @@ fn load_or_make() -> Option<(String, String)> {
     if !old.cert.is_empty() && !key.is_empty() && names.iter().all(|n| old.names.contains(n)) {
         return Some((old.cert, key));
     }
-    // keep the addresses the old one had too, so switching between networks doesn't keep making new ones
-    let mut all = old.names.clone();
-    for n in names {
+    // keep the addresses the old one had too, so switching between networks doesn't keep making new
+    // ones; today's first, so the oldest are the ones left out
+    let mut all = names;
+    for n in old.names {
         if !all.contains(&n) {
             all.push(n);
         }
@@ -126,15 +127,24 @@ pub struct Mixed {
 impl Mixed {
     /// Without a certificate (it couldn't be made) the port still answers plain HTTP.
     pub fn new(listener: TcpListener) -> Self {
-        let addr = listener.local_addr().unwrap_or_else(|_| SocketAddr::from(([0, 0, 0, 0], 0)));
         let tls = server_config().map(tokio_rustls::TlsAcceptor::from);
         if tls.is_none() {
             crate::log::warn("phone https: no certificate, plain HTTP only");
         }
+        Self::with(listener, tls)
+    }
+
+    fn with(listener: TcpListener, tls: Option<tokio_rustls::TlsAcceptor>) -> Self {
+        let addr = listener.local_addr().unwrap_or_else(|_| SocketAddr::from(([0, 0, 0, 0], 0)));
         let (tx, rx) = tokio::sync::mpsc::channel(64);
         tokio::spawn(async move {
             loop {
-                let (tcp, peer) = match listener.accept().await {
+                // the server was stopped (the phone remote turned off): end, which frees the port
+                let accepted = tokio::select! {
+                    a = listener.accept() => a,
+                    _ = tx.closed() => break,
+                };
+                let (tcp, peer) = match accepted {
                     Ok(x) => x,
                     Err(_) => {
                         // out of sockets and the like: wait a little rather than spin
@@ -192,5 +202,28 @@ mod tests {
         assert!(pem_der(&s.cert, "CERTIFICATE").is_some_and(|d| d.len() > 100));
         let der = pem_der(&key, "PRIVATE KEY").expect("key");
         assert!(tokio_rustls::rustls::pki_types::PrivateKeyDer::try_from(der).is_ok());
+    }
+
+    /// Turning the phone remote off and on again finds its own port free (it used to move on to
+    /// the next one, and the old one stayed open).
+    #[tokio::test]
+    async fn a_stopped_server_frees_its_port() {
+        let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = l.local_addr().unwrap();
+        let mut m = Mixed::with(l, None);
+        let mut c = TcpStream::connect(addr).await.unwrap();
+        // the first byte tells HTTP from HTTPS
+        tokio::io::AsyncWriteExt::write_all(&mut c, b"G").await.unwrap();
+        let (_io, _) = tokio::time::timeout(Duration::from_secs(5), m.accept()).await.expect("a plain connection comes through");
+        drop(m);
+        let mut ok = false;
+        for _ in 0..50 {
+            if TcpListener::bind(addr).await.is_ok() {
+                ok = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert!(ok, "the port is free again");
     }
 }

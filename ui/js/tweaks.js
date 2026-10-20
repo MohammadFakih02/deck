@@ -216,6 +216,8 @@ function overview() {
   const card = (icon, title, big, text, ...buttons) => h("div", { class: "card tw-ov" }, h("div", { class: "tile-head" }, I(icon), h("span", null, title)), h("div", { class: "tw-big" }, big), h("div", { class: "dim small" }, text), h("div", { class: "row wrap" }, buttons));
   const presetChanges = (p) => Object.entries(p.set).filter(([id, opt]) => { const t = ts.find((k) => k.id === id); return t && !t.blocked && t.state !== opt; });
   return [
+    x.journal_set_aside ? h("div", { class: "tw-note warn", role: "alert" }, I("alert", "sm"), h("span", { class: "grow" },
+      "Deck's undo list was changed by another program, so it was set aside (tweaks.changed-outside.json) and isn't used. Tweaks made before can't be undone from here; your PC's settings weren't touched.")) : null,
     h("div", { class: "tw-ov-grid" },
       card("undo", "Changed by Deck", changed.length, changed.length ? "Each can be undone to exactly what it was." : "Nothing yet. Every change can be undone.",
         changed.length ? h("button", { class: "btn sm", onclick: () => go("tweaks", "changed") }, "See them") : null,
@@ -297,7 +299,9 @@ function job(j) {
   const files = (j.files || []).filter((f) => !f.have);
   return h("div", { class: "card tw-job" + (j.phase === "failed" ? " failed" : "") },
     h("div", { class: "row" }, h("b", { class: "grow" }, j.title), h("span", { class: "chip " + (j.phase === "done" ? "good" : j.phase === "failed" ? "bad" : "") }, j.phase === "done" && j.mode === "save" ? "Saved" : j.phase === "done" ? "Installed" : PHASE[j.phase] || j.phase),
-      active ? h("button", { class: "btn sm ghost", onclick: () => invoke("tweaks_store", { what: "cancel", id: j.id }).then(pollJobs) }, "Cancel") : null),
+      active ? h("button", { class: "btn sm ghost", onclick: () => invoke("tweaks_store", { what: "cancel", id: j.id }).then(pollJobs) }, "Cancel")
+        // what was downloaded is kept: this carries on from there
+        : j.phase === "cancelled" || j.phase === "failed" ? h("button", { class: "btn sm", onclick: () => storeAct(j.mode, { id: j.id, title: j.title }) }, I("refresh", "sm"), j.phase === "cancelled" ? "Carry on" : "Try again") : null),
     j.phase === "downloading" || (j.phase !== "finding" && j.total) ? h("div", { class: "tw-pbar", role: "progressbar", "aria-valuenow": Math.round(pct), "aria-valuemin": 0, "aria-valuemax": 100, "aria-label": "Download progress" }, h("i", { style: { width: pct + "%" } })) : null,
     j.phase === "downloading" ? h("div", { class: "dim small" }, `${fmtBytes(j.done)} of ${fmtBytes(j.total)} · ${fmtBytes(j.speed)}/s${j.eta != null ? " · " + fmtTime(j.eta) + " left" : ""}`, files.length > 1 ? ` · ${j.file}` : "") : null,
     j.error ? h("div", { class: "small", style: { color: "var(--bad)" } }, j.error) : null,

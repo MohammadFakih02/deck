@@ -276,9 +276,45 @@ pub fn reveal(path: &str) {
 }
 
 /// Runs a console program without flashing a window.
+/// Runs a console program hidden and waits for it, at most 30 minutes (a winget install on a slow
+/// line; nothing Deck runs may wait forever). `run_for` takes a shorter limit.
 pub fn run_hidden(exe: &str, args: &[&str]) -> std::io::Result<std::process::Output> {
+    run_for(1800, exe, args)
+}
+
+/// Runs a console program hidden, ending it after `secs` (DISM, PowerShell, RustDesk's and
+/// Tailscale's command lines can hang when their service is stuck).
+pub fn run_for(secs: u64, exe: &str, args: &[&str]) -> std::io::Result<std::process::Output> {
+    use std::io::Read;
     use std::os::windows::process::CommandExt;
-    Command::new(exe).args(args).creation_flags(CREATE_NO_WINDOW).output()
+    use std::process::Stdio;
+    use std::time::{Duration, Instant};
+    let mut child = Command::new(exe).args(args).creation_flags(CREATE_NO_WINDOW).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
+    let (mut so, mut se) = (child.stdout.take().unwrap(), child.stderr.take().unwrap());
+    let ro = std::thread::spawn(move || {
+        let mut b = Vec::new();
+        let _ = so.read_to_end(&mut b);
+        b
+    });
+    let re = std::thread::spawn(move || {
+        let mut b = Vec::new();
+        let _ = se.read_to_end(&mut b);
+        b
+    });
+    let end = Instant::now() + Duration::from_secs(secs);
+    let status = loop {
+        if let Some(st) = child.try_wait()? {
+            break st;
+        }
+        if Instant::now() >= end {
+            let _ = child.kill();
+            let _ = child.wait();
+            crate::log::warn(format!("{exe} took over {secs} s and was ended"));
+            return Err(std::io::Error::new(std::io::ErrorKind::TimedOut, format!("{exe} didn't finish in {secs} s")));
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    Ok(std::process::Output { status, stdout: ro.join().unwrap_or_default(), stderr: re.join().unwrap_or_default() })
 }
 
 pub fn hwnd_from(v: i64) -> HWND {
@@ -660,5 +696,18 @@ mod poison_tests {
         assert_eq!(*m.lock_anyway(), 5);
         *m.lock_anyway() = 6;
         assert_eq!(*m.lock_anyway(), 6);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn a_program_that_runs_too_long_is_ended() {
+        let t = std::time::Instant::now();
+        let r = super::run_for(1, "ping.exe", &["-n", "30", "127.0.0.1"]);
+        assert_eq!(r.map(|_| ()).unwrap_err().kind(), std::io::ErrorKind::TimedOut);
+        assert!(t.elapsed() < std::time::Duration::from_secs(5));
+        let o = super::run_for(30, "cmd.exe", &["/c", "echo", "hi"]).unwrap();
+        assert!(o.status.success() && String::from_utf8_lossy(&o.stdout).contains("hi"));
     }
 }

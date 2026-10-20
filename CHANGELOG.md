@@ -2,15 +2,32 @@
 
 All notable changes to Deck. Setups for each version are on the [Releases](https://github.com/MohammadFakih02/deck/releases) page.
 
-## Unreleased
+## 2.7.5 — 2026-10-20
 
 ### Added
 - **Your phone as the PC's speaker or microphone** (Deck → Phone → Speaker and mic, both off until you turn them on; the phone remote gets a Speaker and mic card). **Speaker:** the phone plays the PC's sound, with a switch to turn the PC's own speakers off while it plays (they come back when it stops, even if Deck closes meanwhile). **Mic:** the phone's mic becomes a mic on the PC, with echo and noise cancelling, so Discord, games and calls can use it; pick "CABLE Output" in an app, or turn on "Make it the default mic while the phone talks" (your mic comes back after). Over Wi-Fi, about a tenth of a second late. The mic needs VB-CABLE, VB-Audio's free virtual cable, because Windows only lists a microphone that a driver makes: Deck turns on one that is installed but off, or downloads VB-Audio's own setup for you (its licence doesn't allow building it into Deck's setup).
 - **Tweaks** (Maintenance → Tweaks): 132 Windows settings in 13 categories (privacy, Start and search, taskbar, File Explorer, right-click menu, appearance, multitasking, gaming, AI and Copilot, updates, network, system, advanced), from Win11Debloat and Chris Titus Tech's WinUtil, each checked, plus Deck's own. Every switch shows what Windows is set to right now ("Partly" when another tool set part of it), what it changes, its risk and whether it needs Explorer restarted, a sign-out or a restart. **Every change can be undone to exactly what it was before** (one by one or all at once), also months later; Deck notices when a Windows update changes a tweak back and offers to apply it again. Presets (Privacy, Clean Start & taskbar, Gaming, Quiet Windows) and "Recommended" open as checklists, never as one click that does everything. A restore point is offered before Advanced tweaks. Options that don't exist on this Windows version or this PC are hidden. Tweaks also turn up in Deck's search, and a PC to PC setup carries them to your other PC. Deck never removes Edge or WebView2, turns Windows Update or Defender off, or runs scripts from the internet.
 - **Built-in apps:** remove Clipchamp, News, the Xbox apps and the rest (Win11Debloat's list with its safe / optional / needed rating), and reinstall any of them later.
 - **Store apps without the Microsoft Store** (Tweaks → Get Store apps), like store.rg-adguard.net: search the Store, then Install, Download (to Downloads\Store apps), send to FluxDM, or copy the links. The files come straight from Microsoft's own servers, only the ones this PC is missing (usually just the app), checked against Microsoft's checksums, with a progress bar, speed and time left. Free apps only; desktop apps from the Store install with winget.
-- **Fixed:** PC to PC's "restart Explorer" after applying a setup started Explorer with Deck's admin rights; Windows now restarts it as you.
 - **The phone remote also answers on https** (same address, `https://`). Phones allow the mic only on secure pages; Deck makes its own certificate, so the phone warns once ("not private") the first time.
+
+### Changed
+- **Store apps download about six times faster:** each file comes in 8 parts at once (Microsoft's servers give one connection only so much; WhatsApp's 311 MB took about 27 minutes on one). A cancelled or failed download has **Carry on** / **Try again** and continues where it stopped.
+
+### Fixed
+- PC to PC's "restart Explorer" after applying a setup started Explorer with Deck's admin rights; Windows now restarts it as you.
+- Settings → Updates said "GitHub's answer wasn't understood" on every check after the first while no new version was out (GitHub's "nothing new" answer was read as a broken one). Updating itself wasn't affected.
+- Turning the phone remote off and on moved it to the next port (the old one stayed open), so a phone's saved link stopped working.
+- Undoing *Variable refresh rate* also undid *Windowed game optimizations* when both were changed (they share one DirectX setting); each now puts back only its own part.
+- Deck's own updates (and the RustDesk setup) gave up after 60 seconds (5 minutes for RustDesk) of downloading, so on a slow line a release bigger than about 10 MB could never install by itself. Now only a connection that stalls for a minute ends them.
+- Game boost could end an unrelated program that had just started and been given the ID of an app boost was closing (Windows reuses process IDs); it now checks the program first.
+- RustDesk's, Tailscale's and winget's command lines that hang (a stuck service) no longer freeze the Remote desktop page or PC to PC: every program Deck runs has a time limit.
+- Timers and Tweaks that shut down, restart or sign out said "done" even when Windows refused (another shutdown already scheduled); they now say why.
+- The phone mic stayed "on" but silent when VB-CABLE went away mid-call; the phone now reconnects and says why. When Windows doesn't restart Explorer by itself (some debloat scripts turn that off), Deck starts it without its admin rights. Installing Store apps and VB-CABLE's setup no longer fail for a Windows user name with an apostrophe.
+
+### Security
+- **Tweaks' undo list can't be used to change Windows behind your back.** Undo writes the saved values back with Deck's admin rights, and the list lives in your own folder, where any program could edit it. Deck now keeps its fingerprint where only administrators can write; a list changed by something else is set aside (Tweaks says so) and never used, and undo only ever touches what that tweak itself changes.
+- **"Unpin everything from Start" and Store downloads work with your rights only** in your folders (a folder swapped for a link can't make Deck read or write elsewhere).
 
 ## 2.7.0 — 2026-10-20
 

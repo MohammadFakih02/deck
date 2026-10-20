@@ -3,13 +3,10 @@
 //! and the other PC installs each one itself through winget, skipping what it already has.
 use crate::beam::config::Shared;
 use serde::{Deserialize, Serialize};
-use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::Arc;
 
 pub const MARK: &str = "AppBeamApps";
-const NO_WINDOW: u32 = 0x0800_0000;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct App {
@@ -81,7 +78,8 @@ fn package_dirs(family: &str) -> Vec<PathBuf> {
 }
 
 fn winget(args: &[&str]) -> Option<(i32, String)> {
-    let o = Command::new(winget_exe()?).args(args).creation_flags(NO_WINDOW).output().ok()?;
+    // an install on a slow line takes a while; a winget waiting on something forever doesn't hold PC to PC
+    let o = crate::util::run_hidden(&winget_exe()?.to_string_lossy(), args).ok()?;
     Some((o.status.code().unwrap_or(-1), String::from_utf8_lossy(&o.stdout).to_string()))
 }
 

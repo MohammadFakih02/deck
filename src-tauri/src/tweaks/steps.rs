@@ -64,6 +64,9 @@ pub enum Before {
     Feature { name: String, on: bool },
     Cmd { name: String, on: bool },
     Dns { iface: String, servers: Vec<String> },
+    /// one key of DirectX's settings string (None: it wasn't there). Only that key: two tweaks share
+    /// the string, and undoing one mustn't undo the other.
+    Dx { key: String, value: Option<String> },
 }
 
 impl Before {
@@ -75,6 +78,7 @@ impl Before {
             (Key { path: a, .. }, Key { path: b, .. }) | (Created { path: a }, Created { path: b }) => a.eq_ignore_ascii_case(b),
             (Service { name: a, .. }, Service { name: b, .. }) | (Feature { name: a, .. }, Feature { name: b, .. }) | (Cmd { name: a, .. }, Cmd { name: b, .. }) => a.eq_ignore_ascii_case(b),
             (Dns { iface: a, .. }, Dns { iface: b, .. }) => a == b,
+            (Dx { key: a, .. }, Dx { key: b, .. }) => a.eq_ignore_ascii_case(b),
             _ => false,
         }
     }
@@ -367,8 +371,8 @@ fn same(have: &RegData, want: &RegData) -> bool {
     have.ty == want.ty && have.bytes() == want.bytes()
 }
 
-const DX_KEY: &str = r"HKCU\Software\Microsoft\DirectX\UserGpuPreferences";
-const DX_NAME: &str = "DirectXUserGlobalSettings";
+pub const DX_KEY: &str = r"HKCU\Software\Microsoft\DirectX\UserGpuPreferences";
+pub const DX_NAME: &str = "DirectXUserGlobalSettings";
 
 fn dx_pairs() -> Vec<(String, String)> {
     let s = read_value(DX_KEY, DX_NAME).and_then(|d| d.text()).unwrap_or_default();
@@ -604,8 +608,8 @@ pub fn before(s: &Step) -> Vec<Before> {
         out.push(Before::Value { path: path.clone(), data: read_value(path, &name), name });
         return out;
     }
-    if s.dx.is_some() {
-        out.push(Before::Value { path: DX_KEY.into(), name: DX_NAME.into(), data: read_value(DX_KEY, DX_NAME) });
+    if let Some(k) = &s.dx {
+        out.push(Before::Dx { key: k.clone(), value: dx_pairs().into_iter().find(|(n, _)| n.eq_ignore_ascii_case(k)).map(|(_, v)| v) });
     } else if let Some(name) = &s.service {
         if let Some((start, delayed)) = service_start(name) {
             out.push(Before::Service { name: name.clone(), start, delayed });
@@ -724,6 +728,13 @@ pub fn restore(b: &Before) -> Result<(), String> {
             let r = set_cmd(name, *on);
             super::forget_slow(&format!("cmd:{name}"));
             r
+        }
+        Before::Dx { key, value } => {
+            let mut pairs: Vec<(String, String)> = dx_pairs().into_iter().filter(|(n, _)| !n.eq_ignore_ascii_case(key)).collect();
+            if let Some(v) = value {
+                pairs.push((key.clone(), v.clone()));
+            }
+            dx_write(&pairs)
         }
         Before::Dns { iface, servers } => {
             let idx = super::iface().filter(|(g, _)| g == iface).map(|(_, i)| i).ok_or("That network connection isn't in use any more")?;

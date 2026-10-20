@@ -229,11 +229,12 @@ fn fetch() -> Result<bool, String> {
         let _ = crate::util::write_atomic(&meta_path(), m.to_string().as_bytes());
     };
     let resp = match req.call() {
-        Ok(r) => r,
-        Err(ureq::Error::Status(304, _)) => {
+        // ureq only makes 4xx/5xx errors: "not modified" arrives as a response
+        Ok(r) if r.status() == 304 => {
             save_meta(meta["etag"].as_str().map(String::from));
             return Ok(false);
         }
+        Ok(r) => r,
         Err(e) => return Err(e.to_string()),
     };
     let etag = resp.header("ETag").map(String::from);

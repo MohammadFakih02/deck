@@ -467,7 +467,7 @@ fn close_apps(sys: &mut System, picked: &[&Group]) -> CloseResult {
             }
         }
         if !asked {
-            kill_all(sys, &g.pids);
+            kill_all(sys, &g.pids, &g.exe);
         }
     }
     // Wait for them. Apps that hid in the tray instead of closing are ended;
@@ -478,7 +478,7 @@ fn close_apps(sys: &mut System, picked: &[&Group]) -> CloseResult {
         std::thread::sleep(Duration::from_millis(400));
         scan(sys, false);
         let wins = windows_by_pid();
-        let alive = |g: &Group| g.pids.iter().any(|p| sys.process(Pid::from_u32(*p)).is_some());
+        let alive = |g: &Group| g.pids.iter().any(|p| same_app(sys, *p, &g.exe));
         let pending: Vec<&&Group> = picked.iter().filter(|g| alive(g)).collect();
         if pending.is_empty() {
             break;
@@ -487,7 +487,7 @@ fn close_apps(sys: &mut System, picked: &[&Group]) -> CloseResult {
         for g in &pending {
             let has_window = g.pids.iter().any(|p| wins.contains_key(p));
             if !has_window && waited > Duration::from_millis(1500) {
-                kill_all(sys, &g.pids);
+                kill_all(sys, &g.pids, &g.exe);
             }
         }
         if waited > Duration::from_secs(8) {
@@ -495,7 +495,7 @@ fn close_apps(sys: &mut System, picked: &[&Group]) -> CloseResult {
                 if g.pids.iter().any(|p| wins.contains_key(p)) {
                     kept.push(g.name.clone());
                 } else {
-                    kill_all(sys, &g.pids);
+                    kill_all(sys, &g.pids, &g.exe);
                 }
             }
             break;
@@ -505,10 +505,16 @@ fn close_apps(sys: &mut System, picked: &[&Group]) -> CloseResult {
     CloseResult { closed, kept }
 }
 
-fn kill_all(sys: &System, pids: &[u32]) {
+/// `pid` is still a process of `exe`: an app that closed meanwhile may have left its id to a new,
+/// unrelated process (Windows reuses ids), which must not be ended in its place.
+fn same_app(sys: &System, pid: u32, exe: &str) -> bool {
+    sys.process(Pid::from_u32(pid)).and_then(|p| p.exe()).is_some_and(|e| e.to_string_lossy().eq_ignore_ascii_case(exe))
+}
+
+fn kill_all(sys: &System, pids: &[u32], exe: &str) {
     for pid in pids {
         // never a process Windows marks critical (ending it is a blue screen)
-        if crate::sys::is_critical(*pid) != Some(false) {
+        if crate::sys::is_critical(*pid) != Some(false) || !same_app(sys, *pid, exe) {
             continue;
         }
         if let Some(p) = sys.process(Pid::from_u32(*pid)) {
@@ -1190,7 +1196,7 @@ mod tests {
             .collect();
         println!("reopened as {again:?}");
         assert_eq!(again.len(), 1, "reopened once");
-        kill_all(&sys, &again);
+        kill_all(&sys, &again, &exe);
     }
 
     /// Read-only: prints what Full power would do on this PC.

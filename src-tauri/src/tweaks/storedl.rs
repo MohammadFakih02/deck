@@ -20,7 +20,7 @@ use parking_lot::Mutex;
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::io::{Read, Write};
+use std::io::Read;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -436,17 +436,18 @@ fn run(id: &str, mode: &str, stop: &AtomicBool) -> Result<(), String> {
     } else {
         crate::util::local_appdata().join("Deck").join("store").join(id)
     };
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let mut done_before = 0u64;
+    // a folder of yours, written in with your rights only (Deck may be admin; see fsguard)
+    let d = crate::fsguard::open_for_user(&dir).map_err(|e| format!("Couldn't use {}: {e}", dir.display()))?;
+    let (mut done_before, mut fresh_before) = (0u64, 0u64);
     let started = Instant::now();
     let mut paths = Vec::new();
     for f in &needed {
         update(id, |j| j.file = f.name.clone());
-        let path = dir.join(&f.name);
-        download(f, &path, stop, |got| {
+        fresh_before += download(f, &d, stop, |got, fresh| {
             let done = done_before + got;
+            // the speed of this run (bytes kept from before a cancel don't count)
             let secs = started.elapsed().as_secs_f64().max(0.5);
-            let speed = done as f64 / secs;
+            let speed = (fresh_before + fresh) as f64 / secs;
             update(id, |j| {
                 j.done = done;
                 j.speed = speed;
@@ -454,7 +455,7 @@ fn run(id: &str, mode: &str, stop: &AtomicBool) -> Result<(), String> {
             });
         })?;
         done_before += f.size;
-        paths.push((f.main, path));
+        paths.push((f.main, f.name.clone()));
     }
     if mode == "save" {
         update(id, |j| j.saved_to = Some(dir.display().to_string()));
@@ -464,12 +465,13 @@ fn run(id: &str, mode: &str, stop: &AtomicBool) -> Result<(), String> {
         j.phase = "installing".into();
         j.eta = None;
     });
-    for (main, p) in &paths {
-        install(p, *main)?;
+    for (main, name) in &paths {
+        install(&d.real().join(name), *main)?;
     }
-    for (_, p) in &paths {
-        let _ = std::fs::remove_file(p);
+    for (_, name) in &paths {
+        let _ = d.remove(name);
     }
+    drop(d);
     let _ = std::fs::remove_dir(&dir);
     crate::log::info(format!("tweaks: installed {} ({id}) from Microsoft's servers", app.title));
     Ok(())
@@ -480,48 +482,102 @@ fn safe(s: &str) -> String {
     t.trim().trim_end_matches('.').chars().take(80).collect::<String>()
 }
 
-/// Downloads one file (resuming a part file), checks its SHA-256 (or SHA-1) against FE3's.
-fn download(f: &PkgFile, path: &std::path::Path, stop: &AtomicBool, progress: impl Fn(u64)) -> Result<(), String> {
+/// How many parts of one file download at once. Microsoft's CDN gives each connection only so much
+/// (about 190 KB/s on a slow line); eight together were six times faster, as FluxDM does it.
+const PARTS: u64 = 8;
+/// Smaller files take fewer parts.
+const MIN_PART: u64 = 4 << 20;
+/// A part that fails this many times in a row (without getting anything) stops the download.
+const TRIES: u32 = 5;
+const NO_RANGES: &str = "the server doesn't send parts of files";
+
+#[derive(Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq)]
+struct Seg {
+    start: u64,
+    end: u64,
+    done: u64,
+}
+
+fn segments(size: u64, parts: u64) -> Vec<Seg> {
+    let n = (size / MIN_PART).clamp(1, parts.max(1));
+    let each = size.div_ceil(n);
+    (0..n).map(|i| Seg { start: i * each, end: ((i + 1) * each).min(size), done: 0 }).filter(|s| s.end > s.start).collect()
+}
+
+/// A saved part map belongs to a file of `size` when its parts cover it end to end.
+fn map_fits(segs: &[Seg], size: u64) -> bool {
+    !segs.is_empty() && segs[0].start == 0 && segs.last().is_some_and(|s| s.end == size) && segs.windows(2).all(|w| w[0].end == w[1].start) && segs.iter().all(|s| s.start + s.done <= s.end)
+}
+
+/// Downloads one file in parts at once (resuming each part after a cancel or a dropped connection),
+/// then checks its SHA-256 (or SHA-1) against FE3's. Returns the bytes this call downloaded.
+fn download(f: &PkgFile, d: &crate::fsguard::Dir, stop: &AtomicBool, progress: impl Fn(u64, u64)) -> Result<u64, String> {
     use sha2::Digest;
     let url = f.url.as_deref().ok_or("no link")?;
-    let part = path.with_extension("part");
-    let mut have = std::fs::metadata(&part).map(|m| m.len()).unwrap_or(0);
-    if have > f.size {
-        have = 0;
+    if f.size == 0 {
+        return Err(format!("Microsoft's update service didn't give the size of {}", f.name));
     }
-    let mut req = agent().get(url);
-    if have > 0 {
-        req = req.set("Range", &format!("bytes={have}-"));
-    }
-    let resp = req.call().map_err(|e| format!("Download failed: {e}"))?;
-    if have > 0 && resp.status() != 206 {
-        have = 0;
-    }
-    let mut out = std::fs::OpenOptions::new().create(true).write(true).append(have > 0).truncate(have == 0).open(&part).map_err(|e| e.to_string())?;
-    let mut rd = resp.into_reader();
-    let mut buf = vec![0u8; 256 * 1024];
-    let mut got = have;
-    let mut last = Instant::now();
-    loop {
+    let (part, map) = (format!("{}.part", f.name), format!("{}.parts", f.name));
+    let read_all = |name: &str| -> Option<Vec<u8>> {
+        let mut b = Vec::new();
+        d.edit(name).ok()?.read_to_end(&mut b).ok()?;
+        Some(b)
+    };
+    // what an earlier run got: only a part file of exactly this size with its map
+    let saved: Option<Vec<Seg>> = read_all(&map).and_then(|b| serde_json::from_slice(&b).ok()).filter(|v: &Vec<Seg>| map_fits(v, f.size) && d.len(&part).is_ok_and(|n| n == f.size));
+    let mut segs = saved.unwrap_or_else(|| segments(f.size, PARTS));
+    let mut fresh = 0u64;
+    for attempt in 0..2 {
+        let resuming = segs.iter().any(|s| s.done > 0);
+        let file = if resuming { d.edit(&part) } else { d.create(&part, true) }.map_err(|e| e.to_string())?;
+        file.set_len(f.size).map_err(|e| e.to_string())?;
+        let resumed: u64 = segs.iter().map(|s| s.done).sum();
+        let shared = Mutex::new(segs.clone());
+        let failed: Mutex<Option<String>> = Mutex::new(None);
+        let save_map = |v: &[Seg]| {
+            if let Ok(mut m) = d.create(&map, true) {
+                let _ = std::io::Write::write_all(&mut m, &serde_json::to_vec(v).unwrap_or_default());
+            }
+        };
+        save_map(&segs);
+        std::thread::scope(|sc| {
+            let (file, shared, failed) = (&file, &shared, &failed);
+            let workers: Vec<_> = (0..segs.len()).map(|i| sc.spawn(move || part_worker(url, file, shared, i, stop, failed))).collect();
+            let mut saved_at = Instant::now();
+            while workers.iter().any(|w| !w.is_finished()) {
+                std::thread::sleep(Duration::from_millis(250));
+                let v = shared.lock().clone();
+                let got: u64 = v.iter().map(|s| s.done).sum();
+                progress(got, fresh + got - resumed);
+                if saved_at.elapsed() > Duration::from_secs(2) {
+                    save_map(&v);
+                    saved_at = Instant::now();
+                }
+            }
+        });
+        segs = shared.into_inner();
+        save_map(&segs);
+        let got: u64 = segs.iter().map(|s| s.done).sum();
+        fresh += got - resumed;
+        progress(got, fresh);
+        drop(file);
         if stop.load(Ordering::SeqCst) {
             return Err("cancelled".into());
         }
-        let n = rd.read(&mut buf).map_err(|e| format!("Download stopped: {e}"))?;
-        if n == 0 {
-            break;
-        }
-        out.write_all(&buf[..n]).map_err(|e| e.to_string())?;
-        got += n as u64;
-        if last.elapsed() > Duration::from_millis(250) {
-            progress(got);
-            last = Instant::now();
+        match failed.into_inner() {
+            // a server that ignores ranges: once more, in one piece from the start
+            Some(e) if e == NO_RANGES && attempt == 0 && segs.len() > 1 => {
+                segs = segments(f.size, 1);
+                continue;
+            }
+            Some(e) => return Err(format!("Download stopped: {e} (Install again carries on where it stopped)")),
+            None => break,
         }
     }
-    drop(out);
-    progress(got);
     // the links are plain http: the file must be exactly what FE3 listed
-    let mut file = std::fs::File::open(&part).map_err(|e| e.to_string())?;
+    let mut file = d.edit(&part).map_err(|e| e.to_string())?;
     let (mut h256, mut h1) = (sha2::Sha256::new(), sha1::Sha1::new());
+    let mut buf = vec![0u8; 1 << 20];
     loop {
         let n = file.read(&mut buf).map_err(|e| e.to_string())?;
         if n == 0 {
@@ -531,24 +587,82 @@ fn download(f: &PkgFile, path: &std::path::Path, stop: &AtomicBool, progress: im
         h1.update(&buf[..n]);
     }
     drop(file);
+    let _ = d.remove(&map);
     let ok = match &f.sha256 {
         Some(want) => crate::util::base64(&h256.finalize()) == *want,
         None => crate::util::base64(&h1.finalize()) == f.sha1,
     };
     if !ok {
-        let _ = std::fs::remove_file(&part);
+        let _ = d.remove(&part);
         return Err(format!("{} didn't arrive intact (its checksum is wrong); try again", f.name));
     }
-    std::fs::rename(&part, path).map_err(|e| e.to_string())
+    d.rename(&part, &f.name, true).map_err(|e| e.to_string())?;
+    Ok(fresh)
+}
+
+/// Downloads part `i` into its place in the file, trying again after a dropped connection.
+fn part_worker(url: &str, file: &std::fs::File, segs: &Mutex<Vec<Seg>>, i: usize, stop: &AtomicBool, failed: &Mutex<Option<String>>) {
+    use std::os::windows::fs::FileExt;
+    let mut tries = 0;
+    let mut buf = vec![0u8; 128 * 1024];
+    loop {
+        let s = segs.lock()[i];
+        let mut pos = s.start + s.done;
+        if pos >= s.end || stop.load(Ordering::SeqCst) || failed.lock().is_some() {
+            return;
+        }
+        let before = pos;
+        let r = (|| -> Result<(), String> {
+            let resp = agent().get(url).set("Range", &format!("bytes={pos}-{}", s.end - 1)).call().map_err(|e| e.to_string())?;
+            // a whole file (200) is fine only for a part that starts at the beginning
+            if resp.status() != 206 && pos != 0 {
+                return Err(NO_RANGES.into());
+            }
+            let mut rd = resp.into_reader();
+            while pos < s.end {
+                if stop.load(Ordering::SeqCst) {
+                    return Ok(());
+                }
+                let n = rd.read(&mut buf).map_err(|e| e.to_string())?;
+                if n == 0 {
+                    return Err("the connection closed early".into());
+                }
+                let n = n.min((s.end - pos) as usize);
+                let mut w = 0;
+                while w < n {
+                    w += file.seek_write(&buf[w..n], pos + w as u64).map_err(|e| e.to_string())?;
+                }
+                pos += n as u64;
+                segs.lock()[i].done = pos - s.start;
+            }
+            Ok(())
+        })();
+        if let Err(e) = r {
+            if e == NO_RANGES {
+                failed.lock().get_or_insert(e);
+                return;
+            }
+            // only tries that got nothing count
+            tries = if pos > before { 1 } else { tries + 1 };
+            if tries >= TRIES {
+                failed.lock().get_or_insert(e);
+                return;
+            }
+            for _ in 0..(tries * 8) {
+                if stop.load(Ordering::SeqCst) {
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(250));
+            }
+        }
+    }
 }
 
 /// Installs a package for you. A dependency that's already there in this or a newer version is fine.
 fn install(path: &std::path::Path, main: bool) -> Result<(), String> {
-    let p = path.display().to_string();
-    if p.contains('\'') {
-        return Err("bad path".into());
-    }
-    let o = crate::tweaks::run(900, "powershell.exe", &["-NoProfile", "-NonInteractive", "-Command", &format!("Add-AppxPackage -Path '{p}' -ForceUpdateFromAnyVersion")]).map_err(|e| e.to_string())?;
+    // quoted for PowerShell (a user folder can be "O'Brien")
+    let p = crate::rdesk::ps_str(&path.display().to_string());
+    let o = crate::tweaks::run(900, "powershell.exe", &["-NoProfile", "-NonInteractive", "-Command", &format!("Add-AppxPackage -Path {p} -ForceUpdateFromAnyVersion")]).map_err(|e| e.to_string())?;
     if o.status.success() {
         return Ok(());
     }
@@ -589,6 +703,59 @@ mod tests {
     use super::*;
 
     #[test]
+    fn parts_cover_the_file_end_to_end() {
+        for size in [1u64, 100, MIN_PART - 1, MIN_PART, MIN_PART * 3 + 7, 311_000_000, 1 << 40] {
+            let v = segments(size, PARTS);
+            assert!(map_fits(&v, size), "{size}: {v:?}");
+            assert!(v.len() as u64 <= PARTS && !v.is_empty());
+        }
+        assert_eq!(segments(311_000_000, PARTS).len(), 8);
+        assert_eq!(segments(MIN_PART * 3 + 7, PARTS).len(), 3);
+        assert_eq!(segments(311_000_000, 1).len(), 1);
+        let mut v = segments(MIN_PART * 4, PARTS);
+        assert!(!map_fits(&v, MIN_PART * 4 + 1), "another size");
+        v[1].done = v[1].end - v[1].start + 1;
+        assert!(!map_fits(&v, MIN_PART * 4), "a part past its end");
+    }
+
+    /// Live: downloads the smallest file of a Store app (DECK_STORE_IDS, default WhatsApp) that takes
+    /// all the parts, cancels it a third of the way, carries on, and checks the checksum. Nothing is
+    /// installed.
+    #[test]
+    #[ignore]
+    fn downloads_in_parts_and_carries_on_after_a_cancel() {
+        let id = std::env::var("DECK_STORE_IDS").unwrap_or("9NKSQGP7F2NH".into());
+        let mut app = find(&id).unwrap();
+        app.files.retain(|f| f.size >= PARTS * MIN_PART);
+        app.files.sort_by_key(|f| f.size);
+        app.files.truncate(1);
+        app.files[0].have = false;
+        links(&mut app).unwrap();
+        let f = app.files[0].clone();
+        let dir = std::env::temp_dir().join(format!("deck-storedl-test-{}", std::process::id()));
+        let d = crate::fsguard::open_for_user(&dir).unwrap();
+        let path = dir.join(&f.name);
+        let t = Instant::now();
+        let stop = AtomicBool::new(false);
+        let r = download(&f, &d, &stop, |got, _| {
+            if got > f.size / 3 {
+                stop.store(true, Ordering::SeqCst);
+            }
+        });
+        assert_eq!(r, Err("cancelled".into()));
+        let half: Vec<Seg> = serde_json::from_slice(&std::fs::read(dir.join(format!("{}.parts", f.name))).unwrap()).unwrap();
+        println!("cancelled after {:.1} s with {} of {} MB in {} parts", t.elapsed().as_secs_f64(), half.iter().map(|s| s.done).sum::<u64>() / 1_000_000, f.size / 1_000_000, half.len());
+        let stop = AtomicBool::new(false);
+        let fresh = download(&f, &d, &stop, |_, _| {}).unwrap();
+        println!("done after {:.1} s ({} MB this time, {:.0} KB/s overall)", t.elapsed().as_secs_f64(), fresh / 1_000_000, f.size as f64 / 1000.0 / t.elapsed().as_secs_f64());
+        assert!(fresh < f.size, "carried on rather than started again");
+        assert_eq!(std::fs::metadata(&path).unwrap().len(), f.size);
+        assert!(!dir.join(format!("{}.parts", f.name)).exists() && !dir.join(format!("{}.part", f.name)).exists());
+        drop(d);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn picks_the_newest_package_for_this_pc_and_a_bundle_for_the_app() {
         let f = |name: &str, pkg: &str, ver: &str, arch: &str, main: bool| PkgFile {
             name: name.into(), package: pkg.into(), version: ver.into(), arch: arch.into(), size: 1, main, sha1: String::new(), sha256: None, update: (String::new(), String::new()), url: None, have: false,
@@ -610,12 +777,13 @@ mod tests {
     #[test]
     #[ignore]
     fn finds_real_apps_and_their_links() {
-        for id in ["9NCBCSZSJRSB", "9NBLGGH5R558"] {
+        let ids = std::env::var("DECK_STORE_IDS").unwrap_or("9NCBCSZSJRSB,9NBLGGH5R558".into());
+        for id in ids.split(',') {
             let mut app = find(id).unwrap();
             links(&mut app).unwrap();
             println!("{} ({})", app.title, app.family);
             for f in &app.files {
-                println!("  {} {} MB main={} have={} sha256={} url={}", f.name, f.size / 1_000_000, f.main, f.have, f.sha256.is_some(), f.url.as_deref().unwrap_or("").chars().take(70).collect::<String>());
+                println!("  {} {} MB main={} have={} sha256={} url={}", f.name, f.size / 1_000_000, f.main, f.have, f.sha256.is_some(), f.url.as_deref().unwrap_or(""));
             }
         }
     }

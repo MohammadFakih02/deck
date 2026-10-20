@@ -167,20 +167,24 @@ fn store(s: &Saved) {
 
 // ------------------------------------------------------------ checking
 
+/// Gives up on a connection that stalls for a minute, not on a download that takes longer than one
+/// (a 10 MB setup takes about a minute on a slow line).
 fn agent() -> ureq::Agent {
-    ureq::AgentBuilder::new().timeout_connect(Duration::from_secs(10)).timeout(Duration::from_secs(60)).build()
+    ureq::AgentBuilder::new().timeout_connect(Duration::from_secs(10)).timeout_read(Duration::from_secs(60)).timeout_write(Duration::from_secs(60)).build()
 }
 
 /// Asks GitHub for the latest release (one request; a 304 costs nothing). Updates the saved
 /// answer and returns the release when it is newer than this build.
 fn check() -> Result<Option<Release>, String> {
     let mut saved = load();
-    let mut req = agent().get(API).set("User-Agent", "Deck").set("Accept", "application/vnd.github+json");
+    let mut req = agent().get(API).timeout(Duration::from_secs(60)).set("User-Agent", "Deck").set("Accept", "application/vnd.github+json");
     if let (Some(tag), Some(_)) = (&saved.etag, &saved.release) {
         req = req.set("If-None-Match", tag);
     }
     let now = crate::util::now_s();
     match req.call() {
+        // ureq only makes 4xx/5xx errors: "not modified" (the saved answer is still right) arrives here
+        Ok(resp) if resp.status() == 304 => {}
         Ok(resp) => {
             let etag = resp.header("ETag").map(String::from);
             let mut body = Vec::new();
@@ -192,7 +196,6 @@ fn check() -> Result<Option<Release>, String> {
             saved.release = pick(&v);
             saved.etag = etag;
         }
-        Err(ureq::Error::Status(304, _)) => {}
         Err(ureq::Error::Status(404, _)) => saved.release = None,
         Err(e) => return Err(format!("couldn't reach GitHub ({e})")),
     }
