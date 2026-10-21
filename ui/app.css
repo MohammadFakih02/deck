@@ -1591,3 +1591,22 @@ html.low-spec .tl-tool:hover, html.low-spec .tl-colors .swatch:hover { transform
   .tw-nav-sep { width: 1px; height: auto; margin: 4px 2px; }
   .tw-main { flex-wrap: wrap; }
 }
+
+/* Maintenance → Apps: an advanced uninstall's leftovers */
+.prog-left { gap: 6px; max-height: 60vh; overflow: auto; min-width: min(560px, 80vw); }
+.prog-left-h { font-weight: 600; margin-top: 8px; }
+.prog-left-i { display: flex; gap: 10px; align-items: flex-start; padding: 6px 8px; border-radius: 8px; cursor: pointer; }
+.prog-left-i:hover { background: var(--hover, rgba(127,127,127,.1)); }
+.prog-left-i input { margin-top: 3px; }
+
+/* Tweaks: a switch as a checkbox worded as what Deck does */
+.tw-tick { cursor: pointer; align-items: flex-start; gap: 12px; }
+.tw-tick > input[type="checkbox"] { width: 18px; height: 18px; margin-top: 2px; flex: none; accent-color: var(--accent, #4c8dff); cursor: pointer; }
+.tw-tick > input:disabled { cursor: default; }
+/* Tweaks: the plain-words lines under each tweak */
+.tw-plain { display: flex; flex-direction: column; gap: 3px; margin-top: 6px; font-size: 12.5px; }
+.tw-plain > div { display: flex; gap: 6px; align-items: flex-start; line-height: 1.4; }
+.tw-plain svg { flex: none; margin-top: 2px; }
+.tw-good svg { color: var(--good, #34c759); }
+.tw-lose { opacity: .85; }
+.tw-lose svg { color: var(--warn, #ff9f0a); }

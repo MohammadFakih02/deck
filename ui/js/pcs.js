@@ -87,7 +87,7 @@ export function txProgress(x) {
   else if (x.state === "active") line = `${fmtBytes(x.done)} of ${fmtBytes(x.total)} · ${fmtBytes(x.speed)}/s${x.speed > 1 ? ` · ${dur((x.total - x.done) / x.speed)} left` : ""}`;
   else if (x.state === "done") { line = `Done: ${fmtBytes(x.total)} in ${dur(x.secs)} (${fmtBytes(x.total / Math.max(0.01, x.secs))}/s)`; cls = "good-t"; }
   else if (x.state === "failed") { line = `Failed: ${x.error}`; cls = "bad-t"; }
-  else if (x.state === "cancelled") { line = "Cancelled"; cls = "warn-t"; }
+  else if (x.state === "cancelled") { line = x.resumable ? `Cancelled. ${fmtBytes(x.done)} of ${fmtBytes(x.total)} arrived and is kept: Carry on sends the rest.` : "Cancelled"; cls = "warn-t"; }
   else { line = x.send ? `${x.peer} declined it` : "You declined it"; cls = "warn-t"; }
   const live = x.state === "waiting" || x.state === "active";
   return h("div", { class: "item tx-x" },
@@ -97,8 +97,9 @@ export function txProgress(x) {
       x.state === "active" ? h("div", { class: "bar" }, h("i", { style: { width: pct + "%" } })) : null,
       x.note ? h("div", { class: "warn-t", style: { fontSize: "12px" } }, x.note) : null,
       h("div", { class: cls, style: { fontSize: "12px" } }, line)),
-    live ? h("button", { class: "btn sm ghost", onclick: () => tx("cancel", { id: x.id }) }, "Cancel")
-      : h("button", { class: "icon-btn sm", title: "Remove from list", "aria-label": "Remove from list", onclick: () => tx("dismiss", { id: x.id }) }, I("x", "sm")));
+    live ? h("button", { class: "btn sm ghost", title: "Stops it. What already arrived is kept on the other PC, so Carry on sends only the rest.", onclick: () => tx("cancel", { id: x.id }) }, "Cancel")
+      : [x.resumable ? h("button", { class: "btn sm primary", title: `Sends it again; ${x.peer} keeps what it already got, so only the rest goes`, onclick: () => tx("resume", { id: x.id }) }, I("refresh", "sm"), "Carry on") : null,
+        h("button", { class: "icon-btn sm", title: "Remove from list", "aria-label": "Remove from list", onclick: () => tx("dismiss", { id: x.id }) }, I("x", "sm"))]);
 }
 
 /** A folder waiting for Send: what goes, and the options. */

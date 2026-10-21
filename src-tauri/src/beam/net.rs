@@ -141,7 +141,8 @@ pub struct Item {
     pub size: u64,
 }
 
-#[derive(Default, Clone)]
+#[derive(Default, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct SendOpts {
     pub install: bool,
     /// send a folder as a project (structure, times, merge into an existing copy)
@@ -451,6 +452,7 @@ pub fn send(sh: Arc<Shared>, peer: Peer, paths: Vec<PathBuf>, install: bool) {
 pub fn send_with(sh: Arc<Shared>, peer: Peer, paths: Vec<PathBuf>, o: SendOpts) {
     let label = label_of(&paths);
     let (id, cancel) = sh.new_xfer(true, &peer.name, &label, 0, 0);
+    sh.set_resume(id, crate::beam::config::Resume { peer_id: peer.id.clone(), paths: paths.iter().map(|p| p.display().to_string()).collect(), opts: o.clone() });
     std::thread::spawn(move || {
         let r = with_retries(&sh, id, &cancel, &peer.name, || send_job(&sh, id, &cancel, &peer, &label, &paths, &o));
         finish(&sh, id, r, &peer.name, true);

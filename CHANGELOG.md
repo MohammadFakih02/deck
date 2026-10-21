@@ -2,9 +2,34 @@
 
 All notable changes to Deck. Setups for each version are on the [Releases](https://github.com/MohammadFakih02/deck/releases) page.
 
-## Unreleased
+## 2.7.9 — 2026-10-21
 
 ### Added
+- **Apps** (Maintenance → Apps): everything installed on the PC, with search, sorting by name, size or date, and Desktop / Store filters.
+  - **Uninstall** runs the app's own uninstaller and waits until it has really finished (also uninstallers that copy themselves to Temp first).
+  - **Advanced** uninstall: the uninstaller first, then a search for what the app left behind: its folders (Program Files, ProgramData, AppData, Documents), its registry settings, Start menu and desktop shortcuts, and Windows services that run from its folder. You tick what goes; folders go to the Recycle Bin, and registry keys and services are saved to a .reg backup first. Only names that match the app exactly are offered, and nothing another installed app uses.
+  - Apps whose uninstaller is missing can still have their entry and leftovers removed.
+  - **Apps missing from Windows' list** (known to Windows Installer, but their entry was removed by a cleanup tool or a half-finished uninstall) are listed too and uninstall normally; apps whose folder is gone are marked **Files gone**. A **Needs attention** filter shows just these.
+  - Built-in apps and Store apps moved here from Tweaks (tabs **Built-in apps** and **Store apps & updates**).
+- **Store app updates** (Apps → Store apps & updates): checks every Store app against Microsoft's servers and lists the ones with a newer version and its size. **Update** downloads and installs it without the Store; **Update all here** goes one app at a time; **Update all with the Microsoft Store** asks the Store to do it. Each app shows its progress (size, speed, time left), can be stopped and carried on later from where it stopped, and has its download links to copy. The list and the downloads survive Deck closing or crashing. Apps that couldn't be checked, and why, are listed instead of being counted as up to date.
+- **Phone as a controller without the screen** (phone remote → Screen → Use as a controller): just the controller, on its own connection, so a press reaches the PC with the least delay; the round trip is shown in ms. Several phones become several controllers (Player 1 to 4, shared with real controllers and DS4Windows), each phone showing its player number. Size, opacity, a background (colour or photo) and the layout (follow the phone, or always sideways) are remembered on each phone; holding the phone upright gives an upright layout.
+- **Tweaks explain themselves:** every tweak says, in plain words, what you gain and what you give up.
+- **Hide after opening an app** (Settings → General, quick panel): off keeps Deck open after starting apps, files or links from it.
+- PC to PC: a transfer cut off by Deck closing (or cancelled) has **Carry on**, which sends only what the other PC is missing; the transfer list survives restarts.
+
+### Changed
+- **Tweaks are checkboxes** worded as what Deck does ("Show hidden files and folders"): ticked is Deck's change, unticked is Windows' own setting. Lists of choices mark Windows' default.
+- Apps, files and links opened from Deck's search start in the background: Deck no longer stops responding while an app asks for administrator rights, and the UAC prompt comes to the front.
+- Workspace Sync's problems say what happened and what to do (for example a cloud folder switched on with no folder chosen).
+- Phone remote: full screen notices when the browser quietly left it, and says so when the browser doesn't allow it. Files sent to the phone stay listed after Deck restarts, and an interrupted download on the phone can continue (Deck now tells the browser the file is unchanged).
+- An advanced uninstall that Deck was closed in the middle of is offered to finish on the Apps page.
+
+### Fixed
+- **Open RivaTuner** closed RivaTuner by force, which could leave Deck or a browser frozen. It now asks RivaTuner to close, and Deck's own windows are kept out of RivaTuner's hooks.
+- "Update all with the Microsoft Store" seemed to do nothing when the "Don't update Store apps by themselves" tweak was on (Windows blocks the Store's background updates then). Deck now says so and offers what works; otherwise it reports which apps the Store started or cancelled.
+- "Open in Store" for paid apps did nothing.
+
+### Also in this version
 - **Phone remote, Screen view:** an on-screen controller in the PlayStation layout (two sticks, D-pad, face buttons, L1/R1/L2/R2, L3/R3, Share, PS, Options; several fingers at once), with its size and opacity in Settings. The PC sees it as an Xbox controller (needs the ViGEmBus driver). **Hold click** keeps the left button down while your finger is on the screen. F1 to F24 in the Keys bar. **Control in games** lets taps and keys reach a game in front (off by default).
 - **Workspace Sync for Claude Code** (was "Claude Code sync") carries more than conversations now, so a project can be picked up on another PC:
   - **Project files** (Settings → What to sync, off until you turn it on): each project's folder is kept the same on your PCs, without `.git` and build output. Folders over 40,000 files or 3 GB, a drive, or your user folder are never copied. Deleted files go to the trash folder on the other PCs, and switching it off deletes nothing. **Build files** (target, node_modules, .venv…) can be included too.

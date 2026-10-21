@@ -183,6 +183,7 @@ pub fn start(app: Arc<App>, remote: Arc<Remote>) {
             .route("/", get(page))
             .route("/ws", get(ws))
             .route("/screen", get(screen_ws))
+            .route("/pad", get(pad_ws))
             .route("/audio", get(audio_ws))
             .route("/mic", get(mic_ws))
             .route("/mic-worklet-1.js", get(|| async { ([(header::CONTENT_TYPE, "text/javascript"), (header::CACHE_CONTROL, "max-age=31536000, immutable")], MIC_WORKLET) }))
@@ -660,6 +661,7 @@ pub fn push_shared(app: &App, mut s: Shared) {
         v.remove(0);
     }
     drop(v);
+    app.save_shared();
     app.changed("shared");
 }
 
@@ -683,15 +685,21 @@ pub(crate) async fn serve_file(path: &str, name: &str, headers: &axum::http::Hea
     // Deck has admin rights: only a file the signed-in user could open themselves goes out
     let Ok(f) = crate::fsguard::open_read_for_user(std::path::Path::new(path)) else { return (StatusCode::NOT_FOUND, "gone").into_response() };
     let mut f = tokio::fs::File::from_std(f);
-    let len = f.metadata().await.map(|m| m.len()).unwrap_or(0);
+    let meta = f.metadata().await.ok();
+    let len = meta.as_ref().map(|m| m.len()).unwrap_or(0);
+    // what tells a browser the file is still the same one, so it may continue a broken download
+    let mtime = meta.and_then(|m| m.modified().ok()).and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_secs()).unwrap_or(0);
+    let etag = format!("\"{len:x}-{mtime:x}\"");
+    // If-Range: a browser continuing asks "only if it's still this file"; when it isn't, the whole new file goes
+    let same = headers.get(header::IF_RANGE).and_then(|v| v.to_str().ok()).is_none_or(|v| v == etag || v == http_date(mtime));
     // "bytes=START-" or "bytes=START-END" (one range; anything else gets the whole file)
-    let range = headers.get(header::RANGE).and_then(|v| v.to_str().ok()).and_then(|r| r.strip_prefix("bytes=")).and_then(|r| {
+    let range = headers.get(header::RANGE).filter(|_| same).and_then(|v| v.to_str().ok()).and_then(|r| r.strip_prefix("bytes=")).and_then(|r| {
         let (a, b) = r.split_once('-')?;
         let start: u64 = a.trim().parse().ok()?;
         let end: u64 = if b.trim().is_empty() { len.checked_sub(1)? } else { b.trim().parse::<u64>().ok()?.min(len.checked_sub(1)?) };
         (start <= end).then_some((start, end))
     });
-    if let Some(r) = headers.get(header::RANGE) {
+    if let Some(r) = headers.get(header::RANGE).filter(|_| same) {
         if range.is_none() && r.to_str().map(|s| s.starts_with("bytes=")).unwrap_or(false) && len > 0 {
             return (StatusCode::RANGE_NOT_SATISFIABLE, [(header::CONTENT_RANGE, format!("bytes */{len}"))]).into_response();
         }
@@ -732,6 +740,8 @@ pub(crate) async fn serve_file(path: &str, name: &str, headers: &axum::http::Hea
             (header::ACCEPT_RANGES, "bytes".to_string()),
             (header::CONTENT_DISPOSITION, format!("attachment; filename=\"{ascii}\"; filename*=UTF-8''{}", pct(name))),
             (header::CACHE_CONTROL, "no-store".to_string()),
+            (header::ETAG, etag),
+            (header::LAST_MODIFIED, http_date(mtime)),
         ],
         Body::from_stream(stream),
     )
@@ -743,6 +753,24 @@ pub(crate) async fn serve_file(path: &str, name: &str, headers: &axum::http::Hea
         }
     }
     resp
+}
+
+/// "Wed, 21 Oct 2026 18:30:00 GMT" for a time in seconds since 1970.
+fn http_date(secs: u64) -> String {
+    let (days, rem) = ((secs / 86400) as i64, secs % 86400);
+    // civil from days (Howard Hinnant)
+    let z = days + 719468;
+    let era = z.div_euclid(146097);
+    let doe = z - era * 146097;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + i64::from(m <= 2);
+    let wd = ["Thu", "Fri", "Sat", "Sun", "Mon", "Tue", "Wed"][(days.rem_euclid(7)) as usize];
+    let mon = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][(m - 1) as usize];
+    format!("{wd}, {d:02} {mon} {y} {:02}:{:02}:{:02} GMT", rem / 3600, rem % 3600 / 60, rem % 60)
 }
 
 pub(crate) fn pct(s: &str) -> String {
@@ -1023,6 +1051,123 @@ async fn screen_ws(State(app): State<St>, ConnectInfo(addr): ConnectInfo<SocketA
     let away = q.away.as_deref() == Some("1");
     let pad = q.pad.as_deref() == Some("1");
     up.on_upgrade(move |socket| screen_client(socket, app, video, away, pad, reg))
+}
+
+#[derive(serde::Deserialize)]
+struct PadQuery {
+    s: Option<String>,
+    c: Option<String>,
+    m: Option<String>,
+}
+
+/// The phone as a controller without the Screen view: only button and stick states come in, so
+/// nothing (no capture, no video) sits between a press and the virtual controller. Needs the same
+/// "control" permission as the Screen view's controller.
+async fn pad_ws(State(app): State<St>, ConnectInfo(addr): ConnectInfo<SocketAddr>, Query(q): Query<PadQuery>, up: WebSocketUpgrade) -> Response {
+    if !authorized(&app, &q.s, &q.c, &q.m, "/pad", false) {
+        return (StatusCode::UNAUTHORIZED, "bad key").into_response();
+    }
+    if app.settings.lock().remote_screen != "control" {
+        return refuse(up, "The phone can only be a controller when the PC allows control: in Deck, Phone → Screen on your phone → Control.".into());
+    }
+    let reg = match admit(&app, addr.ip()) {
+        Ok(r) => r,
+        Err(why) => return refuse(up, why),
+    };
+    up.on_upgrade(move |socket| pad_client(socket, app, reg))
+}
+
+/// Phones being controllers right now (several phones: one controller each, for party games).
+static PADS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+fn pad_toast(app: &App, n: usize) {
+    if n == 0 {
+        app.dismiss_toast("phone-pad");
+    } else {
+        let title = if n == 1 { "A phone is a controller".to_string() } else { format!("{n} phones are controllers") };
+        app.toast(crate::app::Toast::simple("phone-pad", &title, "Games see each one as its own Xbox controller (up to 4 players). Turn it off in Deck → Phone → Screen on your phone."));
+    }
+}
+
+async fn pad_client(mut socket: WebSocket, app: Arc<App>, reg: Registered) {
+    pad_toast(&app, PADS.fetch_add(1, Ordering::Relaxed) + 1);
+    app.changed("remote");
+    // plugged in on the first press, unplugged when the phone leaves
+    let mut pad: Option<crate::vpad::VPad> = None;
+    let mut failed = false;
+    // Windows numbers a new controller a moment after it's plugged in; asked until it has, without
+    // holding up any press. (since, told the phone)
+    let mut player: (Option<std::time::Instant>, bool) = (None, false);
+    let mut check = tokio::time::interval(Duration::from_millis(1000));
+    loop {
+        tokio::select! {
+            msg = socket.recv() => {
+                let Some(Ok(msg)) = msg else { break };
+                let Message::Text(t) = msg else { continue };
+                let Ok(v) = serde_json::from_str::<Value>(t.as_str()) else { continue };
+                match v["t"].as_str() {
+                    Some("gp") if !failed => {
+                        if pad.is_none() {
+                            match crate::vpad::VPad::new() {
+                                Ok(p) => {
+                                    pad = Some(p);
+                                    // known now; the tick below only tells the phone when all 4 were taken
+                                    player.0 = Some(std::time::Instant::now() - Duration::from_secs(10));
+                                }
+                                Err(e) => {
+                                    failed = true;
+                                    if socket.send(Message::Text(json!({ "t": "note", "text": e }).to_string().into())).await.is_err() { break; }
+                                    continue;
+                                }
+                            }
+                        }
+                        if let Some(p) = pad.as_mut() {
+                            p.update(&v);
+                            if !player.1 {
+                                if let Some(n) = p.player() {
+                                    player.1 = true;
+                                    if socket.send(Message::Text(json!({ "t": "player", "n": n }).to_string().into())).await.is_err() { break; }
+                                }
+                            }
+                        }
+                    }
+                    // the phone measures the delay: answered straight back
+                    Some("ping") => {
+                        let sent = socket.send(Message::Text(json!({ "t": "pong", "id": v["id"] }).to_string().into())).await;
+                        if sent.is_err() { break; }
+                    }
+                    _ => {}
+                }
+            }
+            _ = check.tick() => {
+                if app.settings.lock().remote_screen != "control" {
+                    let _ = socket.send(Message::Text(json!({ "t": "off", "text": "Control was turned off on the PC, so the controller stopped." }).to_string().into())).await;
+                    break;
+                }
+                if let (Some(p), Some(since), false) = (pad.as_mut(), player.0, player.1) {
+                    let msg = match p.player() {
+                        Some(n) => {
+                            player.1 = true;
+                            Some(json!({ "t": "player", "n": n }))
+                        }
+                        // still none after a few seconds: every slot is taken
+                        None if since.elapsed() > Duration::from_secs(4) => {
+                            player.1 = true;
+                            Some(json!({ "t": "note", "text": "Windows gave this controller no player number: all 4 are taken (real controllers, DS4Windows and phones share them). Disconnect one, then close and reopen the controller." }))
+                        }
+                        None => None,
+                    };
+                    if let Some(m) = msg {
+                        if socket.send(Message::Text(m.to_string().into())).await.is_err() { break; }
+                    }
+                }
+            }
+        }
+    }
+    drop(pad);
+    pad_toast(&app, PADS.fetch_sub(1, Ordering::Relaxed).saturating_sub(1));
+    drop(reg);
+    app.changed("remote");
 }
 
 /// One phone's Screen view: pictures out, taps and typing in (only in "control" mode). Ends when
@@ -1317,6 +1462,7 @@ fn handle(app: &Arc<App>, v: &Value) -> Option<Value> {
         "shared_remove" => {
             let id = v.get("id").and_then(Value::as_u64).unwrap_or(0);
             app.shared.lock().retain(|x| x.id != id);
+            app.save_shared();
             app.changed("shared");
             Ok(())
         }
@@ -1367,5 +1513,15 @@ mod conn_tests {
         let shut_home = Limits { away_blocks_home: true, ..none };
         assert!(decide(&conns(&["100.64.0.9"]), ip("192.168.1.6"), shut_home).is_err());
         assert!(decide(&conns(&["100.64.0.9", "100.64.0.10"]), ip("100.64.0.11"), Limits { max_away: 2, ..none }).is_err());
+    }
+}
+
+#[cfg(test)]
+mod http_date_tests {
+    #[test]
+    fn dates_are_what_browsers_expect() {
+        assert_eq!(super::http_date(0), "Thu, 01 Jan 1970 00:00:00 GMT");
+        assert_eq!(super::http_date(1_792_607_400), "Wed, 21 Oct 2026 18:30:00 GMT");
+        assert_eq!(super::http_date(951_782_400), "Tue, 29 Feb 2000 00:00:00 GMT");
     }
 }

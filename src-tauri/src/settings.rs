@@ -94,6 +94,8 @@ pub struct Settings {
     /// Allow the hot corner while a fullscreen game or video is in front.
     pub hot_corner_fullscreen: bool,
     pub hide_on_blur: bool,
+    /// Quick panel: hide once something opened from Deck (search, Home) has started.
+    pub hide_after_launch: bool,
     pub autostart: bool,
     /// Deck starts itself again (hidden) after it was ended from outside: a crash, a driver install.
     pub restart_after_crash: bool,
@@ -309,6 +311,7 @@ impl Default for Settings {
             hot_corner_ms: 250,
             hot_corner_fullscreen: false,
             hide_on_blur: true,
+            hide_after_launch: true,
             autostart: true,
             restart_after_crash: true,
             auto_update: true,

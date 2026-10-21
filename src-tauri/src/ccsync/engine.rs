@@ -458,8 +458,12 @@ impl Engine {
             let hub = if cfg.hub_enabled {
                 match Hub::new(&cfg.hub_dir, key.clone()) {
                     Ok(h) => Some(h),
-                    Err(e) => {
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                         tally.errors.push(format!("Cloud folder: {e}"));
+                        None
+                    }
+                    Err(e) => {
+                        tally.errors.push(format!("Cloud folder: Deck couldn't use the cloud folder ({e}). Check that the folder isn't read-only and that OneDrive or the cloud app is running."));
                         None
                     }
                 }
@@ -469,7 +473,7 @@ impl Engine {
             if let Some(h) = &hub {
                 self.phase("Uploading to cloud folder");
                 if let Err(e) = self.publish_hub(h, &man, &scan, &canon) {
-                    tally.errors.push(format!("Cloud folder: {e}"));
+                    tally.errors.push(format!("Cloud folder: uploading this PC's changes failed ({e}). Usually the cloud app is still syncing or the disk is full; Deck tries again on the next sync."));
                 }
             }
 
@@ -501,7 +505,7 @@ impl Engine {
                             self.sh.log(format!("{}: {m}", r.m.machine_name));
                             deleted_any = true;
                         }
-                        Err(e) => tally.errors.push(format!("Can't delete project {a} as {} did: {e}", r.m.machine_name)),
+                        Err(e) => tally.errors.push(format!("{} deleted the project {a}, but it couldn't be deleted here ({e}). A program may have a file in it open; close it and Deck tries again on the next sync.", r.m.machine_name)),
                     }
                 }
             }
@@ -516,7 +520,7 @@ impl Engine {
                             self.sh.log(format!("{}: {m}", r.m.machine_name));
                             deleted_any = true;
                         }
-                        Err(e) => tally.errors.push(format!("{} deleted a session that can't be deleted here yet: {e}", r.m.machine_name)),
+                        Err(e) => tally.errors.push(format!("{} deleted a session, but it couldn't be deleted here yet ({e}). It's probably open in Claude Code on this PC; Deck deletes it once it's closed.", r.m.machine_name)),
                     }
                 }
             }
@@ -768,7 +772,7 @@ impl Engine {
                 match lan::resolve(m, cfg.lan_port) {
                     Some(a) if !addrs.iter().any(|(x, _)| *x == a) => addrs.push((a, m.clone())),
                     Some(_) => {}
-                    None => tally.errors.push(format!("Can't resolve peer {m}")),
+                    None => tally.errors.push(format!("Couldn't find the PC {m} on the network: it may be off, asleep, or on another network. Its changes come over when it's back.")),
                 }
             }
             for a in &ts {
@@ -794,20 +798,20 @@ impl Engine {
                                 by_id.insert(m.machine_id.clone(), Remote { m, via: Via::Lan(c) });
                             }
                             Ok(_) => {}
-                            Err(e) if !quiet => tally.errors.push(format!("{name}: {e}")),
+                            Err(e) if !quiet => tally.errors.push(format!("Connected to {name}, but it didn't send its list of changes ({e}). It may be busy or running an older Deck; Deck tries again on the next sync.")),
                             Err(_) => {}
                         }
                     }
                     // a Tailscale device without Deck (or switched off) isn't a problem
                     Err(_) if quiet => {}
-                    Err(e) => tally.errors.push(format!("Can't reach {name} ({addr}): {e}")),
+                    Err(e) => tally.errors.push(format!("Couldn't connect to {name} at {addr} ({e}). It may be off or asleep, Deck may not be running there, or a firewall blocks it. Its changes come over when it's back.")),
                 }
             }
         }
         if let Some(h) = hub {
             let (ms, unreadable) = h.manifests(&cfg.machine_id);
             if unreadable > 0 {
-                tally.errors.push(format!("Cloud folder has {unreadable} machine(s) using a different sync key"));
+                tally.errors.push(format!("{unreadable} PC(s) in the cloud folder use a different sync key, so their changes can't be read here. Fix: on those PCs, use the same sync key as this one (Settings → Sync key)."));
             }
             for m in ms {
                 via_names.entry(m.machine_id.clone()).or_default().push("cloud");

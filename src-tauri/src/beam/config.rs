@@ -154,6 +154,35 @@ pub struct Xfer {
     last_t: Instant,
     last_done: u64,
     pub cancel: Arc<AtomicBool>,
+    /// a send: what to send again to carry on (the other PC keeps what it got)
+    pub resume: Option<Resume>,
+}
+
+/// What a send needs to start again after Deck was closed.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct Resume {
+    pub peer_id: String,
+    pub paths: Vec<String>,
+    pub opts: crate::beam::net::SendOpts,
+}
+
+/// A transfer as kept on disk (transfers.json), so the list survives Deck closing, crashing or
+/// being ended in Task Manager.
+#[derive(Serialize, Deserialize)]
+struct SavedXfer {
+    id: u64,
+    send: bool,
+    peer: String,
+    label: String,
+    total: u64,
+    done: u64,
+    files: usize,
+    /// waiting / active / done / failed / cancelled / declined
+    state: String,
+    #[serde(default)]
+    error: String,
+    #[serde(default)]
+    resume: Option<Resume>,
 }
 
 /// an offer from the other PC waiting for the user's answer
@@ -267,6 +296,7 @@ impl Shared {
             notify: Mutex::new(None),
             last_notify: Mutex::new(None),
         };
+        sh.load_xfers();
         sh.save_cfg(&cfg);
         sh
     }
@@ -406,16 +436,104 @@ impl Shared {
             last_t: now,
             last_done: 0,
             cancel: cancel.clone(),
+            resume: None,
         });
         drop(x);
+        self.save_xfers(true);
         self.repaint();
         (id, cancel)
+    }
+
+    pub fn set_resume(&self, id: u64, r: Resume) {
+        self.xfer(id, |x| x.resume = Some(r));
+        self.save_xfers(true);
     }
 
     pub fn xfer(&self, id: u64, f: impl FnOnce(&mut Xfer)) {
         if let Some(x) = self.xfers.lock_anyway().iter_mut().find(|x| x.id == id) {
             f(x);
         }
+        self.save_xfers(false);
+    }
+
+    fn xfers_file(&self) -> PathBuf {
+        self.paths.data.join("transfers.json")
+    }
+
+    /// Writes the list (at once for a new state, else at most every 2 s while bytes come in).
+    pub fn save_xfers(&self, now: bool) {
+        static LAST: Mutex<Option<Instant>> = Mutex::new(None);
+        {
+            let mut last = LAST.lock_anyway();
+            if !now && last.is_some_and(|t| t.elapsed() < std::time::Duration::from_secs(2)) {
+                return;
+            }
+            *last = Some(Instant::now());
+        }
+        let list: Vec<SavedXfer> = self
+            .xfers
+            .lock_anyway()
+            .iter()
+            .map(|x| {
+                let (state, error) = match &x.state {
+                    XState::Waiting => ("waiting", String::new()),
+                    XState::Active => ("active", String::new()),
+                    XState::Done => ("done", String::new()),
+                    XState::Failed(m) => ("failed", m.clone()),
+                    XState::Cancelled => ("cancelled", String::new()),
+                    XState::Declined => ("declined", String::new()),
+                };
+                SavedXfer { id: x.id, send: x.send, peer: x.peer.clone(), label: x.label.clone(), total: x.total, done: x.done, files: x.files, state: state.into(), error, resume: x.resume.clone() }
+            })
+            .collect();
+        let _ = crate::util::write_atomic(&self.xfers_file(), &serde_json::to_vec(&list).unwrap_or_default());
+    }
+
+    /// The list from before Deck restarted: what was still going is marked as cut off.
+    fn load_xfers(&self) {
+        let saved: Vec<SavedXfer> = std::fs::read(self.xfers_file()).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+        let now = Instant::now();
+        let mut top = 0;
+        let list: Vec<Xfer> = saved
+            .into_iter()
+            .map(|s| {
+                top = top.max(s.id);
+                let state = match s.state.as_str() {
+                    "done" => XState::Done,
+                    "cancelled" => XState::Cancelled,
+                    "declined" => XState::Declined,
+                    "failed" => XState::Failed(s.error),
+                    _ if s.send => XState::Failed(format!(
+                        "Deck was closed while this was sending ({} of {} had arrived). Carry on sends it again; {} keeps what it already got, so only the rest comes over.",
+                        human(s.done), human(s.total), s.peer
+                    )),
+                    _ => XState::Failed(format!(
+                        "Deck was closed while this was coming in ({} of {} arrived and is kept). On {}, press Carry on to finish it.",
+                        human(s.done), human(s.total), s.peer
+                    )),
+                };
+                        Xfer {
+                    id: s.id,
+                    send: s.send,
+                    peer: s.peer,
+                    label: s.label,
+                    total: s.total,
+                    done: s.done,
+                    files: s.files,
+                    state,
+                    started: now,
+                    finished_at: Some(now),
+                    speed: 0.0,
+                    note: String::new(),
+                    last_t: now,
+                    last_done: s.done,
+                    cancel: Arc::new(AtomicBool::new(false)),
+                    resume: s.resume,
+                }
+            })
+            .collect();
+        self.next_id.fetch_max(top + 1, Ordering::Relaxed);
+        *self.xfers.lock_anyway() = list;
     }
 
     pub fn set_state(&self, id: u64, s: XState) {
@@ -432,6 +550,7 @@ impl Shared {
             }
             x.state = s;
         });
+        self.save_xfers(true);
         self.repaint();
     }
 

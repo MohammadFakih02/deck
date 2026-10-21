@@ -16,6 +16,7 @@ import "./pcs.js";
 import "./controller.js";
 import "./deaths.js";
 import "./tweaks.js";
+import "./programs.js";
 import { boot, go, render, tick } from "./app.js";
 
 // The UI tests (tools/testing/ui-preview) and DevTools reach these by name.

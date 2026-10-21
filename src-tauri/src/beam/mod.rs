@@ -240,8 +240,10 @@ pub fn state() -> Value {
                 XState::Declined => ("declined", String::new()),
             };
             let secs = x.finished_at.map(|f| f.duration_since(x.started).as_secs_f64()).unwrap_or_else(|| x.started.elapsed().as_secs_f64());
+            // a send that didn't finish can carry on (the other PC keeps what it got)
+            let resumable = x.send && x.resume.is_some() && matches!(x.state, XState::Failed(_) | XState::Cancelled);
             json!({ "id": x.id, "send": x.send, "peer": x.peer, "label": x.label, "total": x.total, "done": x.done, "files": x.files,
-                    "state": state, "error": err, "speed": x.speed, "secs": secs, "note": x.note })
+                    "state": state, "error": err, "speed": x.speed, "secs": secs, "note": x.note, "resumable": resumable })
         })
         .collect();
     let pending: Vec<Value> = sh.pending.lock_anyway().iter().map(|p| json!({ "id": p.id, "peer": p.peer, "label": p.label, "files": p.files, "total": p.total, "install": p.install, "deletes": p.deletes, "peer_id": p.peer_id })).collect();
@@ -396,11 +398,28 @@ pub fn act(app: &Arc<App>, what: &str, a: &Value) -> Result<Value, String> {
                 x.cancel.store(true, Ordering::Relaxed);
             }
         }
+        // sends a cut-off or cancelled transfer again; the other PC keeps what it got, so only the rest goes
+        "resume" => {
+            let id = a["id"].as_u64().unwrap_or(0);
+            let r = sh.xfers.lock_anyway().iter().find(|x| x.id == id).and_then(|x| x.resume.clone()).ok_or("This transfer can't carry on: send it again")?;
+            let name = sh.xfers.lock_anyway().iter().find(|x| x.id == id).map(|x| x.peer.clone()).unwrap_or_default();
+            let p = t.lan.live_peers().into_iter().find(|p| p.id == r.peer_id).ok_or_else(|| format!("{name} isn't reachable right now: it may be off or asleep, or Deck isn't running there. Carry on once it's back."))?;
+            let missing: Vec<&String> = r.paths.iter().filter(|x| !std::path::Path::new(x).exists()).collect();
+            if !missing.is_empty() {
+                return Err(format!("{} isn't on this PC any more (moved or deleted), so it can't be sent.", missing[0]));
+            }
+            sh.xfers.lock_anyway().retain(|x| x.id != id);
+            net::send_with(sh.clone(), p, r.paths.iter().map(std::path::PathBuf::from).collect(), r.opts);
+        }
         "dismiss" => {
             let id = a["id"].as_u64().unwrap_or(0);
             sh.xfers.lock_anyway().retain(|x| x.id != id || !x.state.finished());
+            sh.save_xfers(true);
         }
-        "clear_done" => sh.xfers.lock_anyway().retain(|x| !x.state.finished()),
+        "clear_done" => {
+            sh.xfers.lock_anyway().retain(|x| !x.state.finished());
+            sh.save_xfers(true);
+        }
         "answer" => answer(a["id"].as_u64().unwrap_or(0), s(a, "answer")),
         // the other PC's shared folders
         "browse" => {

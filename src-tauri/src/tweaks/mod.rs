@@ -63,6 +63,14 @@ pub struct Tweak {
     pub label: Option<String>,
     #[serde(default, rename = "do")]
     pub action: Option<String>,
+    /// a switch, worded as what Deck does when it's ticked (ticked = away from Windows' default)
+    #[serde(default)]
+    pub tick: Option<String>,
+    /// plain words: what you gain with Deck's change, and what you give up
+    #[serde(default)]
+    pub good: Option<String>,
+    #[serde(default)]
+    pub lose: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -432,7 +440,7 @@ fn tweak_json(t: &Tweak, build: u32, admin: bool, same_user: bool, entries: &[En
     let lean = (state.as_deref() == Some("mixed")).then(|| lean_of(t)).flatten();
     json!({
         "id": t.id, "cat": t.cat, "group": t.group, "name": t.name, "what": t.what, "more": t.more, "risk": t.risk, "after": t.after, "src": t.src,
-        "kind": t.kind, "default": t.default, "rec": t.rec, "page": t.page, "label": t.label,
+        "kind": t.kind, "default": t.default, "rec": t.rec, "page": t.page, "label": t.label, "tick": t.tick, "good": t.good, "lose": t.lose,
         "options": t.options.iter().map(|o| json!({ "id": o.id, "label": o.label })).collect::<Vec<_>>(),
         "state": state, "hidden": hidden, "blocked": blocked(t, admin, same_user),
         "changed": e.is_some(), "applied": e.map(|e| e.applied.clone()), "was": e.map(|e| e.was.clone()), "at": e.map(|e| e.at),

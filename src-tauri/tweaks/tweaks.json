@@ -196,7 +196,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "Turn off activity history",
+   "good": "Windows stops keeping a list of every app and file you open.",
+   "lose": "Nothing you'd notice. The old Timeline view stays empty."
   },
   {
    "id": "privacy.feedback",
@@ -250,7 +253,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "Stop feedback requests",
+   "good": "No more pop-ups asking you to rate Windows.",
+   "lose": "Nothing you'd notice."
   },
   {
    "id": "privacy.edge_ads",
@@ -425,7 +431,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "Remove ads and news from Edge",
+   "good": "Edge's new tab page gets clean: no news feed, no shopping pop-ups.",
+   "lose": "You won't see news headlines in Edge's new tab."
   },
   {
    "id": "privacy",
@@ -619,7 +628,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "Send only required diagnostic data, no ads ID",
+   "good": "Windows sends Microsoft less data about how you use your PC, and apps can't track you with an ads ID.",
+   "lose": "Ads and tips are less tailored to you, which most people don't mind."
   },
   {
    "id": "privacy.suggestions",
@@ -873,7 +885,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "Turn off tips and suggested content",
+   "good": "Stops the \"try this\" tips and app suggestions all over Windows.",
+   "lose": "You miss tips about new Windows features."
   },
   {
    "id": "privacy.lockscreen_tips",
@@ -929,7 +944,10 @@
      ]
     }
    ],
-   "admin": false
+   "admin": false,
+   "tick": "Remove tips and facts from the lock screen",
+   "good": "The lock screen only shows the picture and the clock.",
+   "lose": "Nothing you'd notice."
   },
   {
    "id": "privacy.settings_ads",
@@ -972,7 +990,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "Remove Microsoft 365 ads from Settings",
+   "good": "Settings stops advertising Microsoft 365 and Copilot.",
+   "lose": "Nothing you'd notice."
   },
   {
    "id": "privacy.consumer",
@@ -1015,7 +1036,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "Stop Windows installing suggested apps",
+   "good": "Stops games like Candy Crush appearing on your PC by themselves.",
+   "lose": "Nothing you'd notice."
   },
   {
    "id": "privacy.device_apps",
@@ -1058,7 +1082,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "Don't download companion apps for new devices",
+   "good": "Plugging in a mouse or a monitor won't download its maker's app by itself.",
+   "lose": "Some devices' extra features need that app; you can still install it yourself."
   },
   {
    "id": "privacy.location",
@@ -1101,7 +1128,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "Turn off location",
+   "good": "No app and no part of Windows can find out where you are.",
+   "lose": "Weather, maps and Find My Device can't use your location; you type your city in by hand."
   },
   {
    "id": "privacy.findmydevice",
@@ -1144,7 +1174,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "Turn off Find My Device",
+   "good": "Windows stops saving where this PC is.",
+   "lose": "If the PC is lost or stolen, you can't see on a map where it is."
   },
   {
    "id": "privacy.cloud_search",
@@ -1200,7 +1233,10 @@
      ]
     }
    ],
-   "admin": false
+   "admin": false,
+   "tick": "Remove cloud results from search",
+   "good": "Start search only looks on this PC, not in your OneDrive or Outlook.",
+   "lose": "Files that are only in OneDrive won't show up in Start search."
   },
   {
    "id": "privacy.search_history",
@@ -1244,7 +1280,10 @@
      ]
     }
    ],
-   "admin": false
+   "admin": false,
+   "tick": "Don't keep search history",
+   "good": "Start forgets what you searched for.",
+   "lose": "Start can't suggest your earlier searches."
   },
   {
    "id": "privacy.wpbt",
@@ -1287,7 +1326,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "Block firmware programs at start-up (WPBT)",
+   "good": "Stops the motherboard from quietly installing its maker's software in Windows.",
+   "lose": "If you rely on the maker's anti-theft or driver tool installed this way, it stops installing itself."
   },
   {
    "id": "privacy.access.webcam",
@@ -1331,7 +1373,10 @@
      ]
     }
    ],
-   "admin": false
+   "admin": false,
+   "tick": "Block apps from the camera",
+   "good": "No app can turn on your camera.",
+   "lose": "Discord, Teams, Zoom and games can't use your camera until you untick this."
   },
   {
    "id": "privacy.access.microphone",
@@ -1375,7 +1420,10 @@
      ]
     }
    ],
-   "admin": false
+   "admin": false,
+   "tick": "Block apps from the microphone",
+   "good": "No app can listen through your microphone.",
+   "lose": "Discord, calls, games and voice chat can't hear you until you untick this."
   },
   {
    "id": "privacy.access.contacts",
@@ -1419,7 +1467,10 @@
      ]
     }
    ],
-   "admin": false
+   "admin": false,
+   "tick": "Block apps from your contacts",
+   "good": "Apps can't read your contacts.",
+   "lose": "Mail and People apps can't show your contacts."
   },
   {
    "id": "privacy.access.phoneCallHistory",
@@ -1463,7 +1514,10 @@
      ]
     }
    ],
-   "admin": false
+   "admin": false,
+   "tick": "Block apps from your call history",
+   "good": "Apps can't read your call history.",
+   "lose": "Phone Link can't show your calls."
   },
   {
    "id": "privacy.access.chat",
@@ -1507,7 +1561,10 @@
      ]
     }
    ],
-   "admin": false
+   "admin": false,
+   "tick": "Block apps from your messages",
+   "good": "Apps can't read your text messages.",
+   "lose": "Phone Link can't show your messages."
   },
   {
    "id": "privacy.access.email",
@@ -1551,7 +1608,10 @@
      ]
     }
    ],
-   "admin": false
+   "admin": false,
+   "tick": "Block apps from your email",
+   "good": "Apps can't read your email.",
+   "lose": "The Mail app can't get to your email."
   },
   {
    "id": "privacy.access.userDataTasks",
@@ -1595,7 +1655,10 @@
      ]
     }
    ],
-   "admin": false
+   "admin": false,
+   "tick": "Block apps from your tasks",
+   "good": "Apps can't read your to-do lists.",
+   "lose": "To-do apps can't show your tasks."
   },
   {
    "id": "privacy.access.appointments",
@@ -1639,7 +1702,10 @@
      ]
     }
    ],
-   "admin": false
+   "admin": false,
+   "tick": "Block apps from your calendar",
+   "good": "Apps can't read your calendar.",
+   "lose": "Calendar apps and the taskbar calendar can't show your events."
   },
   {
    "id": "privacy.access.radios",
@@ -1683,7 +1749,10 @@
      ]
     }
    ],
-   "admin": false
+   "admin": false,
+   "tick": "Block apps from turning Bluetooth and Wi-Fi on and off",
+   "good": "Apps can't switch your Bluetooth or Wi-Fi on and off.",
+   "lose": "Apps that manage Bluetooth devices may need you to do it in Settings."
   },
   {
    "id": "privacy.access.documentsLibrary",
@@ -1727,7 +1796,10 @@
      ]
     }
    ],
-   "admin": false
+   "admin": false,
+   "tick": "Block apps from your Documents",
+   "good": "Store apps can't look in your Documents folder.",
+   "lose": "Store apps can't open your documents unless you pick the file yourself."
   },
   {
    "id": "privacy.access.picturesLibrary",
@@ -1771,7 +1843,10 @@
      ]
     }
    ],
-   "admin": false
+   "admin": false,
+   "tick": "Block apps from your Pictures",
+   "good": "Store apps can't look in your Pictures folder.",
+   "lose": "The Photos app and other Store apps can't show your pictures."
   },
   {
    "id": "privacy.access.videosLibrary",
@@ -1815,7 +1890,10 @@
      ]
     }
    ],
-   "admin": false
+   "admin": false,
+   "tick": "Block apps from your Videos",
+   "good": "Store apps can't look in your Videos folder.",
+   "lose": "Store video apps can't show your videos."
   },
   {
    "id": "privacy.access.broadFileSystemAccess",
@@ -1859,7 +1937,10 @@
      ]
     }
    ],
-   "admin": false
+   "admin": false,
+   "tick": "Block apps from all your files",
+   "good": "Store apps can't read every file on your PC.",
+   "lose": "Store apps that manage files can't see them all."
   },
   {
    "id": "privacy.access.userNotificationListener",
@@ -1903,7 +1984,10 @@
      ]
     }
    ],
-   "admin": false
+   "admin": false,
+   "tick": "Block apps from your notifications",
+   "good": "Apps can't read your notifications.",
+   "lose": "Phone Link and smartwatch apps can't mirror your notifications."
   },
   {
    "id": "privacy.access.userAccountInformation",
@@ -1947,7 +2031,10 @@
      ]
     }
    ],
-   "admin": false
+   "admin": false,
+   "tick": "Block apps from your account info",
+   "good": "Apps can't see your name and account picture.",
+   "lose": "Some apps show a blank name or picture."
   },
   {
    "id": "start.bing",
@@ -2013,7 +2100,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "Remove Bing and Copilot from Start search",
+   "good": "Typing in Start only finds things on your PC, faster and without web results.",
+   "lose": "You can't search the web straight from Start; use your browser."
   },
   {
    "id": "start.recommended",
@@ -2081,7 +2171,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "Hide Recommended in Start",
+   "good": "Start shows only your pinned apps, no list of recent files.",
+   "lose": "You can't reopen recent files from Start."
   },
   {
    "id": "start.recent_apps",
@@ -2124,7 +2217,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "Hide recently added apps in Start",
+   "good": "Start stops listing apps you just installed.",
+   "lose": "Nothing you'd notice."
   },
   {
    "id": "start.phonelink",
@@ -2168,7 +2264,10 @@
      ]
     }
    ],
-   "admin": false
+   "admin": false,
+   "tick": "Hide Phone Link in Start",
+   "good": "Start stops showing your phone next to it.",
+   "lose": "Nothing you'd notice."
   },
   {
    "id": "start.allapps",
@@ -2251,7 +2350,8 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "good": "Pick how Start lists all your apps."
   },
   {
    "id": "start.old_layout",
@@ -2294,7 +2394,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "Bring back the previous Start layout",
+   "good": "Start looks the way it did before the 2025 redesign.",
+   "lose": "Only works on Windows versions that still have the old layout."
   },
   {
    "id": "start.unpin_all",
@@ -2358,7 +2461,8 @@
      ]
     }
    ],
-   "admin": false
+   "admin": false,
+   "good": "Left puts the Start button back in the corner, like Windows 10."
   },
   {
    "id": "taskbar.search",
@@ -2426,7 +2530,9 @@
      ]
     }
    ],
-   "admin": false
+   "admin": false,
+   "good": "A smaller search button, or none, leaves more room for your apps.",
+   "lose": "Win+S still opens search."
   },
   {
    "id": "taskbar.taskview",
@@ -2470,7 +2576,10 @@
      ]
     }
    ],
-   "admin": false
+   "admin": false,
+   "tick": "Hide the Task view button",
+   "good": "One less button on the taskbar.",
+   "lose": "Use Win+Tab to see your windows and desktops."
   },
   {
    "id": "taskbar.widgets",
@@ -2513,7 +2622,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "Turn off Widgets",
+   "good": "Removes the weather and news panel from the taskbar and lock screen.",
+   "lose": "No weather on the taskbar."
   },
   {
    "id": "taskbar.chat",
@@ -2569,7 +2681,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "Hide Chat and Meet now",
+   "good": "Removes the Teams Chat button of older Windows versions.",
+   "lose": "Nothing you'd notice."
   },
   {
    "id": "taskbar.endtask",
@@ -2613,7 +2728,10 @@
      ]
     }
    ],
-   "admin": false
+   "admin": false,
+   "tick": "Add End task to the taskbar's right-click menu",
+   "good": "Right-click a frozen app on the taskbar and choose End task to close it.",
+   "lose": "Nothing you'd notice."
   },
   {
    "id": "taskbar.lastactive",
@@ -2656,7 +2774,10 @@
      ]
     }
    ],
-   "admin": false
+   "admin": false,
+   "tick": "Clicking an app opens its last window",
+   "good": "Clicking an app with several windows jumps straight to the one you used last.",
+   "lose": "To pick another window of that app, hover over it first."
   },
   {
    "id": "taskbar.combine",
@@ -2712,7 +2833,9 @@
      ]
     }
    ],
-   "admin": false
+   "admin": false,
+   "good": "\"Never\" shows each window separately with its name, easier to tell apart.",
+   "lose": "\"Never\" fills up the taskbar faster."
   },
   {
    "id": "taskbar.combine_mm",
@@ -2768,7 +2891,8 @@
      ]
     }
    ],
-   "admin": false
+   "admin": false,
+   "good": "The same, for the taskbar on your other screens."
   },
   {
    "id": "taskbar.mm_mode",
@@ -2824,7 +2948,8 @@
      ]
     }
    ],
-   "admin": false
+   "admin": false,
+   "good": "With two screens, show an app's button only on the screen where it's open."
   },
   {
    "id": "taskbar.battery",
@@ -2869,7 +2994,10 @@
      ]
     }
    ],
-   "admin": false
+   "admin": false,
+   "tick": "Show the battery percentage",
+   "good": "Shows the battery level as a number, like 76%.",
+   "lose": "Nothing you'd notice."
   },
   {
    "id": "taskbar.notifications",
@@ -2924,7 +3052,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "Turn off notifications and the calendar",
+   "good": "No more notification pop-ups.",
+   "lose": "You miss messages and reminders, and the clock no longer opens the calendar."
   },
   {
    "id": "taskbar.seconds",
@@ -2968,7 +3099,10 @@
      ]
     }
    ],
-   "admin": false
+   "admin": false,
+   "tick": "Show seconds in the clock",
+   "good": "The taskbar clock shows seconds.",
+   "lose": "Uses a tiny bit more power on laptops."
   },
   {
    "id": "explorer.ext",
@@ -3012,7 +3146,10 @@
      ]
     }
    ],
-   "admin": false
+   "admin": false,
+   "tick": "Show file extensions",
+   "good": "You see the real file type, like photo.jpg or setup.exe. Safer: a virus can't pretend to be a photo.",
+   "lose": "Nothing you'd notice."
   },
   {
    "id": "explorer.hidden",
@@ -3056,7 +3193,10 @@
      ]
     }
    ],
-   "admin": false
+   "admin": false,
+   "tick": "Show hidden files and folders",
+   "good": "You see hidden folders, like AppData, where programs keep their settings.",
+   "lose": "A few more folders you usually don't need show up."
   },
   {
    "id": "explorer.superhidden",
@@ -3100,7 +3240,10 @@
      ]
     }
    ],
-   "admin": false
+   "admin": false,
+   "tick": "Show protected system files",
+   "good": "You see Windows' own protected files.",
+   "lose": "Easy to delete something Windows needs by mistake. Only tick it if you know why."
   },
   {
    "id": "explorer.launch",
@@ -3168,7 +3311,8 @@
      ]
     }
    ],
-   "admin": false
+   "admin": false,
+   "good": "Pick the folder Explorer opens first, like This PC or Downloads."
   },
   {
    "id": "explorer.home",
@@ -3332,7 +3476,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "Hide Home in Explorer's side pane",
+   "good": "Explorer's left side gets shorter: no Home.",
+   "lose": "Nothing you'd notice."
   },
   {
    "id": "explorer.gallery",
@@ -3484,7 +3631,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "Hide Gallery in Explorer's side pane",
+   "good": "Explorer's left side gets shorter: no Gallery.",
+   "lose": "You lose the photo timeline view in Explorer."
   },
   {
    "id": "explorer.onedrive",
@@ -3636,7 +3786,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "Hide OneDrive in Explorer's side pane",
+   "good": "Explorer's left side gets shorter: no OneDrive.",
+   "lose": "Open OneDrive from your user folder instead. It keeps syncing."
   },
   {
    "id": "explorer.dup_drives",
@@ -3678,7 +3831,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "List USB drives only once",
+   "good": "A USB stick shows once in Explorer, not twice.",
+   "lose": "Nothing you'd notice."
   },
   {
    "id": "explorer.thispc_folders",
@@ -3860,7 +4016,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "Show your folders under This PC",
+   "good": "This PC shows Desktop, Documents, Downloads and the rest again, like Windows 10.",
+   "lose": "Nothing you'd notice."
   },
   {
    "id": "explorer.3dobjects",
@@ -3908,7 +4067,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "Hide 3D Objects under This PC",
+   "good": "Removes the 3D Objects folder you never use.",
+   "lose": "Nothing you'd notice."
   },
   {
    "id": "explorer.music",
@@ -3956,7 +4118,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "Hide Music under This PC",
+   "good": "Removes Music from This PC.",
+   "lose": "Open Music from your user folder instead."
   },
   {
    "id": "explorer.letters",
@@ -4024,7 +4189,8 @@
      ]
     }
    ],
-   "admin": false
+   "admin": false,
+   "good": "Choose where the C:, D: letters show, or hide them."
   },
   {
    "id": "explorer.discovery",
@@ -4067,7 +4233,10 @@
      ]
     }
    ],
-   "admin": false
+   "admin": false,
+   "tick": "Stop folder type guessing (faster big folders)",
+   "good": "Big folders, like Downloads, open much faster.",
+   "lose": "Picture and music folders don't get their special view by themselves."
   },
   {
    "id": "explorer.longpaths",
@@ -4111,7 +4280,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "Allow long paths",
+   "good": "Programs can use very long folder paths, which some developer tools need.",
+   "lose": "Nothing you'd notice."
   },
   {
    "id": "explorer.compact",
@@ -4155,7 +4327,10 @@
      ]
     }
    ],
-   "admin": false
+   "admin": false,
+   "tick": "Use compact view in Explorer",
+   "good": "Explorer fits more files on screen.",
+   "lose": "Items are closer together, harder to tap on a touch screen."
   },
   {
    "id": "explorer.fullpath",
@@ -4199,7 +4374,10 @@
      ]
     }
    ],
-   "admin": false
+   "admin": false,
+   "tick": "Show the full path in Explorer's title bar",
+   "good": "Explorer's title shows exactly where you are, like C:\\Users\\You\\Downloads.",
+   "lose": "Nothing you'd notice."
   },
   {
    "id": "explorer.recent",
@@ -4255,7 +4433,10 @@
      ]
     }
    ],
-   "admin": false
+   "admin": false,
+   "tick": "Hide recent files and frequent folders",
+   "good": "Explorer stops showing files you opened lately. Good if others use your PC.",
+   "lose": "No quick way back to recent files in Explorer."
   },
   {
    "id": "explorer.checkboxes",
@@ -4299,7 +4480,10 @@
      ]
     }
    ],
-   "admin": false
+   "admin": false,
+   "tick": "Show check boxes to select files",
+   "good": "A tick box on each file lets you select several with the mouse alone.",
+   "lose": "Nothing you'd notice."
   },
   {
    "id": "context.classic",
@@ -4341,7 +4525,10 @@
      ]
     }
    ],
-   "admin": false
+   "admin": false,
+   "tick": "Use the classic right-click menu",
+   "good": "Right-click shows every option at once, no \"Show more options\".",
+   "lose": "The menu is longer and looks older."
   },
   {
    "id": "context.library",
@@ -4393,7 +4580,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "Remove \"Include in library\" from the right-click menu",
+   "good": "A shorter right-click menu.",
+   "lose": "Nothing you'd notice."
   },
   {
    "id": "context.giveaccess",
@@ -4495,7 +4685,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "Remove \"Give access to\" from the right-click menu",
+   "good": "A shorter right-click menu.",
+   "lose": "Share folders on your network from Properties instead."
   },
   {
    "id": "context.share",
@@ -4537,7 +4730,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "Remove \"Share\" from the right-click menu",
+   "good": "A shorter right-click menu.",
+   "lose": "Share files from the app you use instead."
   },
   {
    "id": "appearance.dark",
@@ -4602,7 +4798,10 @@
      ]
     }
    ],
-   "admin": false
+   "admin": false,
+   "tick": "Turn off transparency effects",
+   "good": "Start and the taskbar become solid colours. A little faster on weak PCs.",
+   "lose": "Windows looks a bit plainer."
   },
   {
    "id": "appearance.animations",
@@ -4658,7 +4857,10 @@
      ]
     }
    ],
-   "admin": false
+   "admin": false,
+   "tick": "Turn off animations",
+   "good": "Windows open and close instantly. Feels snappier.",
+   "lose": "Less smooth to watch."
   },
   {
    "id": "appearance.visualfx",
@@ -4749,7 +4951,8 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "good": "A new desktop picture every day from Bing, or turn it off to keep your own wallpaper."
   },
   {
    "id": "appearance.scrollbars",
@@ -4793,7 +4996,10 @@
      ]
     }
    ],
-   "admin": false
+   "admin": false,
+   "tick": "Always show scrollbars",
+   "good": "Scrollbars always show, so you always see where you are in a page.",
+   "lose": "Nothing you'd notice."
   },
   {
    "id": "appearance.titlebars",
@@ -4837,7 +5043,10 @@
      ]
     }
    ],
-   "admin": false
+   "admin": false,
+   "tick": "Use the accent colour on title bars",
+   "good": "Window title bars take your accent colour, so the active window is easy to spot.",
+   "lose": "Nothing you'd notice."
   },
   {
    "id": "appearance.logon_blur",
@@ -4880,7 +5089,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "Turn off the blur on the sign-in screen",
+   "good": "The sign-in screen shows your picture sharp, not blurred.",
+   "lose": "Nothing you'd notice."
   },
   {
    "id": "multitask.snap",
@@ -4924,7 +5136,10 @@
      ]
     }
    ],
-   "admin": false
+   "admin": false,
+   "tick": "Turn off window snapping",
+   "good": "Dragging a window to the edge of the screen no longer resizes it.",
+   "lose": "You lose the quick half-screen and corner layouts."
   },
   {
    "id": "multitask.snapassist",
@@ -4968,7 +5183,10 @@
      ]
     }
    ],
-   "admin": false
+   "admin": false,
+   "tick": "Turn off snap suggestions",
+   "good": "After snapping one window, Windows stops asking what goes beside it.",
+   "lose": "Nothing you'd notice."
   },
   {
    "id": "multitask.snaplayouts",
@@ -5024,7 +5242,10 @@
      ]
     }
    ],
-   "admin": false
+   "admin": false,
+   "tick": "Turn off snap layouts",
+   "good": "No layout picker pops up over the maximise button.",
+   "lose": "Dragging to the edges still works."
   },
   {
    "id": "multitask.alttab",
@@ -5092,7 +5313,8 @@
      ]
     }
    ],
-   "admin": false
+   "admin": false,
+   "good": "\"None\" keeps Alt+Tab to windows only, without Edge tabs."
   },
   {
    "id": "multitask.stickykeys",
@@ -5136,7 +5358,10 @@
      ]
     }
    ],
-   "admin": false
+   "admin": false,
+   "tick": "Turn off the Sticky Keys shortcut",
+   "good": "Pressing Shift five times no longer pops up Sticky Keys in the middle of a game.",
+   "lose": "Nothing you'd notice."
   },
   {
    "id": "multitask.numlock",
@@ -5192,7 +5417,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "Turn Num Lock on at start",
+   "good": "The number pad works as soon as the PC starts.",
+   "lose": "Nothing you'd notice."
   },
   {
    "id": "gaming.gamemode",
@@ -5281,7 +5509,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "Turn off game recording (Xbox Game DVR)",
+   "good": "Windows stops recording your games in the background. Games run a little better.",
+   "lose": "No \"record what happened\" clips from Game Bar."
   },
   {
    "id": "gaming.gamebar",
@@ -5415,7 +5646,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "Turn off Game Bar",
+   "good": "Win+G and the Xbox button stop opening Game Bar.",
+   "lose": "No Game Bar overlay, screenshots or widgets."
   },
   {
    "id": "gaming.mouseaccel",
@@ -5483,7 +5717,10 @@
      ]
     }
    ],
-   "admin": false
+   "admin": false,
+   "tick": "Turn off mouse acceleration",
+   "good": "The same hand movement always moves the pointer the same distance. Gamers aim better with this.",
+   "lose": "The pointer moves a little slower on fast flicks; raise the speed if you want."
   },
   {
    "id": "gaming.fso",
@@ -5548,7 +5785,10 @@
      ]
     }
    ],
-   "admin": false
+   "admin": false,
+   "tick": "Turn off fullscreen optimisations",
+   "good": "Fullscreen games use the old exclusive mode, which some players find smoother.",
+   "lose": "Alt-Tab is slower and overlays (Discord, Game Bar) may not show in games."
   },
   {
    "id": "gaming.windowed",
@@ -5598,7 +5838,9 @@
      ]
     }
    ],
-   "admin": false
+   "admin": false,
+   "good": "\"On\" can lower input lag in windowed games.",
+   "lose": "Rarely, an old game has problems; set it back if so."
   },
   {
    "id": "gaming.vrr",
@@ -5648,7 +5890,9 @@
      ]
     }
    ],
-   "admin": false
+   "admin": false,
+   "good": "\"On\" gives smoother play in windowed games on G-Sync / FreeSync screens.",
+   "lose": "Only matters if your screen has variable refresh."
   },
   {
    "id": "gaming.hags",
@@ -5703,7 +5947,9 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "good": "\"On\" can lower lag and is needed for DLSS frame generation.",
+   "lose": "Rarely causes stutter on older GPUs; set it back if so."
   },
   {
    "id": "gaming.mpo",
@@ -5746,7 +5992,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "Turn off multiplane overlay",
+   "good": "Fixes the flickering or black screens some NVIDIA users get.",
+   "lose": "Can add a tiny delay; only tick it if you have that problem."
   },
   {
    "id": "ai.copilot",
@@ -5812,7 +6061,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "Turn off Copilot",
+   "good": "Removes Copilot and its taskbar button.",
+   "lose": "No Copilot chat in Windows."
   },
   {
    "id": "ai.recall",
@@ -5888,7 +6140,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "Turn off Recall",
+   "good": "Windows stops taking pictures of your screen. Much better for privacy.",
+   "lose": "You can't search for something you saw earlier."
   },
   {
    "id": "ai.clicktodo",
@@ -5942,7 +6197,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "Turn off Click to Do",
+   "good": "Windows stops reading your screen to offer AI actions.",
+   "lose": "Nothing you'd notice."
   },
   {
    "id": "ai.service",
@@ -5988,7 +6246,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "Don't start the AI service by itself",
+   "good": "Windows' AI service only starts when something needs it. Saves some memory.",
+   "lose": "Nothing you'd notice."
   },
   {
    "id": "ai.edge",
@@ -6119,7 +6380,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "Turn off AI in Edge",
+   "good": "Edge without Copilot and AI writing help.",
+   "lose": "No AI help in Edge."
   },
   {
    "id": "ai.chrome",
@@ -6329,7 +6593,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "Turn off AI in Chrome",
+   "good": "Chrome without Gemini and its AI features.",
+   "lose": "No AI help in Chrome."
   },
   {
    "id": "ai.paint",
@@ -6416,7 +6683,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "Turn off AI in Paint",
+   "good": "Paint without its AI buttons.",
+   "lose": "No AI image tools in Paint."
   },
   {
    "id": "ai.notepad",
@@ -6459,7 +6729,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "Turn off AI in Notepad",
+   "good": "Notepad without its AI buttons.",
+   "lose": "No AI rewrite in Notepad."
   },
   {
    "id": "updates.asap",
@@ -6503,7 +6776,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "Don't get updates as soon as they're out",
+   "good": "You get new Windows features only once they're tested on everyone. Fewer surprises.",
+   "lose": "New features reach you a few weeks later."
   },
   {
    "id": "updates.autoreboot",
@@ -6546,7 +6822,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "Don't restart by itself after updates",
+   "good": "Windows never restarts by itself while you're signed in. No more lost work.",
+   "lose": "You need to restart yourself now and then to finish updates."
   },
   {
    "id": "updates.delivery",
@@ -6590,7 +6869,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "Don't share updates with other PCs",
+   "good": "Your PC stops uploading Windows updates to strangers. Saves your internet.",
+   "lose": "Nothing you'd notice."
   },
   {
    "id": "updates.drivers",
@@ -6645,7 +6927,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "Don't get drivers from Windows Update",
+   "good": "Windows Update stops replacing the drivers you chose, like your GPU driver.",
+   "lose": "You update drivers yourself, from the maker's site."
   },
   {
    "id": "updates.store_auto",
@@ -6688,7 +6973,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "Don't update Store apps by themselves",
+   "good": "Store apps only update when you say so.",
+   "lose": "You update Store apps yourself in the Store."
   },
   {
    "id": "updates.pause_limit",
@@ -6743,7 +7031,9 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "good": "Lets you pause Windows updates for much longer than 5 weeks.",
+   "lose": "Paused too long, you miss security fixes."
   },
   {
    "id": "network.prefer_ipv4",
@@ -6787,7 +7077,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "Prefer IPv4 over IPv6",
+   "good": "Fixes slow or failing connections on networks with broken IPv6.",
+   "lose": "Nothing you'd notice."
   },
   {
    "id": "network.teredo",
@@ -6830,7 +7123,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "Turn off Teredo",
+   "good": "Can lower your ping a little in games.",
+   "lose": "Xbox party chat and some Game Pass multiplayer may stop working."
   },
   {
    "id": "network.dns",
@@ -6907,7 +7203,9 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "good": "A faster or more private DNS server. AdGuard also blocks ads in every app.",
+   "lose": "If a site stops loading, set it back to Automatic."
   },
   {
    "id": "network.throttling",
@@ -6951,7 +7249,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "Turn off network throttling for media",
+   "good": "Downloads and games keep full speed while music or video plays.",
+   "lose": "Nothing you'd notice."
   },
   {
    "id": "system.hibernate",
@@ -6991,7 +7292,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "Turn off hibernation",
+   "good": "Frees several GB on your C: drive (the hiberfil.sys file).",
+   "lose": "No hibernate, and fast start-up turns off too. Sleep still works."
   },
   {
    "id": "system.faststartup",
@@ -7035,7 +7339,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "Turn off fast start-up",
+   "good": "Shut down really shuts down. Fixes some driver problems and dual boot.",
+   "lose": "Starting the PC takes a few seconds longer."
   },
   {
    "id": "system.bsod",
@@ -7091,7 +7398,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "Show details on blue screens",
+   "good": "A blue screen tells you which driver crashed, so you know what to fix.",
+   "lose": "Nothing you'd notice."
   },
   {
    "id": "system.verbose",
@@ -7135,7 +7445,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "Show detailed start-up messages",
+   "good": "Start-up and shutdown say what Windows is doing, so you see where it's stuck.",
+   "lose": "Nothing you'd notice."
   },
   {
    "id": "system.storagesense",
@@ -7179,7 +7492,10 @@
      ]
     }
    ],
-   "admin": false
+   "admin": false,
+   "tick": "Turn off Storage Sense",
+   "good": "Windows stops deleting files by itself, like old Recycle Bin items.",
+   "lose": "You clean up yourself (Deck's Clean up page helps)."
   },
   {
    "id": "system.reserved",
@@ -7219,7 +7535,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "Turn off reserved storage",
+   "good": "Gives back the 7-10 GB Windows keeps free for updates.",
+   "lose": "Big Windows updates may fail when the drive is full; untick it before one."
   },
   {
    "id": "system.bitlocker_auto",
@@ -7262,7 +7581,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "Stop automatic device encryption",
+   "good": "A new Windows install won't encrypt your drive by itself.",
+   "lose": "Your drive isn't protected if the PC is stolen."
   },
   {
    "id": "system.standby_net",
@@ -7320,7 +7642,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "Go offline while asleep",
+   "good": "A sleeping laptop goes offline. Saves battery.",
+   "lose": "No mail or updates while it sleeps."
   },
   {
    "id": "system.utc",
@@ -7364,7 +7689,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "Keep the hardware clock in UTC (dual boot with Linux)",
+   "good": "For PCs that also run Linux: the clock stops jumping by hours.",
+   "lose": "Only tick it if you dual boot with Linux."
   },
   {
    "id": "system.settings_home",
@@ -7407,7 +7735,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "Hide Settings' Home page",
+   "good": "Settings opens straight to System, without its ads page.",
+   "lose": "Nothing you'd notice."
   },
   {
    "id": "system.lockscreen",
@@ -7450,7 +7781,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "Skip the lock screen",
+   "good": "The PC goes straight to the password box. One less click.",
+   "lose": "Nothing you'd notice."
   },
   {
    "id": "system.sandbox",
@@ -7492,7 +7826,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "Turn on Windows Sandbox",
+   "good": "A throwaway Windows in a window for safely trying unknown programs.",
+   "lose": "Uses some disk space. Needs Windows Pro."
   },
   {
    "id": "system.wsl",
@@ -7540,7 +7877,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "Turn on Windows Subsystem for Linux",
+   "good": "Lets you run Linux tools on Windows.",
+   "lose": "Uses some disk space. Only useful if you need Linux."
   },
   {
    "id": "advanced.memory_integrity",
@@ -7584,7 +7924,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "Turn off memory integrity",
+   "good": "Some games and old tools that refuse to run will work, and games can run a few % faster.",
+   "lose": "Your PC is less protected against dangerous malware. Only tick it if you must."
   },
   {
    "id": "advanced.sysmain",
@@ -7626,7 +7969,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "Turn off SysMain (Superfetch)",
+   "good": "Less background disk work. Fine on SSDs.",
+   "lose": "On a hard drive, programs may open a bit slower."
   },
   {
    "id": "advanced.search_service",
@@ -7666,7 +8012,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "Turn off Windows Search indexing",
+   "good": "Less background disk and CPU work.",
+   "lose": "Start and Explorer searches get slow. Deck's own search keeps working."
   },
   {
    "id": "advanced.bgapps",
@@ -7710,7 +8059,10 @@
      ]
     }
    ],
-   "admin": false
+   "admin": false,
+   "tick": "Stop Store apps running in the background",
+   "good": "Store apps can't run in the background. Saves battery and memory.",
+   "lose": "Some Store apps' notifications stop until you open them."
   },
   {
    "id": "advanced.rdp_warning",
@@ -7764,7 +8116,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "Don't warn about unsigned RDP files",
+   "good": "No warning each time you open a Remote Desktop file.",
+   "lose": "You won't be warned about a dangerous RDP file."
   },
   {
    "id": "advanced.brave",
@@ -7930,7 +8285,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "Remove Brave's extras",
+   "good": "Brave without its crypto wallet, rewards, VPN and AI.",
+   "lose": "Those Brave extras are gone."
   },
   {
    "id": "advanced.edge",
@@ -8050,7 +8408,10 @@
      ]
     }
    ],
-   "admin": true
+   "admin": true,
+   "tick": "Remove Edge's extras and data sharing",
+   "good": "Edge without its pop-ups, shopping and rewards, and it shares less data.",
+   "lose": "Nothing you'd notice."
   }
  ]
 }
