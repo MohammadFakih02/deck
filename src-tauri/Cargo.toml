@@ -77,7 +77,7 @@ rcgen = { version = "0.13", default-features = false, features = ["ring", "pem"]
 # SHA-1/SHA-256; the usual web roots (already built for ureq) plus Microsoft's two
 roxmltree = "0.21"
 sha1 = "0.10"
-webpki-roots = "0.26"
+webpki-roots = "1"
 
 # `cargo test` / `cargo clippy` use the dev profile: incremental, with the dependencies
 # optimised once (a test run then rebuilds only Deck itself, in seconds)

@@ -19,6 +19,9 @@ All notable changes to Deck. Setups for each version are on the [Releases](https
 ### Changed
 - The design notes moved to `docs/design/`.
 
+### Security
+- Updated the TLS certificate checks (rustls-webpki 0.103.16, webpki-roots 1.0.10) for RUSTSEC-2026-0381 and RUSTSEC-2026-0382: distrusted emSign intermediates could have been accepted.
+
 ## 2.7.5 — 2026-10-20
 
 ### Added
