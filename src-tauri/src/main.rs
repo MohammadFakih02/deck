@@ -50,10 +50,13 @@ mod phonecmd;
 mod picker;
 mod power;
 mod profcmd;
+mod programs;
+mod programscmd;
 mod profiles;
 mod rdesk;
 mod h264;
 mod screencast;
+mod vpad;
 mod remote;
 mod osd;
 mod pad;
@@ -96,6 +99,14 @@ static PREV_FG: AtomicIsize = AtomicIsize::new(0);
 static DIALOG: AtomicBool = AtomicBool::new(false);
 /// "Keep Deck open" pin in the UI.
 static PINNED: AtomicBool = AtomicBool::new(false);
+/// When Deck last started something (ms since boot): the launched app taking focus isn't
+/// "clicking somewhere else" while hide_after_launch is off.
+static LAUNCHED_AT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+fn launch_hold() -> bool {
+    let at = LAUNCHED_AT.load(Ordering::Relaxed);
+    at != 0 && unsafe { windows::Win32::System::SystemInformation::GetTickCount64() }.saturating_sub(at) < 8000
+}
 /// Where the pinned quick panel floats (screen pixels: x, y, width, height).
 static PIN_RECT: parking_lot::Mutex<Option<[i32; 4]>> = parking_lot::Mutex::new(None);
 
@@ -635,22 +646,42 @@ async fn apps_list(app: A<'_>, force: bool) -> R<Vec<apps::AppEntry>> {
     Ok(app.apps.list(force))
 }
 
-#[tauri::command]
-fn launch_app(handle: AppHandle, app: A, id: String) -> R<()> {
-    app.bump(&format!("app:{id}"));
-    app.apps.launch(&id)?;
-    step_aside(&handle);
-    Ok(())
+/// After opening something: the panel steps aside, unless the user keeps it open.
+fn launched(handle: &AppHandle) {
+    if handle.state::<Arc<App>>().settings.lock().hide_after_launch {
+        step_aside(handle);
+    }
+}
+
+/// Starts `f` off the main thread: launching through Explorer waits until the program has
+/// started, and one that asks for admin rights keeps it waiting for the whole UAC prompt.
+/// On the main thread that froze Deck ("not responding"). Deck, still in front, first lets
+/// Explorer bring its window forward; without that, Windows parks a UAC prompt in the taskbar.
+async fn off_main(f: impl FnOnce() -> R<()> + Send + 'static) -> R<()> {
+    LAUNCHED_AT.store(unsafe { windows::Win32::System::SystemInformation::GetTickCount64() }, Ordering::Relaxed);
+    unsafe {
+        let _ = windows::Win32::UI::WindowsAndMessaging::AllowSetForegroundWindow(windows::Win32::UI::WindowsAndMessaging::ASFW_ANY);
+    }
+    tauri::async_runtime::spawn_blocking(f).await.map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-fn open_path(handle: AppHandle, app: A, path: String, keep: Option<bool>) -> R<()> {
+async fn launch_app(handle: AppHandle, app: A<'_>, id: String) -> R<()> {
+    app.bump(&format!("app:{id}"));
+    let app = app.inner().clone();
+    let r = off_main(move || app.apps.launch(&id)).await;
+    launched(&handle);
+    r
+}
+
+#[tauri::command]
+async fn open_path(handle: AppHandle, app: A<'_>, path: String, keep: Option<bool>) -> R<()> {
     app.bump(&format!("file:{path}"));
-    util::shell_open(&path)?;
+    let r = off_main(move || util::shell_open(&path)).await;
     if !keep.unwrap_or(false) {
-        step_aside(&handle);
+        launched(&handle);
     }
-    Ok(())
+    r
 }
 
 #[tauri::command]
@@ -659,25 +690,31 @@ fn reveal(path: String) {
 }
 
 #[tauri::command]
-fn open_url(handle: AppHandle, url: String, keep: Option<bool>) -> R<()> {
+async fn open_url(handle: AppHandle, url: String, keep: Option<bool>) -> R<()> {
     let ok = ["https://", "http://", "steam://", "com.epicgames.launcher://", "ms-settings:", "discord://", "mailto:", "spotify:", "ms-screenclip:"]
         .iter()
         .any(|p| url.starts_with(p));
     if !ok {
         return Err("That kind of link isn't allowed".into());
     }
-    util::shell_open(&url)?;
+    let r = off_main(move || util::shell_open(&url)).await;
     if !keep.unwrap_or(false) {
-        step_aside(&handle);
+        launched(&handle);
     }
-    Ok(())
+    r
 }
 
 /// Opens a Windows tool (Task Manager, classic Control Panel parts ...).
 #[tauri::command]
-fn open_system(handle: AppHandle, what: String) -> R<()> {
+async fn open_system(handle: AppHandle, what: String) -> R<()> {
+    let r = off_main(move || open_system_now(&what)).await;
+    launched(&handle);
+    r
+}
+
+fn open_system_now(what: &str) -> R<()> {
     let spawn = |exe: &str, args: &[&str]| util::launch_as_user(exe, &args.join(" "), "");
-    let r = match what.as_str() {
+    match what {
         "taskmgr" => spawn("taskmgr.exe", &[]),
         "sound" => spawn("control.exe", &["mmsys.cpl,,0"]),
         "network" => spawn("control.exe", &["ncpa.cpl"]),
@@ -692,9 +729,7 @@ fn open_system(handle: AppHandle, what: String) -> R<()> {
         }
         "terminal" => spawn("wt.exe", &[]).or_else(|_| spawn("cmd.exe", &[])),
         _ => Err("unknown".into()),
-    };
-    step_aside(&handle);
-    r
+    }
 }
 
 #[tauri::command]
@@ -2002,7 +2037,7 @@ fn main() {
                     beam::set_on(&app, t);
                     if c {
                         if let Err(e) = ccsync::set_on(&app, true) {
-                            app.toast(app::Toast::simple("claude-sync", "Claude Code sync didn't start", &e));
+                            app.toast(app::Toast::simple("claude-sync", "Workspace Sync didn't start", &e));
                         }
                     } else {
                         ccsync::cleanup_when_off();
@@ -2026,7 +2061,7 @@ fn main() {
                     }
                     WindowEvent::Focused(false) => {
                         let app = h.state::<Arc<App>>();
-                        if app.is_visible() && { let s = app.settings.lock(); s.mode != "app" && s.hide_on_blur } && !DIALOG.load(Ordering::Relaxed) && !PINNED.load(Ordering::Relaxed) {
+                        if app.is_visible() && { let s = app.settings.lock(); s.mode != "app" && s.hide_on_blur && (s.hide_after_launch || !launch_hold()) } && !DIALOG.load(Ordering::Relaxed) && !PINNED.load(Ordering::Relaxed) {
                             hide_deck(&h);
                         }
                     }
@@ -2049,6 +2084,8 @@ fn main() {
             deathscmd::deaths_share,
             deathscmd::deaths_export,
             updatecmd::update_state,
+            programscmd::programs_list,
+            programscmd::programs_do,
             updatecmd::update_check,
             updatecmd::update_install,
             search, apps_list, launch_app, open_path, reveal, open_url, open_system, games_list,

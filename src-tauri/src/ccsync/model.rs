@@ -41,6 +41,15 @@ pub struct Manifest {
     /// ClaudeSync version and build on that machine
     #[serde(default)]
     pub app: String,
+    /// the programs that machine has (Rust, Node, Python...), when it shares them
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tools: Option<Vec<crate::ccsync::tools::Tool>>,
+    /// project alias -> its git remote and branch on that machine (to set up git history elsewhere)
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub git: BTreeMap<String, crate::ccsync::git::GitInfo>,
+    /// that machine's processor family ("AMD64", "ARM64"; "" from older versions)
+    #[serde(default)]
+    pub arch: String,
 }
 
 impl Manifest {
@@ -70,6 +79,16 @@ impl Manifest {
         }
         h.update(self.machine_name.as_bytes());
         h.update(self.app.as_bytes());
+        h.update(self.arch.as_bytes());
+        for (a, g) in &self.git {
+            h.update(a.as_bytes());
+            h.update(g.url.as_bytes());
+            h.update(g.branch.as_bytes());
+        }
+        for t in self.tools.iter().flatten() {
+            h.update(t.key().as_bytes());
+            h.update(t.version.as_bytes());
+        }
         h.finalize().to_hex()[..24].to_string()
     }
 }

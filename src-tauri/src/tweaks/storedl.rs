@@ -17,7 +17,7 @@
 //! Deck carries those two public root certificates (`tweaks/certs`) for these requests only.
 
 use parking_lot::Mutex;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::io::Read;
@@ -64,7 +64,7 @@ pub fn valid_id(id: &str) -> bool {
 }
 
 /// One package file of an app.
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct PkgFile {
     /// "SpotifyAB.SpotifyMusic_1.2.3.0_x64__zpdnekdrzrea0.appx"
     pub name: String,
@@ -338,7 +338,7 @@ pub fn links(app: &mut App) -> Result<(), String> {
 
 // ------------------------------------------------------------------------------------- jobs
 
-#[derive(Serialize, Clone, Default)]
+#[derive(Serialize, Deserialize, Clone, Default)]
 pub struct Job {
     pub id: String,
     pub title: String,
@@ -360,13 +360,53 @@ static JOBS: Mutex<Vec<Job>> = parking_lot::const_mutex(Vec::new());
 static CANCEL: Mutex<Vec<(String, Arc<AtomicBool>)>> = parking_lot::const_mutex(Vec::new());
 
 fn update(id: &str, f: impl FnOnce(&mut Job)) {
-    if let Some(j) = JOBS.lock().iter_mut().find(|j| j.id == id) {
+    let mut changed_phase = false;
+    if let Some(j) = loaded().iter_mut().find(|j| j.id == id) {
+        let before = j.phase.clone();
         f(j);
+        changed_phase = j.phase != before;
     }
+    save_jobs(changed_phase);
+}
+
+fn jobs_file() -> std::path::PathBuf {
+    crate::util::local_appdata().join("Deck").join("store").join("jobs.json")
+}
+
+/// The job list, read from disk the first time (after Deck starts).
+fn loaded() -> parking_lot::MutexGuard<'static, Vec<Job>> {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        let mut saved: Vec<Job> = std::fs::read(jobs_file()).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+        for j in saved.iter_mut().filter(|j| ACTIVE.contains(&j.phase.as_str())) {
+            j.phase = "interrupted".into();
+            j.speed = 0.0;
+            j.eta = None;
+        }
+        *JOBS.lock() = saved;
+    });
+    JOBS.lock()
+}
+
+const ACTIVE: &[&str] = &["finding", "downloading", "installing"];
+
+fn save_jobs(now: bool) {
+    static LAST: Mutex<Option<Instant>> = parking_lot::const_mutex(None);
+    {
+        let mut last = LAST.lock();
+        if !now && last.is_some_and(|t| t.elapsed() < Duration::from_secs(2)) {
+            return;
+        }
+        *last = Some(Instant::now());
+    }
+    let list = JOBS.lock().clone();
+    let path = jobs_file();
+    let _ = std::fs::create_dir_all(path.parent().unwrap());
+    let _ = crate::util::write_atomic(&path, &serde_json::to_vec(&list).unwrap_or_default());
 }
 
 pub fn jobs() -> Vec<Job> {
-    JOBS.lock().clone()
+    loaded().clone()
 }
 
 pub fn cancel(id: &str) {
@@ -376,7 +416,8 @@ pub fn cancel(id: &str) {
 }
 
 pub fn clear_finished() {
-    JOBS.lock().retain(|j| !matches!(j.phase.as_str(), "done" | "failed" | "cancelled"));
+    loaded().retain(|j| !matches!(j.phase.as_str(), "done" | "failed" | "cancelled" | "interrupted"));
+    save_jobs(true);
 }
 
 /// Starts downloading (and installing) Store app `id` in Deck. mode: "install" or "save".
@@ -384,17 +425,18 @@ pub fn start(id: &str, mode: &str) -> Result<(), String> {
     if !valid_id(id) {
         return Err("bad Store id".into());
     }
-    if JOBS.lock().iter().any(|j| j.id == id && !matches!(j.phase.as_str(), "done" | "failed" | "cancelled")) {
+    if loaded().iter().any(|j| j.id == id && ACTIVE.contains(&j.phase.as_str())) {
         return Err("Already downloading".into());
     }
     let stop = Arc::new(AtomicBool::new(false));
     {
-        let mut jobs = JOBS.lock();
+        let mut jobs = loaded();
         jobs.retain(|j| j.id != id);
         jobs.push(Job { id: id.into(), mode: mode.into(), phase: "finding".into(), title: id.into(), ..Default::default() });
         CANCEL.lock().retain(|(i, _)| i != id);
         CANCEL.lock().push((id.into(), stop.clone()));
     }
+    save_jobs(true);
     let (id, mode) = (id.to_string(), mode.to_string());
     std::thread::Builder::new()
         .name("store-download".into())
@@ -793,4 +835,245 @@ mod tests {
             }
         }
     }
+}
+
+// ------------------------------------------------------------------------------------- updates
+
+/// A Store app of yours with a newer version on Microsoft's servers.
+#[derive(Serialize, Deserialize, Clone)]
+pub struct Update {
+    pub id: String,
+    pub title: String,
+    pub family: String,
+    pub installed: String,
+    pub latest: String,
+    /// what the update downloads (the app, and dependencies this PC lacks)
+    pub size: u64,
+}
+
+#[derive(Serialize, Deserialize, Clone, Default)]
+#[serde(default)]
+pub struct UpdateCheck {
+    pub checking: bool,
+    pub done: usize,
+    pub total: usize,
+    pub updates: Vec<Update>,
+    /// apps only the Store can check (paid or protected ones)
+    pub store_only: Vec<String>,
+    /// apps Microsoft's servers didn't answer for: (name, why)
+    pub failed: Vec<(String, String)>,
+    /// apps that aren't in the Store's catalog (installed some other way)
+    pub not_in_store: usize,
+    pub at: u64,
+    pub error: Option<String>,
+}
+
+static CHECK: Mutex<Option<UpdateCheck>> = parking_lot::const_mutex(None);
+/// package family → Store id (None: not in the Store's catalog), kept while Deck runs
+static IDS: std::sync::LazyLock<Mutex<HashMap<String, Option<String>>>> = std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
+
+fn check_file() -> std::path::PathBuf {
+    crate::util::local_appdata().join("Deck").join("store").join("updates.json")
+}
+
+pub fn update_state() -> UpdateCheck {
+    let mut c = CHECK.lock();
+    if c.is_none() {
+        // the last check, from before Deck restarted
+        *c = std::fs::read(check_file()).ok().and_then(|b| serde_json::from_slice::<UpdateCheck>(&b).ok()).map(|mut u| {
+            u.checking = false;
+            u
+        });
+    }
+    c.clone().unwrap_or_default()
+}
+
+/// Your apps from the Store: (package family, version). Frameworks and Windows' own parts aren't.
+fn store_installed() -> Vec<(String, String)> {
+    let Ok(o) = crate::tweaks::run(
+        90,
+        "powershell.exe",
+        &[
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "Get-AppxPackage -PackageTypeFilter Main | Where-Object { $_.SignatureKind -eq 'Store' -and -not $_.IsFramework } | Select-Object PackageFamilyName,@{n='V';e={$_.Version.ToString()}} | ConvertTo-Json -Compress",
+        ],
+    ) else {
+        return Vec::new();
+    };
+    let v: Value = serde_json::from_slice(&o.stdout).unwrap_or(Value::Null);
+    let list = match v {
+        Value::Array(a) => a,
+        o @ Value::Object(_) => vec![o],
+        _ => vec![],
+    };
+    list.iter().filter_map(|p| Some((p["PackageFamilyName"].as_str()?.to_string(), p["V"].as_str()?.to_string()))).collect()
+}
+
+/// Starts checking every Store app of yours against Microsoft's servers (the same service the
+/// Store asks), a few at a time. `update_state` shows how far it is.
+pub fn check_updates() -> Result<(), String> {
+    {
+        let mut c = CHECK.lock();
+        if c.as_ref().is_some_and(|c| c.checking) {
+            return Ok(());
+        }
+        *c = Some(UpdateCheck { checking: true, ..Default::default() });
+    }
+    std::thread::Builder::new()
+        .name("store-updates".into())
+        .spawn(|| {
+            let apps = if crate::settings::is_test_profile() { Vec::new() } else { store_installed() };
+            if let Some(c) = CHECK.lock().as_mut() {
+                c.total = apps.len();
+            }
+            let next = std::sync::atomic::AtomicUsize::new(0);
+            std::thread::scope(|s| {
+                for _ in 0..6 {
+                    s.spawn(|| loop {
+                        let i = next.fetch_add(1, Ordering::SeqCst);
+                        let Some((family, version)) = apps.get(i) else { break };
+                        check_one(family, version);
+                        if let Some(c) = CHECK.lock().as_mut() {
+                            c.done += 1;
+                        }
+                    });
+                }
+            });
+            if let Some(c) = CHECK.lock().as_mut() {
+                c.checking = false;
+                c.at = crate::util::now_s();
+                c.updates.sort_by_key(|u| u.title.to_lowercase());
+                let path = check_file();
+                let _ = std::fs::create_dir_all(path.parent().unwrap());
+                let _ = crate::util::write_atomic(&path, &serde_json::to_vec(&*c).unwrap_or_default());
+                crate::log::info(format!("tweaks: Store update check: {} of {} apps have updates", c.updates.len(), c.total));
+            }
+        })
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+fn check_one(family: &str, installed: &str) {
+    let short = family.rsplit_once('_').map(|(n, _)| n).unwrap_or(family).to_string();
+    let cached = IDS.lock().get(family).cloned();
+    let id = match cached {
+        Some(id) => id,
+        None => match super::apps::product_lookup(family) {
+            Ok(id) => {
+                let id = id.filter(|i| valid_id(i));
+                IDS.lock().insert(family.to_string(), id.clone());
+                id
+            }
+            Err(e) => {
+                if let Some(c) = CHECK.lock().as_mut() {
+                    c.failed.push((short, e));
+                }
+                return;
+            }
+        },
+    };
+    // not in the catalog (sideloaded, or a part of Windows the Store updates itself)
+    let Some(id) = id else {
+        if let Some(c) = CHECK.lock().as_mut() {
+            c.not_in_store += 1;
+        }
+        return;
+    };
+    match find(&id) {
+        Ok(app) => {
+            let Some(main) = app.files.iter().find(|f| f.main) else { return };
+            if version_key(&main.version) > version_key(installed) {
+                let size = app.files.iter().filter(|f| !f.have).map(|f| f.size).sum();
+                if let Some(c) = CHECK.lock().as_mut() {
+                    c.updates.push(Update { id, title: app.title, family: family.into(), installed: installed.into(), latest: main.version.clone(), size });
+                }
+            }
+        }
+        Err(e) if e.contains("protected") => {
+            if let Some(c) = CHECK.lock().as_mut() {
+                c.store_only.push(short);
+            }
+        }
+        Err(e) => {
+            if let Some(c) = CHECK.lock().as_mut() {
+                c.failed.push((short, e));
+            }
+        }
+    }
+}
+
+/// The Microsoft Store way: Windows' own "check for updates" (as Store → Downloads → Get updates
+/// does), which then updates apps in the background, paid ones included. Needs admin rights.
+/// The Store only reports into its event log, so Deck reads that afterwards and says what the
+/// Store really did: which apps it started, and which it cancelled.
+pub fn store_update_all() -> Result<Value, String> {
+    if !crate::elevation::is_admin() {
+        return Err("Deck needs admin rights for this. Open the Store's Downloads page and press \"Get updates\" instead.".into());
+    }
+    // "Don't update Store apps by themselves" (Tweaks → Updates) is a policy the background update obeys
+    let policy = crate::util::run_for(20, "reg.exe", &["query", r"HKLM\SOFTWARE\Policies\Microsoft\WindowsStore", "/v", "AutoDownload"])
+        .map(|o| String::from_utf8_lossy(&o.stdout).contains("0x2"))
+        .unwrap_or(false);
+    if policy {
+        return Ok(json!({ "blocked_by_policy": true }));
+    }
+    let since = chrono_like_now();
+    let o = crate::tweaks::run(
+        120,
+        "powershell.exe",
+        &[
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "Get-CimInstance -Namespace 'root\\cimv2\\mdm\\dmmap' -ClassName 'MDM_EnterpriseModernAppManagement_AppManagement01' -ErrorAction Stop | Invoke-CimMethod -MethodName UpdateScanMethod -ErrorAction Stop | Out-Null",
+        ],
+    )
+    .map_err(|e| e.to_string())?;
+    if !o.status.success() {
+        return Err(format!("Windows didn't start the Store's update: {}", String::from_utf8_lossy(&o.stderr).lines().find(|l| !l.trim().is_empty()).unwrap_or("").trim()));
+    }
+    // the Store decides within a few seconds whether it goes ahead with each app
+    std::thread::sleep(Duration::from_secs(12));
+    let r = store_log_since(&since);
+    crate::log::info(format!("tweaks: asked the Store to update every app: {r}"));
+    Ok(r)
+}
+
+/// Local time as the event log filter wants it.
+fn chrono_like_now() -> String {
+    crate::util::run_for(10, "powershell.exe", &["-NoProfile", "-NonInteractive", "-Command", "(Get-Date).AddSeconds(-2).ToString('o')"])
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .unwrap_or_default()
+}
+
+/// What the Store logged since `since`: the apps it worked on and the ones it cancelled.
+fn store_log_since(since: &str) -> Value {
+    if since.is_empty() || since.contains('\'') {
+        return json!({ "known": false });
+    }
+    let script = format!(
+        "Get-WinEvent -FilterHashtable @{{LogName='Microsoft-Windows-Store/Operational'; StartTime=[datetime]'{since}'}} -ErrorAction SilentlyContinue | ForEach-Object {{ $_.Message }} | ConvertTo-Json -Compress"
+    );
+    let Ok(o) = crate::util::run_for(30, "powershell.exe", &["-NoProfile", "-NonInteractive", "-Command", &script]) else { return json!({ "known": false }) };
+    let msgs: Vec<String> = match serde_json::from_slice::<Value>(&o.stdout).unwrap_or(Value::Null) {
+        Value::Array(a) => a.into_iter().filter_map(|m| m.as_str().map(String::from)).collect(),
+        Value::String(s) => vec![s],
+        _ => vec![],
+    };
+    // "PFN = Microsoft.GamingApp_8wekyb3d8bbwe" → "Microsoft.GamingApp"
+    let pfn = |m: &str| m.split("PFN = ").nth(1).and_then(|r| r.split_whitespace().next()).map(|p| p.rsplit_once('_').map(|(n, _)| n).unwrap_or(p).to_string());
+    let mut worked = std::collections::BTreeSet::new();
+    let mut cancelled = std::collections::BTreeSet::new();
+    for m in &msgs {
+        let Some(p) = pfn(m) else { continue };
+        if m.contains("AbortedInstallation") || m.contains("NewState = BlockedOnUser") || m.contains("NewState = Error") {
+            cancelled.insert(p);
+        } else if m.contains("StateTransition") {
+            worked.insert(p);
+        }
+    }
+    let started: Vec<&String> = worked.iter().filter(|p| !cancelled.contains(*p)).collect();
+    json!({ "known": true, "started": started, "cancelled": cancelled })
 }

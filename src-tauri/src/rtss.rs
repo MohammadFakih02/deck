@@ -772,6 +772,30 @@ pub fn rtss_running() -> bool {
     open_rtss().is_some()
 }
 
+/// Deck's own window (deck.exe and the WebView2 processes that draw it) gets a RivaTuner profile
+/// with hooking off: no overlay belongs there, and a hooked window can freeze when RivaTuner
+/// goes away. An existing profile only gets its EnableHooking line set; apply_look leaves these
+/// files alone since they have no [OSD] section.
+pub fn keep_out_of_hooking() {
+    let Some(dir) = profiles_dir() else { return };
+    let mut changed = false;
+    for name in ["deck.exe.cfg", "msedgewebview2.exe.cfg"] {
+        let f = dir.join(name);
+        let old = std::fs::read(&f).ok().map(|b| from_ansi(&b));
+        let new = match &old {
+            Some(t) if t.lines().any(|l| l.trim().eq_ignore_ascii_case("[Hooking]")) => set_ini(t, &[("Hooking", "EnableHooking", "0".into())]),
+            Some(t) => format!("{t}\r\n[Hooking]\r\nEnableHooking=0\r\n"),
+            None => "[Hooking]\r\nEnableHooking=0\r\n".to_string(),
+        };
+        if old.as_deref() != Some(new.as_str()) && std::fs::write(&f, to_ansi(&new)).is_ok() {
+            changed = true;
+        }
+    }
+    if changed {
+        request_reload();
+    }
+}
+
 /// Starts RTSS (Deck runs as admin; RTSS needs it).
 pub fn start_rtss() -> Result<(), String> {
     // by its window: the shared memory stays while Deck (or a game) still has it open
@@ -779,6 +803,7 @@ pub fn start_rtss() -> Result<(), String> {
         return Ok(());
     }
     let exe = rtss_exe().ok_or("RivaTuner Statistics Server is not installed.")?;
+    keep_out_of_hooking();
     match std::process::Command::new(&exe).current_dir(exe.parent().unwrap()).spawn() {
         Ok(_) => {
             crate::log::info("overlay: RivaTuner started");
@@ -849,14 +874,22 @@ pub fn set_tray_icon(show: bool) {
 /// the icon switch on, the icon is removed again at once. A game's overlay drops for a moment.
 pub fn open_rtss_window() -> Result<(), String> {
     let exe = rtss_exe().ok_or("RivaTuner Statistics Server is not installed.")?;
-    // by its window, not its shared memory: Deck keeps that open, so it outlives RivaTuner
-    if rtss_windows().0.is_some() {
-        let _ = crate::util::run_hidden("taskkill", &["/IM", "RTSS.exe", "/F"]);
+    keep_out_of_hooking();
+    // by its window, not its shared memory: Deck keeps that open, so it outlives RivaTuner.
+    // Asked to close, not killed: a killed RivaTuner leaves its hooks in every app it drew in
+    // (Deck's own window and browsers included), and those can freeze.
+    if let (Some(main), _) = rtss_windows() {
+        use windows::Win32::Foundation::{LPARAM, WPARAM};
+        use windows::Win32::UI::WindowsAndMessaging::{PostMessageW, WM_CLOSE};
+        let _ = unsafe { PostMessageW(Some(main), WM_CLOSE, WPARAM(0), LPARAM(0)) };
         for _ in 0..25 {
             if rtss_windows().0.is_none() {
                 break;
             }
             std::thread::sleep(Duration::from_millis(200));
+        }
+        if rtss_windows().0.is_some() {
+            return Err("RivaTuner didn't close. Open it from its tray icon or the Start menu.".into());
         }
     }
     // with RivaTuner's own "Start minimized" on, a fresh start goes straight to the tray (whose
@@ -867,10 +900,12 @@ pub fn open_rtss_window() -> Result<(), String> {
         let _ = std::fs::write(&config, to_ansi(&set_ini(t, &[("Settings", "StartMinimized", "0".into())])));
     }
     let started = std::process::Command::new(&exe).current_dir(exe.parent().unwrap()).spawn().map_err(|e| e.to_string());
+    let mut shown = false;
     if started.is_ok() {
         // its window exists hidden at once; wait until RivaTuner shows it (it has read the setting)
         for _ in 0..50 {
             if rtss_windows().0.is_some_and(|w| unsafe { windows::Win32::UI::WindowsAndMessaging::IsWindowVisible(w) }.as_bool()) {
+                shown = true;
                 break;
             }
             std::thread::sleep(Duration::from_millis(100));
@@ -882,7 +917,14 @@ pub fn open_rtss_window() -> Result<(), String> {
             let _ = std::fs::write(&config, to_ansi(&set_ini(&from_ansi(&b), &[("Settings", "StartMinimized", "1".into())])));
         }
     }
-    started?;
+    started.map_err(|e| format!("RivaTuner didn't start again: {e}"))?;
+    if !shown {
+        return Err(if rtss_windows().0.is_some() {
+            "RivaTuner is running again, but its window didn't open. Open it from its tray icon or the Start menu.".into()
+        } else {
+            "RivaTuner closed but didn't start again. Start it from the Start menu.".into()
+        });
+    }
     if APP.get().is_some_and(|a| a.settings.lock().rtss_tray_hidden) {
         for _ in 0..10 {
             std::thread::sleep(Duration::from_millis(300));

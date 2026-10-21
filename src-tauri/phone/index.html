@@ -127,6 +127,62 @@
   .skeys::-webkit-scrollbar { display: none; }
   .skeys button { height: 38px; min-width: 42px; padding: 0 11px; border-radius: 10px; border: 1px solid var(--line); background: var(--tile2); color: var(--text); font-weight: 600; font-size: 13px; flex: none; white-space: nowrap; }
   /* full screen: no bars, just small floating buttons on the right edge */
+  /* the on-screen controller (PS5 layout; the PC sees an Xbox pad) */
+  .gpad { --gpo: .75; --gps: 1; position: absolute; inset: 0; z-index: 2; display: none; pointer-events: none; user-select: none; -webkit-user-select: none; touch-action: none; }
+  .gpad.on { display: block; }
+  #padonly { position: fixed; inset: 0; z-index: 60; background: #000; display: none; touch-action: none; }
+  #padonly.on { display: block; }
+  /* "Always sideways" with the phone upright: the page is drawn turned */
+  #padonly.on.rot { inset: auto; top: 0; left: 0; width: 100vh; height: 100vw; transform-origin: top left; transform: rotate(90deg) translateY(-100%); }
+  /* upright: shoulders along the top, the left stick and the face buttons for the thumbs, the d-pad and right stick below */
+  #padonly.pt .gpad > * { inset: auto !important; }
+  #padonly.pt .gpad > [data-gt="lt"] { left: calc(env(safe-area-inset-left) + 10px) !important; top: calc(env(safe-area-inset-top) + 10px) !important; }
+  #padonly.pt .gpad > [data-gb="256"] { left: calc(env(safe-area-inset-left) + 82px) !important; top: calc(env(safe-area-inset-top) + 10px) !important; }
+  #padonly.pt .gpad > [data-gt="rt"] { right: calc(env(safe-area-inset-right) + 10px) !important; top: calc(env(safe-area-inset-top) + 10px) !important; }
+  #padonly.pt .gpad > [data-gb="512"] { right: calc(env(safe-area-inset-right) + 82px) !important; top: calc(env(safe-area-inset-top) + 10px) !important; }
+  #padonly.pt .gpad > [data-gb="32"] { left: calc(50% - 85px) !important; top: 31% !important; }
+  #padonly.pt .gpad > [data-gb="1024"] { left: calc(50% - 23px) !important; top: 31% !important; }
+  #padonly.pt .gpad > [data-gb="16"] { left: calc(50% + 39px) !important; top: 31% !important; }
+  #padonly.pt .gpad > [data-stick="l"] { left: 5% !important; top: 40% !important; }
+  #padonly.pt .gpad > [data-gb="64"] { left: calc(5% + 43px) !important; top: calc(40% + 140px) !important; }
+  #padonly.pt .gpad > [data-gb="32768"] { right: calc(5% + 56px) !important; top: 40% !important; }
+  #padonly.pt .gpad > [data-gb="16384"] { right: calc(5% + 112px) !important; top: calc(40% + 52px) !important; }
+  #padonly.pt .gpad > [data-gb="8192"] { right: 5% !important; top: calc(40% + 52px) !important; }
+  #padonly.pt .gpad > [data-gb="4096"] { right: calc(5% + 56px) !important; top: calc(40% + 104px) !important; }
+  #padonly.pt .gpad > .gdpad { left: 5% !important; top: 69% !important; }
+  #padonly.pt .gpad > [data-stick="r"] { right: 5% !important; top: 69% !important; }
+  #padonly.pt .gpad > [data-gb="128"] { right: calc(5% + 43px) !important; top: calc(69% + 140px) !important; }
+  #padonly.pt .pmid { top: calc(env(safe-area-inset-top) + 56px); }
+  #padonly .pset { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 5; display: none; width: min(340px, 86vw); background: #18181c; border: 1px solid #333; border-radius: 14px; padding: 14px; color: #ddd; font-size: 14px; box-shadow: 0 10px 40px #000a; }
+  #padonly .pset.on { display: grid; gap: 12px; }
+  #padonly .pset label, #padonly .pset .prow { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  #padonly .pset select, #padonly .pset input[type=range] { width: 150px; }
+  #padonly .pbg { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+  #padonly .pbg button, #padonly .pbtn { background: #26262c; color: #ddd; border: 1px solid #444; border-radius: 8px; padding: 6px 10px; font-size: 13px; position: relative; }
+  #padonly .pbtn input[type=color] { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; }
+  #padonly .pnote { color: #888; font-size: 12px; }
+  #padonly .pdone { background: #2f6fed; color: #fff; border: 0; border-radius: 8px; padding: 8px; font-size: 14px; }
+  #padonly .pplayer:empty { display: none; }
+  #padonly .pplayer { color: #ccc; font: 700 15px system-ui; background: #000a; padding: 5px 14px; border-radius: 999px; border: 2px solid #555; }
+  #padonly .pplayer.p1 { border-color: #3ddc84; color: #3ddc84; } #padonly .pplayer.p2 { border-color: #4aa3ff; color: #4aa3ff; }
+  #padonly .pplayer.p3 { border-color: #ff5c5c; color: #ff5c5c; } #padonly .pplayer.p4 { border-color: #ffc83d; color: #ffc83d; }
+  #padonly .pmid { position: absolute; left: 50%; top: calc(env(safe-area-inset-top) + 50px); transform: translateX(-50%); z-index: 3; display: flex; flex-direction: column; align-items: center; gap: 8px; pointer-events: none; }
+  #padonly .pmid > * { pointer-events: auto; }
+  #padonly .pbar { display: flex; gap: 10px; }
+  #padonly .pbar button { width: 36px; height: 36px; border-radius: 50%; background: #222c; color: #ddd; border: 1px solid #444; font-size: 16px; line-height: 1; padding: 0; }
+  #padonly #padStat { font-size: 11px; color: #999; white-space: nowrap; pointer-events: none; }
+  #padonly #padStat.warn { color: #ffb340; } #padonly #padStat.bad { color: #ff6b6b; white-space: normal; max-width: 40vw; text-align: center; }
+  #padonly .pplayer { pointer-events: none; white-space: nowrap; }
+  .gpad > * { position: absolute; pointer-events: auto; touch-action: none; zoom: var(--gps); opacity: var(--gpo); }
+  .gb { width: 52px; height: 52px; border-radius: 50%; border: 2px solid #ffffff55; background: #0007; color: #fff; display: grid; place-items: center; font: 600 20px system-ui; }
+  .gb.on { background: #ffffff55; }
+  .gb.sm { width: 46px; height: 30px; border-radius: 14px; font-size: 11px; }
+  .gb.sh { width: 64px; height: 34px; border-radius: 10px; font-size: 13px; }
+  .gx { color: #7fb2ff; } .go { color: #ff7f86; } .gs { color: #f19ad8; } .gt { color: #47d6b6; }
+  .gstick { width: 132px; height: 132px; border-radius: 50%; border: 2px solid #ffffff40; background: #0005; }
+  .gstick i { position: absolute; left: 50%; top: 50%; width: 56px; height: 56px; margin: -28px 0 0 -28px; border-radius: 50%; background: #ffffff70; border: 2px solid #fff9; }
+  .gdpad { width: 132px; height: 132px; }
+  .gdpad .gb { position: absolute; width: 44px; height: 44px; border-radius: 10px; font-size: 16px; }
   .sfloat { position: absolute; right: calc(env(safe-area-inset-right) + 6px); top: 50%; transform: translateY(-50%); display: none; flex-direction: column; gap: 8px; z-index: 2; }
   .scr.imm .sfloat { display: flex; }
   .scr.imm .sbar, .scr.imm .skeys { display: none; }
@@ -159,12 +215,17 @@
       <button id="sKb" aria-label="Keyboard" title="Keyboard"></button>
       <button id="sKeys" aria-label="Keys and shortcuts" title="Keys and shortcuts">Keys</button>
       <button id="sRight" aria-label="Next tap is a right-click" title="Next tap is a right-click">Right-click</button>
+      <button id="sPad" aria-pressed="false" title="An on-screen controller: the PC sees a game controller">Controller</button>
+      <button id="sHold" aria-pressed="false" title="Touching holds the left button down until you lift your finger (to walk or drag in games)">Hold click</button>
       <button id="sFit" aria-label="Fit to screen" title="Fit to screen">Fit</button>
       <select id="sMon" aria-label="Monitor"></select>
       <button id="sSet" aria-label="Picture and sound settings" aria-expanded="false" title="Settings"></button>
       <span class="si" id="sInfo"></span>
     </div>
     <div class="spanel" id="spanel" role="group" aria-label="Picture and sound settings">
+      <label class="srow"><span><b>Controller size</b><small>The on-screen controller's buttons and sticks</small></span><select id="sGpS"><option value="0.6">Tiny</option><option value="0.75">Small</option><option value="0.9">Medium</option><option value="1">Normal</option><option value="1.15">Large</option><option value="1.3">Huge</option></select></label>
+      <label class="srow"><span><b>Controller opacity</b><small>How see-through it is</small></span><input type="range" id="sGpO" min="0.15" max="1" step="0.05" style="width:120px"></label>
+      <label class="srow"><span><b>Control in games</b><small>Taps and keys reach a game too. Some online games' anti-cheat may not like it.</small></span><input type="checkbox" id="sGames"></label>
       <label class="srow"><span><b>Bitrate</b><small>Auto follows your connection</small></span><select id="sB"><option value="0">Auto</option><option value="30000">30 Mb/s</option><option value="15000">15 Mb/s</option><option value="8000">8 Mb/s</option><option value="4000">4 Mb/s</option><option value="2000">2 Mb/s</option><option value="1000">1 Mb/s</option><option value="500">0.5 Mb/s</option><option value="custom">Type…</option></select></label>
       <label class="srow"><span><b>Frame rate</b><small>Pictures a second</small></span><select id="sF"><option value="15">15 fps</option><option value="24">24 fps</option><option value="30">30 fps</option><option value="60">60 fps</option></select></label>
       <label class="srow"><span><b>On a slow connection</b><small>What to keep when the bitrate is tight</small></span><select id="sP"><option value="smooth">Smooth motion</option><option value="sharp">Sharp picture</option></select></label>
@@ -173,7 +234,27 @@
       <label class="srow"><span><b>Sound quality</b><small>Low uses the least data</small></span><select id="sSQ"><option value="auto">Auto</option><option value="best">Best</option><option value="good">Good</option><option value="medium">Medium</option><option value="low">Low</option></select></label>
     </div>
     <div class="sview" id="sview"><div class="sinner" id="sinner"><canvas id="simg" role="img" aria-label="PC screen"></canvas><div class="scur" id="scur"></div></div><div class="smsg" id="smsg"></div>
-      <div class="sfloat"><button id="fKb" aria-label="Keyboard"></button><button id="fCtl" aria-label="Control on or off"></button><button id="fExit" aria-label="Show the bars"></button></div></div>
+      <div class="gpad" id="gpad" aria-label="Controller">
+        <div class="gb sh" data-gt="lt" style="left:calc(env(safe-area-inset-left) + 14px);top:10px">L2</div>
+        <div class="gb sh" data-gb="256" style="left:calc(env(safe-area-inset-left) + 86px);top:10px">L1</div>
+        <div class="gb sh" data-gt="rt" style="right:calc(env(safe-area-inset-right) + 60px);top:10px">R2</div>
+        <div class="gb sh" data-gb="512" style="right:calc(env(safe-area-inset-right) + 132px);top:10px">R1</div>
+        <div class="gstick" data-stick="l" style="left:calc(env(safe-area-inset-left) + 26px);top:58px"><i></i></div>
+        <div class="gdpad" style="left:calc(env(safe-area-inset-left) + 120px);bottom:12px">
+          <div class="gb" data-gb="1" style="left:44px;top:0">▲</div><div class="gb" data-gb="2" style="left:44px;top:88px">▼</div>
+          <div class="gb" data-gb="4" style="left:0;top:44px">◀</div><div class="gb" data-gb="8" style="left:88px;top:44px">▶</div></div>
+        <div class="gb gt" data-gb="32768" style="right:calc(env(safe-area-inset-right) + 106px);top:56px">△</div>
+        <div class="gb gs" data-gb="16384" style="right:calc(env(safe-area-inset-right) + 162px);top:108px">□</div>
+        <div class="gb go" data-gb="8192" style="right:calc(env(safe-area-inset-right) + 50px);top:108px">○</div>
+        <div class="gb gx" data-gb="4096" style="right:calc(env(safe-area-inset-right) + 106px);top:160px">✕</div>
+        <div class="gstick" data-stick="r" style="right:calc(env(safe-area-inset-right) + 180px);bottom:12px"><i></i></div>
+        <div class="gb sm" data-gb="32" style="left:calc(50% - 92px);top:10px">Share</div>
+        <div class="gb sm" data-gb="1024" style="left:calc(50% - 23px);top:10px">PS</div>
+        <div class="gb sm" data-gb="16" style="left:calc(50% + 46px);top:10px">Options</div>
+        <div class="gb sm" data-gb="64" style="left:calc(env(safe-area-inset-left) + 58px);top:196px">L3</div>
+        <div class="gb sm" data-gb="128" style="right:calc(env(safe-area-inset-right) + 222px);bottom:150px">R3</div>
+      </div>
+      <div class="sfloat"><button id="fPad" aria-pressed="false" aria-label="Controller">Pad</button><button id="fKb" aria-label="Keyboard"></button><button id="fHold" aria-pressed="false" aria-label="Hold click">Hold</button><button id="fCtl" aria-label="Control on or off"></button><button id="fExit" aria-label="Show the bars"></button></div></div>
     <div class="skeys" id="skeys"></div>
     <input id="skb" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" aria-label="Type on the PC">
   </div>
@@ -370,7 +451,9 @@ function render() {
   if (pw.plan) h += `<div class="card plan"><div class="h">${ic("power")}Plan<button class="r" data-a="plan_cancel">Cancel</button></div><b>${esc(planText(pw.plan))}</b><div class="muted">${esc(pw.plan.progress || "")}</div></div>`;
   if (st.screen && st.screen !== "off") h += `<div class="card"><div class="h">${ic("mon")}Screen</div>
     <button class="btn p" data-a="screen" style="width:100%">${ic("mon")}${st.screen === "control" ? "See and control the PC" : "See the PC's screen"}</button>
-    <div class="muted" style="margin-top:8px">${st.screen === "control" ? "Tap to click, hold for right-click, slide to move the pointer. Tap then touch again and slide to drag. Two fingers scroll or zoom." : "View only. Pinch to zoom."}</div></div>`;
+    <div class="muted" style="margin-top:8px">${st.screen === "control" ? "Tap to click, hold for right-click, slide to move the pointer. Tap then touch again and slide to drag. Two fingers scroll or zoom." : "View only. Pinch to zoom."}</div>
+    ${st.screen === "control" ? `<button class="btn" data-a="padonly" style="width:100%;margin-top:10px">${ic("zap")}Use as a controller (no screen)</button>
+    <div class="muted" style="margin-top:6px">Just the controller, without the PC's picture: the least delay, and almost no data or battery.</div>` : ""}</div>`;
   if (m && m.title) {
     const pct = m.len > 0 ? Math.min(100, m.pos / m.len * 100) : 0;
     h += `<div class="card"><div class="media"><div class="art" style="${m.art ? `background-image:url('${esc(artSrc(m.art))}')` : ""}"></div>
@@ -498,6 +581,7 @@ document.addEventListener("click", (e) => {
   else if (d.a === "morevol") { showAllVol = !showAllVol; render(); }
   else if (d.a === "clipget") send({ a: "clip_get" });
   else if (d.a === "screen") { setMode(st.screen); screenOpen(); }
+  else if (d.a === "padonly") padOnly(true);
   else if (d.a === "pickfile") $("file").click();
   else if (d.a === "sendcopy" || d.a === "sendopen") {
     const t = $("txt").value.trim();
@@ -617,7 +701,7 @@ $("file").addEventListener("change", async (e) => {
 const SC = { ws: null, open: false, mode: "off", z: 1, tx: 0, ty: 0, bw: 0, bh: 0, iw: 16, ih: 9, frames: 0, bytes: 0, t0: 0, right: false };
 const KEYS = [["Esc", "esc"], ["Tab", "tab"], ["Win", "win"], ["←", "left"], ["↑", "up"], ["↓", "down"], ["→", "right"], ["Del", "delete"], ["⌫", "backspace"], ["Enter", "enter"],
   ["Copy", "c", ["ctrl"]], ["Paste", "v", ["ctrl"]], ["Undo", "z", ["ctrl"]], ["Select all", "a", ["ctrl"]], ["Alt+Tab", "tab", ["alt"]], ["Desktop", "d", ["win"]],
-  ["Task Manager", "esc", ["ctrl", "shift"]], ["F5", "f5"], ["Home", "home"], ["End", "end"], ["PgUp", "pageup"], ["PgDn", "pagedown"], ["Close app", "f4", ["alt"], "Close the app in front on the PC?"]];
+  ["Task Manager", "esc", ["ctrl", "shift"]], ...Array.from({ length: 24 }, (_, i) => [`F${i + 1}`, `f${i + 1}`]), ["Home", "home"], ["End", "end"], ["PgUp", "pageup"], ["PgDn", "pagedown"], ["Close app", "f4", ["alt"], "Close the app in front on the PC?"]];
 P.kb = '<rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/>';
 P.full = '<path d="M4 9V4h5"/><path d="M20 9V4h-5"/><path d="M4 15v5h5"/><path d="M20 15v5h-5"/>';
 P.shrink = '<path d="M9 4v5H4"/><path d="M15 4v5h5"/><path d="M9 20v-5H4"/><path d="M15 20v-5h5"/>';
@@ -631,12 +715,23 @@ function ssend(o) { if (SC.ws && SC.ws.readyState === 1) SC.ws.send(JSON.stringi
 
 // Full screen and sideways: the PC's screen is wide, and Android allows the turn only in full
 // screen. Asked for again every time: the phone's Back button or a swipe ends full screen.
+// The browser's own "in full screen" flag can stay set after full screen really ended (a swipe,
+// another app, a call): what counts is whether the page really fills the screen.
+function reallyFull() {
+  if (!document.fullscreenElement) return false;
+  const vw = window.innerWidth, vh = window.innerHeight, sw = screen.width, sh = screen.height;
+  // the screen's long and short sides against the page's (the phone may be turned either way)
+  return Math.max(vw, vh) >= Math.max(sw, sh) - 8 && Math.min(vw, vh) >= Math.min(sw, sh) - 8;
+}
+/** Full screen for real: a stale one is ended first. Resolves true when the page fills the screen. */
 function goFull() {
-  try {
-    const turn = () => screen.orientation && screen.orientation.lock("landscape").catch(() => {});
-    if (!document.fullscreenElement) document.documentElement.requestFullscreen({ navigationUI: "hide" }).then(turn).catch(() => {});
-    else turn();
-  } catch (e) {}
+  const turn = () => { try { screen.orientation && screen.orientation.lock("landscape").catch(() => {}); } catch (e) {} };
+  if (reallyFull()) { turn(); return Promise.resolve(true); }
+  const el = document.documentElement;
+  if (!el.requestFullscreen) return Promise.resolve(false);
+  const ask = () => el.requestFullscreen({ navigationUI: "hide" }).then(() => { turn(); return true; }).catch(() => false);
+  // the browser thinks it's still full screen: leave that first, then ask again
+  return document.fullscreenElement ? document.exitFullscreen().catch(() => {}).then(ask) : ask();
 }
 function screenOpen() {
   SC.open = true; SC.z = 1; SC.tx = 0; SC.ty = 0; SC.ctlOn = false; SC.host = null; SC.rate = null;
@@ -681,6 +776,7 @@ function screenConnect(hosts) {
   w.binaryType = "arraybuffer";
   SC.ws = w; SC.t0 = Date.now(); SC.frames = 0; SC.bytes = 0; SC.lastDrawn = 0;
   SC.via = /^100\./.test(host) ? "Tailscale" : "home Wi-Fi";
+  w.addEventListener("open", () => { if (gamesOk) w.send(JSON.stringify({ t: "games", on: true })); });
   smsg("Connecting to the screen…");
   // not answering soon (not home): the next address
   if (hosts.length > 1) setTimeout(() => { if (SC.ws === w && w.readyState === 0) { w.onclose = null; w.close(); screenConnect(hosts.slice(1)); } }, 1500);
@@ -1159,7 +1255,8 @@ function setMode(m) {
   $("sCtl").textContent = c ? "Control on" : "Control off";
   $("sCtl").classList.toggle("on", c); $("sCtl").setAttribute("aria-pressed", String(c));
   $("fCtl").classList.toggle("on", c);
-  for (const id of ["sKb", "sKeys", "sRight", "fKb"]) $(id).style.display = c ? "" : "none";
+  for (const id of ["sKb", "sKeys", "sRight", "sHold", "sPad", "fKb", "fHold", "fPad"]) $(id).style.display = c ? "" : "none";
+  if (!c && window.GP && GP.on) setPad(false);
   if (!c) { $("skeys").classList.remove("on"); $("sKeys").classList.remove("on"); if (document.activeElement === skb) skb.blur(); }
 }
 function toggleControl() {
@@ -1529,6 +1626,8 @@ $("sview").addEventListener("pointerdown", (e) => {
     const hold = !!lastTap && performance.now() - lastTap.t < 350 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 40;
     lastTap = null;
     g = { kind: "one", x0: e.clientX, y0: e.clientY, tx0: SC.tx, ty0: SC.ty, moved: false, dragging: false, done: false, hold };
+    // Hold click: the left button goes down right away and stays down until the finger lifts
+    if (ctl() && SC.hold) { g.dragging = true; g.hold = true; ssend({ t: "md", b: 0, ...spot(e.clientX, e.clientY) }); return; }
     // (no right-click on a long press that is the second half of tap-then-drag)
     if (ctl() && !hold) g.timer = setTimeout(() => {
       if (g && g.kind === "one" && !g.moved) { click(spot(g.x0, g.y0), 1); g.done = true; if (navigator.vibrate) navigator.vibrate(15); }
@@ -1643,7 +1742,18 @@ window.addEventListener("popstate", () => {
 // full screen ended some other way (Back, a swipe): show the bars again, so the Full screen
 // button is there and works
 document.addEventListener("fullscreenchange", () => { if (!document.fullscreenElement && SC.imm) setImmersive(false); setTimeout(layoutScreen, 50); });
-$("sFull").innerHTML = ic("full"); $("sFull").onclick = () => { goFull(); setImmersive(true); };
+$("sFull").innerHTML = ic("full"); $("sFull").onclick = () => goFull().then((ok) => {
+  if (ok) { setImmersive(true); return; }
+  // no full screen (iPhones don't allow it for web pages, some browsers ask first): the bars are hidden anyway, and it says so
+  setImmersive(true);
+  smsg("This browser doesn't allow full screen here, so only Deck's bars are hidden. Tip: add Deck to the home screen; it then opens without the browser's bars.");
+  setTimeout(() => smsg(""), 6000);
+});
+// back on the page (another app, the screen was off): a full screen that quietly ended is noticed
+document.addEventListener("visibilitychange", () => {
+  // checked after the phone has put the page back at its size
+  if (document.visibilityState === "visible") setTimeout(() => { if (document.fullscreenElement && !reallyFull()) document.exitFullscreen().catch(() => {}); }, 500);
+});
 $("fExit").innerHTML = ic("shrink"); $("fExit").onclick = () => setImmersive(false);
 $("sCtl").onclick = toggleControl;
 $("fCtl").innerHTML = ic("hand"); $("fCtl").onclick = toggleControl;
@@ -1658,6 +1768,245 @@ $("sSnd").onclick = () => {
 $("sKb").innerHTML = ic("kb"); $("sKb").onclick = () => { skb.value = SENT; skb.focus(); };
 $("sKeys").onclick = () => { $("skeys").classList.toggle("on"); $("sKeys").classList.toggle("on"); setTimeout(layoutScreen, 50); };
 $("sRight").onclick = () => { SC.right = !SC.right; $("sRight").classList.toggle("on", SC.right); };
+// the controller: each button and stick follows its own finger; the state goes to the PC at most
+// once a frame, and again every 0.5 s while something is held (a lost message can't leave it stuck)
+var GP = { on: false, b: 0, lx: 0, ly: 0, rx: 0, ry: 0, lt: 0, rt: 0, raf: 0, last: "" };
+function gpSend(force) {
+  if (PAD.on) {
+    const k = JSON.stringify({ t: "gp", b: GP.b, lx: GP.lx, ly: GP.ly, rx: GP.rx, ry: GP.ry, lt: GP.lt, rt: GP.rt });
+    if ((k !== GP.last || force) && PAD.ws && PAD.ws.readyState === 1) { GP.last = k; PAD.ws.send(k); }
+    return;
+  }
+  if (GP.raf) return;
+  GP.raf = requestAnimationFrame(() => {
+    GP.raf = 0;
+    const m = { t: "gp", b: GP.b, lx: GP.lx, ly: GP.ly, rx: GP.rx, ry: GP.ry, lt: GP.lt, rt: GP.rt };
+    const k = JSON.stringify(m);
+    if (k !== GP.last || force) { GP.last = k; ssend(m); }
+  });
+}
+setInterval(() => { if (GP.on && (GP.b || GP.lx || GP.ly || GP.rx || GP.ry || GP.lt || GP.rt)) gpSend(true); }, 500);
+function gpReset() { Object.assign(GP, { b: 0, lx: 0, ly: 0, rx: 0, ry: 0, lt: 0, rt: 0 }); document.querySelectorAll("#gpad .on").forEach((e) => e.classList.remove("on")); document.querySelectorAll("#gpad .gstick i").forEach((k) => (k.style.transform = "")); gpSend(true); }
+function setPad(on) {
+  GP.on = on;
+  $("gpad").classList.toggle("on", on);
+  for (const id of ["sPad", "fPad"]) { $(id).classList.toggle("on", on); $(id).setAttribute("aria-pressed", String(on)); }
+  if (!on) gpReset();
+  else if (!PAD.on && screen.orientation && screen.orientation.lock) screen.orientation.lock("landscape").catch(() => {});
+}
+$("sPad").onclick = () => setPad(!GP.on);
+// its size and opacity, remembered on this phone
+function gpLook() {
+  let size = "1", op = "0.75";
+  try { size = localStorage.getItem("deckGpS") || size; op = localStorage.getItem("deckGpO") || op; } catch {}
+  $("gpad").style.setProperty("--gps", size); $("gpad").style.setProperty("--gpo", op);
+  $("sGpS").value = size; $("sGpO").value = op;
+}
+gpLook();
+$("sGpS").onchange = () => { try { localStorage.setItem("deckGpS", $("sGpS").value); } catch {} gpLook(); };
+$("sGpO").oninput = () => { try { localStorage.setItem("deckGpO", $("sGpO").value); } catch {} gpLook(); };
+$("fPad").onclick = () => setPad(!GP.on);
+for (const el of document.querySelectorAll("#gpad [data-gb], #gpad [data-gt]")) {
+  const down = (e) => {
+    e.preventDefault(); e.stopPropagation(); el.setPointerCapture(e.pointerId); el.classList.add("on");
+    if (el.dataset.gb) GP.b |= +el.dataset.gb; else GP[el.dataset.gt] = 1;
+    if (navigator.vibrate) navigator.vibrate(8);
+    gpSend();
+  };
+  const up = (e) => {
+    e.stopPropagation(); el.classList.remove("on");
+    if (el.dataset.gb) GP.b &= ~+el.dataset.gb; else GP[el.dataset.gt] = 0;
+    gpSend();
+  };
+  el.addEventListener("pointerdown", down);
+  el.addEventListener("pointerup", up);
+  el.addEventListener("pointercancel", up);
+  el.addEventListener("pointermove", (e) => e.stopPropagation());
+}
+for (const el of document.querySelectorAll("#gpad [data-stick]")) {
+  const knob = el.querySelector("i"), side = el.dataset.stick;
+  let id = null;
+  const at = (e) => {
+    const r = el.getBoundingClientRect(), rad = r.width / 2;
+    let dx = (e.clientX - r.left - rad) / rad, dy = (e.clientY - r.top - rad) / rad;
+    // the controller page turned sideways (phone held upright): its right is the screen's down
+    if (PAD.on && PAD.rot) [dx, dy] = [dy, -dx];
+    const len = Math.hypot(dx, dy); if (len > 1) { dx /= len; dy /= len; }
+    knob.style.transform = `translate(${dx * rad * 0.6}px, ${dy * rad * 0.6}px)`;
+    // a small dead zone; up on the screen is up on the stick
+    const dz = (v) => (Math.abs(v) < 0.08 ? 0 : Math.round(v * 1000) / 1000);
+    GP[side + "x"] = dz(dx); GP[side + "y"] = dz(-dy);
+    gpSend();
+  };
+  el.addEventListener("pointerdown", (e) => { e.preventDefault(); e.stopPropagation(); if (id !== null) return; id = e.pointerId; el.setPointerCapture(id); at(e); });
+  el.addEventListener("pointermove", (e) => { e.stopPropagation(); if (e.pointerId === id) at(e); });
+  const end = (e) => { e.stopPropagation(); if (e.pointerId !== id) return; id = null; knob.style.transform = ""; GP[side + "x"] = 0; GP[side + "y"] = 0; gpSend(); };
+  el.addEventListener("pointerup", end);
+  el.addEventListener("pointercancel", end);
+}
+$("gpad").addEventListener("pointerdown", (e) => { if (e.target === $("gpad")) return; e.stopPropagation(); });
+$("gpad").addEventListener("contextmenu", (e) => e.preventDefault());
+
+// The controller on its own (no Screen view): a black page with just the pad, on its own small
+// connection to the PC. Each press is sent the moment the finger lands; the home Wi-Fi is tried
+// first; the delay to the PC and back is shown so it's easy to see.
+var PAD = { on: false, ws: null, rtt: null, via: "", ping: 0, retry: 0, msg: "", player: 0, rot: false };
+function padView() {
+  let v = $("padonly");
+  if (!v) {
+    v = document.createElement("div");
+    v.id = "padonly";
+    v.innerHTML = `<div class="pmid"><div class="pplayer" id="padPlayer" aria-live="polite"></div>
+      <div class="pbar"><button id="padClose" aria-label="Close the controller">✕</button><button id="padSet" aria-label="Controller settings" aria-expanded="false">⚙</button></div>
+      <span id="padStat" role="status"></span></div>
+      <div class="pset" id="padSetP" role="dialog" aria-label="Controller settings">
+        <label><span>Size</span><select id="poS"><option value="0.6">Tiny</option><option value="0.75">Small</option><option value="0.9">Medium</option><option value="1">Normal</option><option value="1.15">Large</option><option value="1.3">Huge</option></select></label>
+        <label><span>Opacity</span><input type="range" id="poO" min="0.15" max="1" step="0.05"></label>
+        <label><span>Layout</span><select id="poL"><option value="auto">Follow the phone</option><option value="side">Always sideways</option></select></label>
+        <div class="prow"><span>Background</span><div class="pbg">
+          <button data-bg="#000">Black</button><button data-bg="#1c1c22">Dark grey</button>
+          <label class="pbtn">Color<input type="color" id="poC" value="#202040"></label>
+          <label class="pbtn">Photo…<input type="file" id="poF" accept="image/*" hidden></label>
+        </div></div>
+        <div class="pnote" id="poN">Saved on this phone only, so each phone keeps its own look.</div>
+        <button id="padSetDone" class="pdone">Done</button>
+      </div>`;
+    document.body.appendChild(v);
+    $("padClose").onclick = () => padOnly(false);
+    const panel = (on) => { $("padSetP").classList.toggle("on", on); $("padSet").setAttribute("aria-expanded", String(on)); };
+    $("padSet").onclick = () => panel(!$("padSetP").classList.contains("on"));
+    $("padSetDone").onclick = () => panel(false);
+    $("poS").onchange = () => { padSave("deckPoS", $("poS").value); padLook(); };
+    $("poO").oninput = () => { padSave("deckPoO", $("poO").value); padLook(); };
+    $("poL").onchange = () => { padSave("deckPoL", $("poL").value); padLayout(); };
+    matchMedia("(orientation: portrait)").addEventListener("change", () => PAD.on && padLayout());
+    for (const b of v.querySelectorAll("[data-bg]")) b.onclick = () => { padSave("deckPoBg", b.dataset.bg); padLook(); };
+    $("poC").oninput = () => { padSave("deckPoBg", $("poC").value); padLook(); };
+    $("poF").onchange = () => { const f = $("poF").files[0]; if (f) padPhoto(f); $("poF").value = ""; };
+    padLook();
+  }
+  return v;
+}
+function padSave(k, v) {
+  try { localStorage.setItem(k, v); return true; } catch { return false; }
+}
+function padGet(k, d) { try { return localStorage.getItem(k) || d; } catch { return d; } }
+/** Size, opacity and background of the controller page, as this phone saved them. */
+function padLook() {
+  const v = $("padonly"); if (!v) return;
+  const size = padGet("deckPoS", "1"), op = padGet("deckPoO", "1"), bg = padGet("deckPoBg", "#000");
+  $("gpad").style.setProperty("--gps", size); $("gpad").style.setProperty("--gpo", op);
+  $("poS").value = size; $("poO").value = op;
+  if (bg.startsWith("data:")) v.style.background = `#000 url("${bg}") center / cover no-repeat`;
+  else { v.style.background = bg; if (/^#[0-9a-f]{6}$/i.test(bg)) $("poC").value = bg; }
+}
+/** A photo as the background: made screen-sized first, so it fits in the phone's storage. */
+function padPhoto(file) {
+  const img = new Image(), url = URL.createObjectURL(file);
+  img.onload = () => {
+    const max = Math.max(screen.width, screen.height) * Math.min(2, window.devicePixelRatio || 1);
+    const k = Math.min(1, max / Math.max(img.width, img.height));
+    const c = document.createElement("canvas"); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+    c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+    URL.revokeObjectURL(url);
+    let data = c.toDataURL("image/jpeg", 0.82);
+    if (!padSave("deckPoBg", data)) { data = c.toDataURL("image/jpeg", 0.55); if (!padSave("deckPoBg", data)) { $("poN").textContent = "That photo is too big for this phone's storage. Try a smaller one."; return; } }
+    $("poN").textContent = "Photo saved on this phone.";
+    padLook();
+  };
+  img.onerror = () => { URL.revokeObjectURL(url); $("poN").textContent = "That file couldn't be opened as a picture."; };
+  img.src = url;
+}
+/** Upright layout, sideways layout, or the sideways one turned (Always sideways, phone upright). */
+function padLayout() {
+  const v = $("padonly"); if (!v) return;
+  const side = padGet("deckPoL", "auto") === "side", upright = matchMedia("(orientation: portrait)").matches;
+  PAD.rot = side && upright;
+  v.classList.toggle("rot", PAD.rot);
+  v.classList.toggle("pt", !side && upright);
+  $("poL").value = side ? "side" : "auto";
+  // Follow the phone: the screen may turn freely; Always sideways: asked to stay sideways where the phone allows it
+  try { if (side) screen.orientation.lock("landscape").catch(() => {}); else screen.orientation.unlock(); } catch {}
+}
+function padStat() {
+  const s = $("padStat"); if (!s) return;
+  const w = PAD.ws;
+  s.textContent = PAD.msg || (!w || w.readyState !== 1 ? "Connecting…" : `${PAD.via}${PAD.rtt != null ? ` · ${PAD.rtt} ms` : ""}`);
+  s.title = PAD.rtt != null ? "Time for a press to reach the PC and come back" : "";
+  s.className = PAD.msg ? "bad" : PAD.rtt != null && PAD.rtt > 60 ? "warn" : "";
+  const p = $("padPlayer");
+  if (p) {
+    p.textContent = PAD.player ? `Player ${PAD.player}` : PAD.ws && PAD.ws.readyState === 1 ? "Press any button to join" : "";
+    p.className = "pplayer" + (PAD.player ? " p" + PAD.player : "");
+  }
+}
+function padConnect(hosts) {
+  if (!PAD.on) return;
+  hosts = hosts || screenHosts();
+  const host = hosts[0], proto = location.protocol === "https:" ? "wss" : "ws";
+  const w = new WebSocket(`${proto}://${host}/pad?${signed("/pad")}`);
+  PAD.ws = w; PAD.rtt = null; PAD.via = /^100\./.test(host) ? "Tailscale" : "Home Wi-Fi";
+  padStat();
+  if (hosts.length > 1) setTimeout(() => { if (PAD.ws === w && w.readyState === 0) { w.onclose = null; w.close(); padConnect(hosts.slice(1)); } }, 1500);
+  w.onopen = () => { PAD.retry = 0; PAD.msg = ""; GP.last = ""; gpSend(true); padStat(); };
+  w.onmessage = (e) => {
+    let m; try { m = JSON.parse(e.data); } catch { return; }
+    if (m.t === "pong") { PAD.rtt = Math.round(performance.now() - m.id); padStat(); }
+    else if (m.t === "player") { PAD.player = m.n; padStat(); if (navigator.vibrate) navigator.vibrate([30, 60, 30]); }
+    else if (m.t === "refused") { PAD.msg = m.text; PAD.on && padStat(); w.onclose = null; }
+    else if (m.t === "note") { PAD.msg = m.text; padStat(); }
+    else if (m.t === "off") { PAD.msg = m.text; padStat(); }
+  };
+  w.onclose = (e) => {
+    if (PAD.ws !== w || !PAD.on) return;
+    if (e.reason) { PAD.msg = e.reason; padStat(); return; }
+    // dropped (Wi-Fi blip, Deck restarting): every button lets go on the PC by itself; try again
+    PAD.retry++; PAD.player = 0;
+    PAD.msg = PAD.retry > 3 ? "Can't reach the PC. Trying again…" : "";
+    padStat();
+    setTimeout(() => padConnect(), Math.min(5000, 500 * PAD.retry));
+  };
+}
+function padOnly(on) {
+  if (on === PAD.on) return;
+  const v = padView(), pad = $("gpad");
+  if (on) {
+    PAD.on = true; PAD.msg = ""; PAD.retry = 0; PAD.player = 0;
+    v.appendChild(pad); v.classList.add("on");
+    padLook();
+    setPad(true);
+    padLayout();
+    if (!reallyFull() && document.documentElement.requestFullscreen) {
+      const ask = () => document.documentElement.requestFullscreen({ navigationUI: "hide" }).catch(() => {});
+      document.fullscreenElement ? document.exitFullscreen().catch(() => {}).then(ask) : ask();
+    }
+    padConnect();
+    PAD.ping = setInterval(() => { if (PAD.ws && PAD.ws.readyState === 1) PAD.ws.send(JSON.stringify({ t: "ping", id: performance.now() })); }, 1000);
+  } else {
+    setPad(false);
+    const w = PAD.ws;
+    PAD.on = false; PAD.ws = null; clearInterval(PAD.ping);
+    // the "let go of everything" went out above; then the line closes
+    if (w) setTimeout(() => { w.onclose = null; w.close(); }, 100);
+    v.classList.remove("on", "rot", "pt"); PAD.rot = false;
+    try { screen.orientation.unlock(); } catch {}
+    $("sview").insertBefore(pad, $("sview").querySelector(".sfloat"));
+    gpLook();
+    try { document.fullscreenElement && document.exitFullscreen().catch(() => {}); } catch {}
+  }
+}
+
+function setHold(on) {
+  SC.hold = on;
+  for (const id of ["sHold", "fHold"]) { $(id).classList.toggle("on", on); $(id).setAttribute("aria-pressed", String(on)); }
+}
+$("sHold").onclick = () => setHold(!SC.hold);
+$("fHold").onclick = () => setHold(!SC.hold);
+// Control in games: remembered on this phone, told to the PC on every connection
+var gamesOk = false;
+try { gamesOk = localStorage.getItem("deckGames") === "1"; } catch {}
+$("sGames").checked = gamesOk;
+$("sGames").onchange = () => { gamesOk = $("sGames").checked; try { localStorage.setItem("deckGames", gamesOk ? "1" : "0"); } catch {} ssend({ t: "games", on: gamesOk }); };
 $("sFit").onclick = () => { SC.z = 1; applyZoom(); };
 $("sMon").onchange = () => ssend({ t: "mon", i: +$("sMon").value });
 $("sQ").onchange = () => ssend({ t: "q", q: $("sQ").value });

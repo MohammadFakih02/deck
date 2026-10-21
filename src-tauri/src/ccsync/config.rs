@@ -43,6 +43,19 @@ pub struct ProjectMap {
     /// false = this project's files are neither sent nor received on this PC
     #[serde(default = "yes")]
     pub sync: bool,
+    /// false = this project's sessions aren't synced (its memory and code still are): start a new
+    /// session on the other PC instead of continuing one
+    #[serde(default = "yes")]
+    pub sessions: bool,
+    /// false = this project's own folder (its code) isn't copied, even with project code on
+    #[serde(default = "yes")]
+    pub code: bool,
+}
+
+impl ProjectMap {
+    pub fn new(path: String, auto: bool, origin: &str) -> ProjectMap {
+        ProjectMap { path, auto, origin: origin.into(), sync: true, sessions: true, code: true }
+    }
 }
 
 fn yes() -> bool {
@@ -59,6 +72,8 @@ pub struct Config {
     pub sync_key: String,
     pub lan_enabled: bool,
     pub lan_port: u16,
+    /// also look for the other PCs over Tailscale (away from home)
+    pub tailscale: bool,
     /// extra peers as host:port, for networks that block broadcasts
     pub manual_peers: Vec<String>,
     pub hub_enabled: bool,
@@ -67,6 +82,12 @@ pub struct Config {
     pub sync_sessions: bool,
     pub sync_memory: bool,
     pub sync_config: bool,
+    /// each project's own folder (its code), without build output and .git
+    pub sync_code: bool,
+    /// with `sync_code`: the build output too (target, node_modules, .venv...)
+    pub sync_build: bool,
+    /// tell this PC which programs (Rust, Node, Python...) the other PCs have, to install missing ones
+    pub sync_tools: bool,
     pub interval_secs: u64,
     pub paused: bool,
     /// block prompts in sessions that are open on another machine (Claude Code hook)
@@ -84,12 +105,16 @@ impl Default for Config {
             sync_key: crate::ccsync::crypto::gen_sync_key(),
             lan_enabled: true,
             lan_port: 47836,
+            tailscale: true,
             manual_peers: vec![],
             hub_enabled: false,
             hub_dir: String::new(),
             sync_sessions: true,
             sync_memory: true,
             sync_config: true,
+            sync_code: false,
+            sync_build: false,
+            sync_tools: true,
             interval_secs: 20,
             paused: false,
             session_lock: true,
@@ -134,6 +159,12 @@ pub struct MachineStatus {
     pub aliases: BTreeMap<String, String>,
     /// their Deck version and build ("" = a version too old to say)
     pub app: String,
+    /// the programs they have (None: not shared)
+    pub tools: Option<Vec<crate::ccsync::tools::Tool>>,
+    /// their projects' git remotes
+    pub git: BTreeMap<String, crate::ccsync::git::GitInfo>,
+    /// their processor family ("" = not said)
+    pub arch: String,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -143,7 +174,9 @@ pub struct Status {
     pub last_result: String,
     pub last_error: String,
     pub lan_port: u16,
-    pub local_files: [usize; 3],
+    pub local_files: [usize; 4],
+    /// project alias -> why its code isn't copied from this PC (too big...)
+    pub code_skipped: BTreeMap<String, String>,
     pub local_bytes: u64,
     pub sessions_per_alias: BTreeMap<String, usize>,
     pub machines: Vec<MachineStatus>,
@@ -218,7 +251,7 @@ impl Shared {
         if cfg.sync_key.is_empty() {
             cfg.sync_key = crate::ccsync::crypto::gen_sync_key();
         }
-        cfg.projects.insert(HOME_ALIAS.into(), ProjectMap { path: paths.home.clone(), auto: false, origin: "local".into(), sync: cfg.projects.get(HOME_ALIAS).map(|p| p.sync).unwrap_or(true) });
+        cfg.projects.insert(HOME_ALIAS.into(), ProjectMap { path: paths.home.clone(), sync: cfg.projects.get(HOME_ALIAS).map(|p| p.sync).unwrap_or(true), sessions: cfg.projects.get(HOME_ALIAS).map(|p| p.sessions).unwrap_or(true), ..ProjectMap::new(String::new(), false, "local") });
         let sh = Shared {
             paths,
             cfg: Mutex::new(cfg),

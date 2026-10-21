@@ -100,6 +100,14 @@ pub async fn tweaks_store(what: String, id: Option<String>, query: Option<String
             "fluxdm" => tweaks::storedl::to_fluxdm(&id).map(|n| json!({ "sent": n })),
             "winget" => tweaks::apps::store_install(&id).map(|_| json!({})),
             "jobs" => Ok(json!({ "jobs": tweaks::storedl::jobs() })),
+            "updates" => Ok(serde_json::to_value(tweaks::storedl::update_state()).unwrap_or_default()),
+            "check_updates" => tweaks::storedl::check_updates().map(|_| json!({})),
+            "store_update_all" => tweaks::storedl::store_update_all(),
+            // the Store's own pages: one app's page, or its Downloads list
+            "store_page" => {
+                let url = if tweaks::storedl::valid_id(&id) { format!("ms-windows-store://pdp/?ProductId={id}") } else { "ms-windows-store://downloadsandupdates".to_string() };
+                crate::util::launch_as_user(&url, "", "").map(|_| json!({}))
+            }
             "cancel" => {
                 tweaks::storedl::cancel(&id);
                 Ok(json!({}))

@@ -1799,7 +1799,7 @@ fn vk(name: &str) -> Option<(u16, bool)> {
             if b.len() == 1 && (b[0].is_ascii_lowercase() || b[0].is_ascii_digit()) {
                 (b[0].to_ascii_uppercase() as u16, false)
             } else {
-                let f = n.strip_prefix('f').and_then(|f| f.parse::<u16>().ok()).filter(|f| (1..=12).contains(f))?;
+                let f = n.strip_prefix('f').and_then(|f| f.parse::<u16>().ok()).filter(|f| (1..=24).contains(f))?;
                 (0x70 + f - 1, false)
             }
         }
@@ -2013,12 +2013,21 @@ mod tests {
     }
 
     #[test]
+    fn function_keys() {
+        assert_eq!(vk("f1"), Some((0x70, false)));
+        assert_eq!(vk("F12"), Some((0x7B, false)));
+        assert_eq!(vk("f24"), Some((0x87, false)));
+        assert_eq!(vk("f25"), None);
+        assert_eq!(vk("f0"), None);
+    }
+
+    #[test]
     fn key_names() {
         assert_eq!(vk("enter"), Some((0x0D, false)));
         assert_eq!(vk("C"), Some((0x43, false)));
         assert_eq!(vk("f5"), Some((0x74, false)));
         assert_eq!(vk("left"), Some((0x25, true)));
-        assert_eq!(vk("f13"), None);
+        assert_eq!(vk("f13"), Some((0x7C, false)));
         assert_eq!(vk("nope"), None);
     }
 

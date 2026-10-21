@@ -35,8 +35,8 @@ export function actions() {
   a("Display settings", "Refresh rate, brightness, HDR", "monitor", "refresh rate hz brightness hdr monitor display", () => go("system", "display"));
   a("Workspaces", "Put your apps back where they belong", "layout", "workspace layout scene", () => go("windows", "workspaces"));
   a("Send to phone", "Text, a link or a file", "send", "phone send share transfer", () => go("phone"));
-  a("Install a Store app", "Without the Microsoft Store, from Microsoft's servers", "download", "store msstore install app appx msix rg-adguard winget", () => go("tweaks", "store"));
-  a("Remove built-in apps", "Clipchamp, News, Xbox… (debloat)", "trash", "remove uninstall bloat debloat builtin apps xbox", () => go("tweaks", "apps"));
+  a("Install a Store app", "Without the Microsoft Store, from Microsoft's servers", "download", "store msstore install app appx msix rg-adguard winget", () => go("programs", "store"));
+  a("Remove built-in apps", "Clipchamp, News, Xbox… (debloat)", "trash", "remove uninstall bloat debloat builtin apps xbox", () => go("programs", "builtin"));
   // every Windows tweak (its list arrives with the first search; the Tweaks page keeps it fresh)
   const tw = S.cache.tw;
   if (tw) {

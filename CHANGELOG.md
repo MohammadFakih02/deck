@@ -2,10 +2,9 @@
 
 All notable changes to Deck. Setups for each version are on the [Releases](https://github.com/MohammadFakih02/deck/releases) page.
 
-## Unreleased
+## 2.8.0 — 2026-10-21
 
 ### Changed
-- The design notes moved to `docs/design/`.
 - **The overlay key shows the overlay at once**, also in busy games (Helldivers 2): RivaTuner's own "show" switch is now flipped the moment the key is pressed, for 64-bit games first, instead of after Deck's next sensor read.
 - **Deck's log says much more**, so a problem can be found from the log alone: failed web requests and programs, failed buttons and page errors, profile switches, updates, the phone remote's connections and refusals, share links, Game boost, Clean up, display and startup-app changes, the hardware engine starting and handing the fans back, controllers coming and going, and the death counter's watching. Passwords, keys and tokens are masked, your user name is taken out of paths and the PC's name out of every line, and a line that keeps repeating is counted instead of filling the log. The support report now includes the last 80 lines. For even more detail, put an empty file named `debug` in `%LOCALAPPDATA%\Deck\logs`.
 
@@ -19,6 +18,52 @@ All notable changes to Deck. Setups for each version are on the [Releases](https
 ### Changed (performance)
 - The controller overlay checks for a controller 4 times a second instead of 20 while it is hidden and none is connected.
 - The in-game overlay's loop sleeps until it is woken, instead of checking 40 times a second whether something changed.
+
+## 2.7.9 — 2026-10-21
+
+### Added
+- **Apps** (Maintenance → Apps): everything installed on the PC, with search, sorting by name, size or date, and Desktop / Store filters.
+  - **Uninstall** runs the app's own uninstaller and waits until it has really finished (also uninstallers that copy themselves to Temp first).
+  - **Advanced** uninstall: the uninstaller first, then a search for what the app left behind: its folders (Program Files, ProgramData, AppData, Documents), its registry settings, Start menu and desktop shortcuts, and Windows services that run from its folder. You tick what goes; folders go to the Recycle Bin, and registry keys and services are saved to a .reg backup first. Only names that match the app exactly are offered, and nothing another installed app uses.
+  - Apps whose uninstaller is missing can still have their entry and leftovers removed.
+  - **Apps missing from Windows' list** (known to Windows Installer, but their entry was removed by a cleanup tool or a half-finished uninstall) are listed too and uninstall normally; apps whose folder is gone are marked **Files gone**. A **Needs attention** filter shows just these.
+  - Built-in apps and Store apps moved here from Tweaks (tabs **Built-in apps** and **Store apps & updates**).
+- **Store app updates** (Apps → Store apps & updates): checks every Store app against Microsoft's servers and lists the ones with a newer version and its size. **Update** downloads and installs it without the Store; **Update all here** goes one app at a time; **Update all with the Microsoft Store** asks the Store to do it. Each app shows its progress (size, speed, time left), can be stopped and carried on later from where it stopped, and has its download links to copy. The list and the downloads survive Deck closing or crashing. Apps that couldn't be checked, and why, are listed instead of being counted as up to date.
+- **Phone as a controller without the screen** (phone remote → Screen → Use as a controller): just the controller, on its own connection, so a press reaches the PC with the least delay; the round trip is shown in ms. Several phones become several controllers (Player 1 to 4, shared with real controllers and DS4Windows), each phone showing its player number. Size, opacity, a background (colour or photo) and the layout (follow the phone, or always sideways) are remembered on each phone; holding the phone upright gives an upright layout.
+- **Tweaks explain themselves:** every tweak says, in plain words, what you gain and what you give up.
+- **Hide after opening an app** (Settings → General, quick panel): off keeps Deck open after starting apps, files or links from it.
+- PC to PC: a transfer cut off by Deck closing (or cancelled) has **Carry on**, which sends only what the other PC is missing; the transfer list survives restarts.
+
+### Changed
+- **Tweaks are checkboxes** worded as what Deck does ("Show hidden files and folders"): ticked is Deck's change, unticked is Windows' own setting. Lists of choices mark Windows' default.
+- Apps, files and links opened from Deck's search start in the background: Deck no longer stops responding while an app asks for administrator rights, and the UAC prompt comes to the front.
+- Workspace Sync's problems say what happened and what to do (for example a cloud folder switched on with no folder chosen).
+- Phone remote: full screen notices when the browser quietly left it, and says so when the browser doesn't allow it. Files sent to the phone stay listed after Deck restarts, and an interrupted download on the phone can continue (Deck now tells the browser the file is unchanged).
+- An advanced uninstall that Deck was closed in the middle of is offered to finish on the Apps page.
+
+### Fixed
+- **Open RivaTuner** closed RivaTuner by force, which could leave Deck or a browser frozen. It now asks RivaTuner to close, and Deck's own windows are kept out of RivaTuner's hooks.
+- "Update all with the Microsoft Store" seemed to do nothing when the "Don't update Store apps by themselves" tweak was on (Windows blocks the Store's background updates then). Deck now says so and offers what works; otherwise it reports which apps the Store started or cancelled.
+- "Open in Store" for paid apps did nothing.
+
+### Also in this version
+- **Phone remote, Screen view:** an on-screen controller in the PlayStation layout (two sticks, D-pad, face buttons, L1/R1/L2/R2, L3/R3, Share, PS, Options; several fingers at once), with its size and opacity in Settings. The PC sees it as an Xbox controller (needs the ViGEmBus driver). **Hold click** keeps the left button down while your finger is on the screen. F1 to F24 in the Keys bar. **Control in games** lets taps and keys reach a game in front (off by default).
+- **Workspace Sync for Claude Code** (was "Claude Code sync") carries more than conversations now, so a project can be picked up on another PC:
+  - **Project files** (Settings → What to sync, off until you turn it on): each project's folder is kept the same on your PCs, without `.git` and build output. Folders over 40,000 files or 3 GB, a drive, or your user folder are never copied. Deleted files go to the trash folder on the other PCs, and switching it off deletes nothing. **Build files** (target, node_modules, .venv…) can be included too.
+  - **Per project:** switch a project's sessions off and keep its memory and files syncing, to start a new session on the other PC and carry on with the project. Its files can be switched off on their own as well.
+  - **Programs:** each PC shares which Rust toolchains, targets and components, cargo tools, Node and global npm packages, Python, pipx tools and Git it has. The Status tab lists what another PC has and this one doesn't, with Install (a PowerShell window with your normal rights; nothing installs on its own).
+  - **Tailscale is visible:** Settings has an "Over Tailscale, from anywhere" switch with its state (not installed / not connected / which of your PCs are on it, with Get or Open Tailscale), the Status tab shows "Away from home", each PC says whether it is reached over the home network or Tailscale, and PC to PC shows the same. The cloud folder works with any synced folder (OneDrive, Google Drive, Dropbox, MEGA, pCloud, Syncthing).
+  - **MCP servers** (yours and each project's, from `.claude.json`) sync with the settings, and wait for your OK like hooks and plugins do. Added on two PCs at once, both lists are kept.
+  - **Git history:** files are copied without `.git`; on a PC whose copy has no git, Projects offers **Get git history** (connects the folder to the same remote and branch, files untouched).
+  - **Safer with different PCs:** a project folder only guessed from another PC waits until you keep or move it before files arrive, and a guess under the other PC's user folder becomes the same place under this PC's. Build files aren't copied between an ARM and an Intel/AMD PC. A project stops copying when its drive has under 2 GB free. Rust toolchains are compared as "stable" and the like, so each PC installs its own kind. The program check also covers Microsoft's C++ build tools, which Rust needs.
+  - **Far fewer disk writes:** the sync state is saved only when it changed, and the file-hash cache at most every 10 minutes (before, about 1.2 MB was rewritten every cycle even when nothing changed).
+  - A project's own `.claude` settings, hooks and `.mcp.json` wait for your OK too; `.claude/settings.local.json` stays on each PC.
+
+### Changed
+- The design notes moved to `docs/design/`.
+
+### Security
+- Updated the TLS certificate checks (rustls-webpki 0.103.16, webpki-roots 1.0.10) for RUSTSEC-2026-0381 and RUSTSEC-2026-0382: distrusted emSign intermediates could have been accepted.
 
 ## 2.7.5 — 2026-10-20
 

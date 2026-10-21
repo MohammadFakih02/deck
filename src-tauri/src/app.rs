@@ -29,8 +29,12 @@ impl Toast {
     }
 }
 
+fn shared_file() -> std::path::PathBuf {
+    crate::util::appdata().join("Deck").join("phone-shared.json")
+}
+
 /// Something the PC offered to the phone (text, a link or a file).
-#[derive(Clone, Serialize, Debug)]
+#[derive(Clone, Serialize, serde::Deserialize, Debug)]
 pub struct Shared {
     pub id: u64,
     /// "text" | "link" | "file"
@@ -169,7 +173,8 @@ impl App {
             ui: Mutex::new(None),
             changes,
             toasts: Mutex::new(Vec::new()),
-            shared: Mutex::new(Vec::new()),
+            // kept across restarts, so a file sent to the phone is still there to download
+            shared: Mutex::new(std::fs::read(shared_file()).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()),
             remote_clients: AtomicUsize::new(0),
             screen_viewers: AtomicUsize::new(0),
             visible: AtomicBool::new(false),
@@ -429,6 +434,12 @@ impl App {
     }
 
     /// Tells the UI and the phone that part of the state changed.
+    /// Writes the phone list to disk (what was sent either way survives Deck restarting).
+    pub fn save_shared(&self) {
+        let v = self.shared.lock().clone();
+        let _ = crate::util::write_atomic(&shared_file(), &serde_json::to_vec(&v).unwrap_or_default());
+    }
+
     pub fn changed(&self, topic: &str) {
         self.emit("changed", json!({ "topic": topic }));
         let _ = self.changes.send(topic.to_string());

@@ -130,5 +130,6 @@ pub fn remote_reset_token(app: A, remote: State<Arc<Remote>>) -> Value {
 #[tauri::command]
 pub fn shared_remove(app: A, id: u64) {
     app.shared.lock().retain(|x| x.id != id);
+    app.save_shared();
     app.changed("shared");
 }

@@ -391,6 +391,7 @@ Pages.settings = {
         h("div", { style: { width: "200px" } }, slider(s.hot_corner_ms, 0, 1000, 50, null, set("hot_corner_ms")))) : null,
       panel && s.hot_corner !== "off" ? row(h("span", null, "Also over fullscreen games and videos", helpTip("set.fullscreen")), "Off: the corner does nothing while a game or video is fullscreen, so you can't open Deck by accident mid-match.", toggle(s.hot_corner_fullscreen, set("hot_corner_fullscreen"))) : null,
       panel ? row("Hide when I click somewhere else", null, toggle(s.hide_on_blur, set("hide_on_blur"))) : null,
+      panel ? row("Hide after opening an app", "Off: Deck stays open after you start an app, file or link from it.", toggle(s.hide_after_launch, set("hide_after_launch"))) : null,
       row("Other ways in", "Click the tray icon, the Start menu entry, or the phone. Right-click the tray icon for quick tools.", null),
       row("Start with Windows", "Starts hidden in the tray.", toggle(s.autostart, set("autostart"))),
       row("Start again after a crash", "If something ends Deck (a crash, a graphics driver update), it comes back by itself, hidden. After three in ten minutes it stops and starts with the fans on the BIOS and no overclock.", toggle(s.restart_after_crash, set("restart_after_crash")))));
@@ -413,7 +414,7 @@ Pages.settings = {
     add(h("div", { class: "settings-card" },
       row("Order", "Drag a group's name, or a page inside its group, up or down in the sidebar. Folded groups stay folded after a restart.",
         h("button", { class: "btn sm", disabled: s.nav_order ? null : "", onclick: async () => { await set("nav_order")(null); resetSide(); } }, I("undo", "sm"), "Reset the order")),
-      row("Show Claude Code sync", "For people who use Claude Code on more than one PC. It sits under Desktop, and stays there while it's switched on.",
+      row("Show Workspace Sync", "Workspace Sync for Claude Code: for people who use Claude Code on more than one PC. It sits under Desktop, and stays there while it's switched on.",
         toggle(!!s.claude_sync_nav || !!s.claude_sync_on, async (v) => { await set("claude_sync_nav")(v); resetSide(); }))));
 
     cur = "general";

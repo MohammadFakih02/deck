@@ -23,11 +23,17 @@ impl Hub {
     pub fn new(base: &str, key: Key) -> io::Result<Hub> {
         let base = base.trim();
         if base.is_empty() {
-            return Err(io::Error::new(io::ErrorKind::NotFound, "no cloud folder set"));
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                "\"Also through a cloud folder\" is switched on, but no folder is chosen, so nothing went to the cloud (syncing over your network still works). Fix: Settings → How your PCs reach each other → Cloud folder → Choose…, and pick a folder OneDrive, Google Drive or Dropbox syncs. Or switch \"Also through a cloud folder\" off: your PCs don't need it when they're on the same network or Tailscale.",
+            ));
         }
         let base = PathBuf::from(base);
         if !base.is_dir() {
-            return Err(io::Error::new(io::ErrorKind::NotFound, format!("cloud folder {} not found", base.display())));
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("The cloud folder {} doesn't exist on this PC (moved, renamed, or the drive or OneDrive isn't there), so nothing went to the cloud. Fix: Settings → How your PCs reach each other → Cloud folder → Choose…, and pick it again.", base.display()),
+            ));
         }
         let dir = base.join("Deck-ClaudeSync-hub");
         std::fs::create_dir_all(dir.join("machines"))?;

@@ -17,7 +17,7 @@
 
 ## Download
 
-Get **`Deck_2.7.5_x64-setup.exe`** from the [latest release](https://github.com/MohammadFakih02/deck/releases/latest) and run it. Deck lives in the tray; open it by resting the mouse in the top-left corner of the screen, or by clicking the tray icon. What changed in each version is in [CHANGELOG.md](CHANGELOG.md).
+Get **`Deck_2.7.9_x64-setup.exe`** from the [latest release](https://github.com/MohammadFakih02/deck/releases/latest) and run it. Deck lives in the tray; open it by resting the mouse in the top-left corner of the screen, or by clicking the tray icon. What changed in each version is in [CHANGELOG.md](CHANGELOG.md).
 
 > The setup isn't code-signed, so Windows SmartScreen may say "Windows protected your PC". Click **More info → Run anyway**.
 
@@ -67,8 +67,8 @@ Hardware control (fans, lighting, CPU power limits, GPU tuning), most Windows tw
 | | |
 |---|---|
 | **Tweaks** | 132 Windows settings in 13 categories: privacy, Start and search, taskbar, File Explorer, right-click menu, appearance, multitasking, gaming, AI and Copilot, updates, network, system, advanced. From Win11Debloat and Chris Titus Tech's WinUtil, each checked, plus Deck's own. Every switch shows what Windows is set to **right now** ("Partly" when another tool set part of it), what it changes, its risk and whether it needs Explorer restarted, a sign-out or a restart. **Every change can be undone to exactly what it was before**, one by one or all at once, even months later. Deck notices when a Windows update changes a tweak back and offers to apply it again. Presets (Privacy, Clean Start & taskbar, Gaming, Quiet Windows) and "Recommended" open as checklists you can untick, and a restore point is offered before Advanced tweaks. Options that don't exist on this Windows or this PC are hidden. |
-| **Built-in apps** | Remove Clipchamp, News, the Xbox apps and the rest (rated safe / optional / needed by Windows), and reinstall any of them later. Edge and WebView2 are never offered. |
-| **Store apps without the Store** | Like store.rg-adguard.net: search the Store, then **Install**, **Download** the package files, send them to a download manager (FluxDM), or copy the links. Files come straight from Microsoft's own servers, only the ones this PC is missing (usually just the app), checked against Microsoft's checksums, in 8 parts at once with progress, speed and time left; a cancelled download carries on where it stopped. Free apps only; desktop apps from the Store install with winget. |
+| **Apps** | Everything installed, with Windows' own uninstall or an **Advanced** one that also clears the folders, registry settings, shortcuts and services an app leaves behind (backed up first). Also finds apps missing from Windows' list and half-removed ones. Built-in apps (Clipchamp, News, the Xbox apps…) can be removed and reinstalled; Edge and WebView2 are never offered. |
+| **Store apps without the Store** | Updates for your Store apps (from Microsoft's servers or through the Store), stoppable and resumable. Like store.rg-adguard.net: search the Store, then **Install**, **Download** the package files, send them to a download manager (FluxDM), or copy the links. Files come straight from Microsoft's own servers, only the ones this PC is missing (usually just the app), checked against Microsoft's checksums, in 8 parts at once with progress, speed and time left; a cancelled download carries on where it stopped. Free apps only; desktop apps from the Store install with winget. |
 | **Windows & display** | Window pinning, see-through windows, FancyZones-style snap zones and workspaces; display refresh rate, DDC/CI brightness, HDR, and a dark/light schedule. |
 | **Maintenance** | A WizTree-fast disk space treemap (reads the NTFS file table directly), Clean up (caches, leftovers, Clear RAM), startup apps with Task Manager's own switch, processes, and Tools: colour picker, text from screen (OCR), ruler, locked files, Windows panels. |
 
@@ -77,11 +77,11 @@ Hardware control (fans, lighting, CPU power limits, GPU tuning), most Windows tw
 | | |
 |---|---|
 | **Phone remote** | A web app on your phone (scan a QR code, add it to your home screen): media, volume, profiles, timers, power plans, shared files, and text, links and files sent both ways. At home, or from anywhere through Tailscale (free). Choose who can connect, at home and away. The phone key never travels over the network; each request is signed, and the page also opens over https. |
-| **Screen on your phone** | See the PC's screen in the phone remote (H.264 or JPEG, up to 60 fps, adapts to a slow line), with the PC's sound, and optionally control it: taps click and the phone's keyboard types. Off until you turn it on; control pauses while a game is in front. |
+| **Screen on your phone** | See the PC's screen in the phone remote (H.264 or JPEG, up to 60 fps, adapts to a slow line), with the PC's sound, and optionally control it: taps click and the phone's keyboard types. Off until you turn it on; control pauses while a game is in front. The phone can also be just a controller, with very little delay; several phones are several players. |
 | **Phone as speaker or mic** | The phone plays the PC's sound (the PC's own speakers can stay quiet meanwhile), or its microphone becomes a mic on the PC that Discord, games and recorders can pick (through VB-CABLE, free; Deck sets it up). Optionally the default mic while the phone talks, and put back after. Over Wi-Fi, about a tenth of a second behind. |
 | **PC to PC** | Send files, folders, installers, apps and your Windows setup (look and feel, and your tweaks, each undoable there) between your PCs running Deck, at home or over Tailscale. Each PC has its own key; installers from another PC always ask on this one. **Share links** send a file or folder to anyone, opened in any browser. |
 | **Remote desktop** | See and control the PC from your phone or another computer with RustDesk (free); Deck installs and sets it up. |
-| **Claude Code sync** | Keeps Claude Code's sessions, memory and settings the same on your PCs. Changes that could make it run something new wait for your OK. Off until you turn it on. |
+| **Workspace Sync for Claude Code** | Keeps Claude Code's sessions, memory, settings and MCP servers the same on your PCs, and can copy your project folders and install the programs (Rust, Node, Python…) another PC has. Each project's sessions can be left out, to start fresh on another PC with the same files and memory. Changes that could make Claude Code run something new wait for your OK. Off until you turn it on. |
 
 ### Quality of life
 
@@ -153,7 +153,7 @@ The UI is plain HTML, CSS and JavaScript in [`ui/`](ui), as native ES modules (`
 | `src-tauri/src/deaths/` | Death counter (per-game history files, game recognition, the game catalogue, the in-game counter) |
 | `src-tauri/src/tweaks/` | Tweaks (recipes, live state, the undo journal), built-in apps, Store apps from Microsoft's servers |
 | `src-tauri/src/remote.rs`, `phonemic.rs`, `phonetls.rs` | Phone remote, the phone as speaker and mic, https for the phone |
-| `src-tauri/src/beam/`, `ccsync/` | PC to PC, Claude Code sync |
+| `src-tauri/src/beam/`, `ccsync/` | PC to PC, Workspace Sync |
 | `ui/` | The app's pages (`js/`), styles and the toast / snap-zone windows |
 | `src-tauri/phone/` | The phone remote web app |
 

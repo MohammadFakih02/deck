@@ -223,7 +223,7 @@ pub fn state() -> Value {
     let sh = &t.sh;
     sh.reload_inbox_if_changed();
     let cfg = sh.cfg();
-    let peers: Vec<Value> = t.lan.live_peers().iter().map(|p| json!({ "id": p.id, "name": p.name, "ip": p.addr.ip().to_string() })).collect();
+    let peers: Vec<Value> = t.lan.live_peers().iter().map(|p| json!({ "id": p.id, "name": p.name, "ip": p.addr.ip().to_string(), "tailscale": crate::rdesk::is_tailscale(p.addr.ip()) })).collect();
     let xfers: Vec<Value> = sh
         .xfers
         .lock()
@@ -240,8 +240,10 @@ pub fn state() -> Value {
                 XState::Declined => ("declined", String::new()),
             };
             let secs = x.finished_at.map(|f| f.duration_since(x.started).as_secs_f64()).unwrap_or_else(|| x.started.elapsed().as_secs_f64());
+            // a send that didn't finish can carry on (the other PC keeps what it got)
+            let resumable = x.send && x.resume.is_some() && matches!(x.state, XState::Failed(_) | XState::Cancelled);
             json!({ "id": x.id, "send": x.send, "peer": x.peer, "label": x.label, "total": x.total, "done": x.done, "files": x.files,
-                    "state": state, "error": err, "speed": x.speed, "secs": secs, "note": x.note })
+                    "state": state, "error": err, "speed": x.speed, "secs": secs, "note": x.note, "resumable": resumable })
         })
         .collect();
     let pending: Vec<Value> = sh.pending.lock_anyway().iter().map(|p| json!({ "id": p.id, "peer": p.peer, "label": p.label, "files": p.files, "total": p.total, "install": p.install, "deletes": p.deletes, "peer_id": p.peer_id })).collect();
@@ -279,6 +281,7 @@ pub fn state() -> Value {
     let logs: Vec<String> = sh.logs.lock_anyway().iter().rev().take(200).cloned().collect();
     json!({
         "on": !sh.off.load(Ordering::Relaxed),
+        "tailscale": crate::rdesk::tailscale_summary(),
         "name": cfg.machine_name, "code": cfg.code, "manual_peers": cfg.manual_peers, "inbox_dir": cfg.inbox_dir,
         "ask_before_receive": cfg.ask_before_receive, "trust_install": cfg.trust_install, "shared_folders": cfg.shared_folders,
         "trusted": cfg.trusted.iter().filter(|t| t.until == 0 || t.until > config::now_ms()).map(|t| json!({ "id": t.id, "name": t.name, "until": t.until })).collect::<Vec<_>>(),
@@ -325,6 +328,10 @@ pub fn act(app: &Arc<App>, what: &str, a: &Value) -> Result<Value, String> {
     }
     let t = T.get().ok_or("PC to PC is off")?;
     let sh = &t.sh;
+    if what == "tailscale_open" {
+        crate::rdesk::open_tailscale();
+        return Ok(state());
+    }
     match what {
         // files: sent now; folders: counted first (the page shows what goes and the options)
         "send" => {
@@ -391,11 +398,28 @@ pub fn act(app: &Arc<App>, what: &str, a: &Value) -> Result<Value, String> {
                 x.cancel.store(true, Ordering::Relaxed);
             }
         }
+        // sends a cut-off or cancelled transfer again; the other PC keeps what it got, so only the rest goes
+        "resume" => {
+            let id = a["id"].as_u64().unwrap_or(0);
+            let r = sh.xfers.lock_anyway().iter().find(|x| x.id == id).and_then(|x| x.resume.clone()).ok_or("This transfer can't carry on: send it again")?;
+            let name = sh.xfers.lock_anyway().iter().find(|x| x.id == id).map(|x| x.peer.clone()).unwrap_or_default();
+            let p = t.lan.live_peers().into_iter().find(|p| p.id == r.peer_id).ok_or_else(|| format!("{name} isn't reachable right now: it may be off or asleep, or Deck isn't running there. Carry on once it's back."))?;
+            let missing: Vec<&String> = r.paths.iter().filter(|x| !std::path::Path::new(x).exists()).collect();
+            if !missing.is_empty() {
+                return Err(format!("{} isn't on this PC any more (moved or deleted), so it can't be sent.", missing[0]));
+            }
+            sh.xfers.lock_anyway().retain(|x| x.id != id);
+            net::send_with(sh.clone(), p, r.paths.iter().map(std::path::PathBuf::from).collect(), r.opts);
+        }
         "dismiss" => {
             let id = a["id"].as_u64().unwrap_or(0);
             sh.xfers.lock_anyway().retain(|x| x.id != id || !x.state.finished());
+            sh.save_xfers(true);
         }
-        "clear_done" => sh.xfers.lock_anyway().retain(|x| !x.state.finished()),
+        "clear_done" => {
+            sh.xfers.lock_anyway().retain(|x| !x.state.finished());
+            sh.save_xfers(true);
+        }
         "answer" => answer(a["id"].as_u64().unwrap_or(0), s(a, "answer")),
         // the other PC's shared folders
         "browse" => {
