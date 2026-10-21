@@ -352,6 +352,10 @@ pub struct HashCache {
     /// changed since the last save (with project files it can be large: not rewritten every cycle)
     #[serde(skip)]
     dirty: bool,
+    /// when it was last written: a cache (losing changes only means hashing those files again),
+    /// so it's written at most every 10 minutes, not each time a session log grows
+    #[serde(skip)]
+    saved_at: Option<std::time::Instant>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -375,11 +379,12 @@ impl HashCache {
     }
 
     pub fn save(&mut self, p: &Path) {
-        if !self.dirty && p.exists() {
+        if p.exists() && (!self.dirty || self.saved_at.is_some_and(|t| t.elapsed().as_secs() < 600)) {
             return;
         }
         if crate::util::write_atomic(p, &serde_json::to_vec(self).unwrap_or_default()).is_ok() {
             self.dirty = false;
+            self.saved_at = Some(std::time::Instant::now());
         }
     }
 }

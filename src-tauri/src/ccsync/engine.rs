@@ -31,9 +31,9 @@ const DAY: i64 = 86_400_000;
 #[derive(Serialize, Deserialize, Default)]
 struct State {
     /// machine id -> canonical path -> last hash both sides had ("-" = both deleted)
-    base: HashMap<String, HashMap<String, String>>,
+    base: BTreeMap<String, BTreeMap<String, String>>,
     /// memory/config files present at the last scan, to notice deletions
-    known: HashSet<String>,
+    known: BTreeSet<String>,
     /// deletions we publish: path -> when
     tombs: BTreeMap<String, i64>,
     /// whether our hook is in settings.json as far as we last set it (only changed on a toggle, so two
@@ -95,6 +95,8 @@ pub struct Engine {
     meta_cache: HashMap<String, (u64, i64, SessionMeta)>,
     /// machine id -> (name, its sessions) as last seen, so an offline machine's sessions stay listed
     peer_sessions: HashMap<String, (String, BTreeMap<String, SessionMeta>)>,
+    /// hash of state.json as last written
+    saved_state: Mutex<String>,
 }
 
 #[derive(Default)]
@@ -243,11 +245,21 @@ impl Engine {
             cache_puts: Mutex::new(Vec::new()),
             meta_cache: HashMap::new(),
             peer_sessions: HashMap::new(),
+            saved_state: Mutex::new(String::new()),
         }
     }
 
+    /// Only when something changed: this runs every cycle, and the file grows with every synced
+    /// file (rewriting it unchanged every 20 s would be gigabytes of disk writes a day for nothing).
     fn save_state(&self) {
-        let _ = crate::util::write_atomic(&self.sh.paths.data.join("state.json"), &serde_json::to_vec(&self.state).unwrap_or_default());
+        let body = serde_json::to_vec(&self.state).unwrap_or_default();
+        let h = hash(&body);
+        if *self.saved_state.lock_anyway() == h {
+            return;
+        }
+        if crate::util::write_atomic(&self.sh.paths.data.join("state.json"), &body).is_ok() {
+            *self.saved_state.lock_anyway() = h;
+        }
     }
 
     fn phase(&self, s: &str) {
