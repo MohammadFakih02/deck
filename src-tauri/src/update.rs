@@ -112,13 +112,16 @@ pub struct Status {
     pub waiting: bool,
     /// An install can happen without a prompt (Deck is admin and in a safe place).
     pub silent: bool,
+    /// While downloading: bytes so far, and the setup's size (0 when GitHub didn't say).
+    pub got: u64,
+    pub size: u64,
 }
 
 static STATUS: Mutex<Option<Status>> = Mutex::new(None);
 static BUSY: AtomicBool = AtomicBool::new(false);
 
 fn fresh() -> Status {
-    Status { current: env!("CARGO_PKG_VERSION").into(), state: "idle", latest: None, notes: String::new(), checked: 0, error: None, waiting: false, silent: false }
+    Status { current: env!("CARGO_PKG_VERSION").into(), state: "idle", latest: None, notes: String::new(), checked: 0, error: None, waiting: false, silent: false, got: 0, size: 0 }
 }
 
 fn status() -> Status {
@@ -266,13 +269,37 @@ fn fetch_text(url: &str, max: u64) -> Result<String, String> {
     String::from_utf8(body).map_err(|_| "the checksum file isn't text".to_string())
 }
 
-fn download(url: &str, to: &Path, max: u64) -> Result<(), String> {
+/// How often the page hears how far the download is.
+const PROGRESS_EVERY: Duration = Duration::from_millis(250);
+
+/// Downloads `url` into `to`, telling the page how far it is (`Status.got` / `size`).
+fn download(app: &App, url: &str, to: &Path, max: u64) -> Result<(), String> {
     let resp = agent().get(url).set("User-Agent", "Deck").call().map_err(|e| format!("the download failed ({e})"))?;
+    let size = resp.header("Content-Length").and_then(|v| v.trim().parse::<u64>().ok()).filter(|n| *n <= max).unwrap_or(0);
+    set(app, |s| {
+        s.got = 0;
+        s.size = size;
+    });
     let mut out = std::fs::File::create(to).map_err(|e| e.to_string())?;
-    let n = std::io::copy(&mut resp.into_reader().take(max + 1), &mut out).map_err(|e| e.to_string())?;
-    if n > max {
-        return Err("the download was bigger than any Deck setup".into());
+    let mut from = resp.into_reader().take(max + 1);
+    let mut buf = vec![0u8; 64 * 1024];
+    let (mut got, mut told) = (0u64, Instant::now());
+    loop {
+        let n = from.read(&mut buf).map_err(|e| format!("the download failed ({e})"))?;
+        if n == 0 {
+            break;
+        }
+        out.write_all(&buf[..n]).map_err(|e| e.to_string())?;
+        got += n as u64;
+        if got > max {
+            return Err("the download was bigger than any Deck setup".into());
+        }
+        if told.elapsed() >= PROGRESS_EVERY {
+            told = Instant::now();
+            set(app, |s| s.got = got);
+        }
     }
+    set(app, |s| s.got = got);
     out.flush().map_err(|e| e.to_string())
 }
 
@@ -308,10 +335,10 @@ fn hold(path: &Path) -> std::io::Result<std::fs::File> {
 }
 
 /// Downloads and checks the setup; returns it open and held (what is checked is what runs).
-fn fetch_setup(r: &Release, dir: &Path) -> Result<(PathBuf, std::fs::File), String> {
+fn fetch_setup(app: &App, r: &Release, dir: &Path) -> Result<(PathBuf, std::fs::File), String> {
     let want = parse_sha(&fetch_text(&r.sha_url, 4096)?).ok_or("the checksum file isn't one")?;
     let setup = dir.join(&r.setup_name);
-    download(&r.setup_url, &setup, MAX_SETUP)?;
+    download(app, &r.setup_url, &setup, MAX_SETUP)?;
     let mut held = hold(&setup).map_err(|e| e.to_string())?;
     if sha256_of(&mut held).map_err(|e| e.to_string())? != want {
         return Err("the download doesn't match its checksum, so it was thrown away".into());
@@ -331,7 +358,7 @@ const RETRY_SETUP_S: u64 = CHECK_EVERY_S;
 fn install_silent(app: &App, r: &Release) -> Result<(), Failure> {
     use std::os::windows::process::CommandExt;
     let dir = updates_dir().map_err(|e| (e, RETRY_FAILED_S))?;
-    let (setup, held) = fetch_setup(r, &dir).map_err(|e| {
+    let (setup, held) = fetch_setup(app, r, &dir).map_err(|e| {
         let _ = std::fs::remove_dir_all(&dir);
         (e, RETRY_FAILED_S)
     })?;
@@ -370,7 +397,7 @@ fn install_asking(app: &App, r: &Release) -> Result<(), Failure> {
     let dir = std::env::temp_dir().join(format!("deck-update-{}", crate::util::random_token(12)));
     let result = (|| -> Result<(), Failure> {
         std::fs::create_dir_all(&dir).map_err(|e| (e.to_string(), RETRY_FAILED_S))?;
-        let (setup, held) = fetch_setup(r, &dir).map_err(|e| (e, RETRY_FAILED_S))?;
+        let (setup, held) = fetch_setup(app, r, &dir).map_err(|e| (e, RETRY_FAILED_S))?;
         crate::log::info(format!("update {}: downloaded and checked; asking for admin rights to install it", r.version));
         set(app, |s| s.state = "installing");
         let exe = std::env::current_exe().map_err(|e| (e.to_string(), RETRY_FAILED_S))?;
@@ -461,6 +488,8 @@ fn install(app: &Arc<App>, r: &Release) {
         s.state = "downloading";
         s.error = None;
         s.waiting = false;
+        s.got = 0;
+        s.size = 0;
     });
     let op = crate::log::Op::start("update", format!("install {} ({})", r.version, if silent { "without a prompt" } else { "asking for admin rights" }));
     let result = if silent { install_silent(app, r) } else { install_asking(app, r) };
@@ -509,8 +538,12 @@ fn clean_up() {
 
 // ------------------------------------------------------------ entry points
 
-/// "Check now": looks, and says what it found. Never installs by itself.
+/// "Check now": looks, and says what it found. Never installs by itself, and leaves an install
+/// that is already running alone (it used to show "available" and the Install button again).
 pub fn check_now(app: &Arc<App>) -> Result<Value, String> {
+    if BUSY.load(Ordering::SeqCst) {
+        return Ok(state());
+    }
     set(app, |s| {
         s.state = "checking";
         s.error = None;

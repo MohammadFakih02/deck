@@ -2,13 +2,19 @@
 
 All notable changes to Deck. Setups for each version are on the [Releases](https://github.com/MohammadFakih02/deck/releases) page.
 
-## 2.8.0 — 2026-10-21
+## 2.8.0 — 2026-10-22
+
+Everything in 2.7.9 (below), plus:
 
 ### Changed
+- **Deck's own updates show a progress bar** (Settings → About → Updates): how far the download is, in percent and MB.
 - **The overlay key shows the overlay at once**, also in busy games (Helldivers 2): RivaTuner's own "show" switch is now flipped the moment the key is pressed, for 64-bit games first, instead of after Deck's next sensor read.
 - **Deck's log says much more**, so a problem can be found from the log alone: failed web requests and programs, failed buttons and page errors, profile switches, updates, the phone remote's connections and refusals, share links, Game boost, Clean up, display and startup-app changes, the hardware engine starting and handing the fans back, controllers coming and going, and the death counter's watching. Passwords, keys and tokens are masked, your user name is taken out of paths and the PC's name out of every line, and a line that keeps repeating is counted instead of filling the log. The support report now includes the last 80 lines. For even more detail, put an empty file named `debug` in `%LOCALAPPDATA%\Deck\logs`.
 
 ### Fixed
+- Settings → Updates: pressing **Check now** while an update was downloading or installing brought the **Install** button back as if nothing had started. Check now now leaves a running install alone.
+- **Apps → Advanced uninstall** could offer one of your own folders as a leftover: when a program recorded Documents, Desktop, Downloads or a whole drive as its install folder, that folder was offered, ticked. Your own folders (also when moved to another drive), and anything that holds one, are never offered or removed now. A folder named after the app in Documents (often your own work, like a notes vault) and an install folder right on a drive (`D:\Games`) are still listed, but unticked.
+- Phone remote: a phone becoming a controller held up the other phones' connections for up to 2 seconds while Windows numbered it.
 - Transfer's own log (`log.txt`) grew without limit; it now keeps two files of 2 MB.
 - The death counter could keep Windows' text reader busy for minutes at a time, reading bars that aren't a boss's (a flickering HUD bar, an enemy's bar that moves with it) over and over. After a bar with no name, the next one is read only after a short wait, and a real boss's fight still starts from when its bar showed up.
 - The death counter no longer takes a game's own messages for a boss ("Bot Drop Detected" in Helldivers 2), drops names made of reader noise ("Ei.atL1"), and takes a stray accent out of a name ("Mutatéd" becomes "Mutated").

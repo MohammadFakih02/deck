@@ -288,6 +288,13 @@ input[type=range]:hover::-webkit-slider-thumb { transform: scale(1.15); }
 .media .from { color: var(--faint); font-size: 11.5px; margin-top: 2px; }
 .bar { height: 4px; border-radius: 4px; background: var(--line2); overflow: hidden; }
 .bar > i { display: block; height: 100%; background: var(--acc); border-radius: 4px; }
+/* Settings → Updates: the download, and a moving stripe when GitHub didn't say the size */
+.upd-progress { display: flex; align-items: center; gap: 12px; }
+.upd-progress .bar { flex: 1; height: 6px; }
+.upd-progress .bar > i { transition: width .25s linear; }
+.bar.indet > i { width: 35% !important; animation: bar-indet 1.2s ease-in-out infinite; }
+@keyframes bar-indet { from { transform: translateX(-100%); } to { transform: translateX(290%); } }
+@media (prefers-reduced-motion: reduce) { .bar.indet > i { animation: none; width: 100% !important; opacity: .5; } }
 .controls { display: flex; align-items: center; justify-content: center; gap: 6px; }
 .controls .play { width: 42px; height: 42px; border-radius: 50%; background: var(--text); color: var(--bg); border: 0; display: grid; place-items: center; }
 .controls .play:hover { transform: scale(1.04); }

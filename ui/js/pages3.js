@@ -488,7 +488,7 @@ export function updateText(u) {
   if (!u) return "Updates are not available right now.";
   switch (u.state) {
     case "checking": return "Looking for a newer version…";
-    case "downloading": return `Downloading Deck ${u.latest || ""}…`;
+    case "downloading": return `Downloading Deck ${u.latest || ""}…` + (u.got ? " " + updateAmount(u) : "");
     case "installing": return "Installing. Deck restarts by itself in a moment.";
     case "error": return u.error || "Something went wrong.";
     case "available":
@@ -496,6 +496,25 @@ export function updateText(u) {
     case "uptodate": return `Deck ${u.current} is the newest version.`;
     default: return `Deck ${u.current}. Not checked yet in this run.`;
   }
+}
+
+const MB = (n) => (n / 1048576).toFixed(1);
+/** "3.2 of 9.8 MB" (or "3.2 MB" when GitHub didn't say the size). */
+export function updateAmount(u) {
+  return u.size ? `${MB(u.got)} of ${MB(u.size)} MB` : `${MB(u.got)} MB`;
+}
+
+/** Moves the download bar without drawing the page again (called on each "update" event). */
+export function updateProgress(u) {
+  const bar = document.getElementById("upd-bar");
+  if (!bar || !u || u.state !== "downloading") return false;
+  const pct = u.size ? Math.min(100, Math.round((u.got / u.size) * 100)) : null;
+  bar.querySelector("i").style.width = (pct ?? 100) + "%";
+  bar.classList.toggle("indet", pct == null);
+  bar.setAttribute("aria-valuenow", pct ?? "");
+  const t = document.getElementById("upd-pct");
+  if (t) t.textContent = pct == null ? updateAmount(u) : `${pct}% · ${updateAmount(u)}`;
+  return true;
 }
 
 function updatesCard(s, set, page) {
@@ -508,10 +527,15 @@ function updatesCard(s, set, page) {
     if (page.isConnected) render();
   };
   const install = async () => { try { await invoke("update_install"); } catch (e) { note(String(e), true); } setTimeout(refresh, 600); };
+  const down = u && u.state === "downloading";
+  const pct = down && u.size ? Math.min(100, Math.round((u.got / u.size) * 100)) : null;
   return h("div", { class: "settings-card" },
-    settingRow("Updates", updateText(u), h("div", { class: "row", style: { gap: "8px" } },
+    settingRow("Updates", down ? `Downloading Deck ${u.latest || ""}…` : updateText(u), h("div", { class: "row", style: { gap: "8px" } },
       u && u.state === "available" ? h("button", { class: "btn", disabled: busy ? "" : null, onclick: install }, I("download"), "Install " + u.latest) : null,
       h("button", { class: "btn", disabled: busy ? "" : null, onclick: check }, I("refresh"), "Check now"))),
+    down ? h("div", { class: "setting upd-progress" },
+      h("div", { id: "upd-bar", class: "bar" + (pct == null ? " indet" : ""), role: "progressbar", "aria-label": "Update download", "aria-valuemin": "0", "aria-valuemax": "100", "aria-valuenow": pct ?? "" }, h("i", { style: { width: (pct ?? 100) + "%" } })),
+      h("span", { id: "upd-pct", class: "dim num" }, pct == null ? (u.got ? updateAmount(u) : "Starting…") : `${pct}% · ${updateAmount(u)}`)) : null,
     settingRow("Update by itself", "Looks once a day on GitHub and installs a newer Deck when no game is in front. Settings and profiles stay. Off: Deck only looks when you press Check now.", toggle(s.auto_update, set("auto_update"))),
     u && u.state === "available" && u.notes ? h("div", { class: "setting" }, releaseNotes(u.notes, u.latest, () => invoke("open_url", { url: `https://github.com/MohammadFakih02/deck/releases/tag/v${u.latest}`, keep: true }))) : null);
 }

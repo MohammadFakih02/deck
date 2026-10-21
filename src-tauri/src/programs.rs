@@ -512,7 +512,8 @@ pub fn uninstall(app: &crate::app::App, id: &str, advanced: bool) -> Result<bool
 /// "MsiExec.exe /I{GUID}" (some programs list the repair command) uninstalls with /X.
 fn msi_uninstall(cmd: &str) -> String {
     let l = cmd.to_lowercase();
-    if l.contains("msiexec") {
+    // positions in `l` are positions in `cmd` only while lowercasing kept every length ("İ" doesn't)
+    if l.contains("msiexec") && l.len() == cmd.len() {
         if let Some(i) = l.find("/i{").or_else(|| l.find("/i {")) {
             let mut s = cmd.to_string();
             s.replace_range(i..i + 2, "/X");
@@ -650,6 +651,31 @@ fn folder_size(p: &Path, deadline: Instant) -> Option<u64> {
     Some(total)
 }
 
+/// The user's own places and the folders the search looks in: never a leftover themselves, and
+/// nothing that holds one is either (an installer that recorded Documents, or a drive, as its
+/// folder would otherwise offer all of it).
+fn personal_places() -> Vec<String> {
+    let home = crate::util::home();
+    let mut v = crate::util::personal_folders();
+    v.extend(["Documents", "Desktop", "Downloads", "Pictures", "Music", "Videos", "Saved Games", "OneDrive", "Favorites", "Contacts", "Links", "Searches", "AppData", r"AppData\LocalLow", r"AppData\Local\Programs"].iter().map(|n| home.join(n)));
+    v.extend([home, crate::util::appdata(), crate::util::local_appdata(), crate::util::appdata().join(r"Microsoft\Windows\Start Menu\Programs"), crate::util::program_data().join(r"Microsoft\Windows\Start Menu\Programs")]);
+    if let Some(public) = crate::util::env_path("PUBLIC") {
+        v.push(public.join("Desktop"));
+        v.push(public);
+    }
+    v.into_iter().map(|p| p.display().to_string().trim_end_matches('\\').to_lowercase()).filter(|s| s.len() > 3).collect()
+}
+
+/// `path` is one of `personal_places`, or holds one.
+fn personal(path: &str, places: &[String]) -> bool {
+    places.iter().any(|d| under(d, path))
+}
+
+/// A folder right on a drive ("D:\Games"): can be a program's, but often holds more than it.
+fn on_drive_root(path: &Path) -> bool {
+    path.parent().is_some_and(|p| p.parent().is_none())
+}
+
 fn under(p: &str, base: &str) -> bool {
     let (p, b) = (p.to_lowercase(), base.to_lowercase().trim_end_matches('\\').to_string());
     !b.is_empty() && (p == b || p.starts_with(&format!("{b}\\")))
@@ -679,9 +705,10 @@ pub fn scan(app: &crate::app::App) -> Result<Vec<Leftover>, String> {
 
     let mut out: Vec<Leftover> = Vec::new();
     let deadline = Instant::now() + Duration::from_secs(20);
+    let places = personal_places();
     let safe_dir = |path: &Path| -> bool {
         let s = path.display().to_string();
-        crate::disk::protected(&s).is_none() && !other_dirs.iter().any(|d| under(d, &s) || under(&s, d))
+        crate::disk::protected(&s).is_none() && !personal(&s, &places) && !other_dirs.iter().any(|d| under(d, &s) || under(&s, d))
     };
     let add_dir = |out: &mut Vec<Leftover>, path: PathBuf, why: String, sure: bool| {
         if !path.is_dir() || !safe_dir(&path) || out.iter().any(|l| under(&path.display().to_string(), &l.path)) {
@@ -693,7 +720,9 @@ pub fn scan(app: &crate::app::App) -> Result<Vec<Leftover>, String> {
 
     // its install folder, if the uninstaller left it
     if let Some(l) = &p.location {
-        add_dir(&mut out, PathBuf::from(l), "Its install folder".into(), true);
+        let l = PathBuf::from(l);
+        let sure = !on_drive_root(&l);
+        add_dir(&mut out, l, "Its install folder".into(), sure);
     }
     // folders named after it in the usual places, also inside its publisher's folder
     let docs = crate::util::home().join("Documents");
@@ -705,7 +734,7 @@ pub fn scan(app: &crate::app::App) -> Result<Vec<Leftover>, String> {
         crate::util::local_appdata(),
         crate::util::local_appdata().join("Programs"),
         crate::util::home().join("AppData").join("LocalLow"),
-        docs,
+        docs.clone(),
     ];
     for root in roots.iter() {
         let Ok(rd) = std::fs::read_dir(root) else { continue };
@@ -715,7 +744,8 @@ pub fn scan(app: &crate::app::App) -> Result<Vec<Leftover>, String> {
             }
             let name = e.file_name().to_string_lossy().to_string();
             if matches(&name) {
-                add_dir(&mut out, e.path(), format!("Named after it, in {}", root.display()), true);
+                // a folder in Documents is often the user's own work (a notes vault, saves): unticked
+                add_dir(&mut out, e.path(), format!("Named after it, in {}", root.display()), *root != docs);
             } else if publisher_ok && norm(&name) == publisher {
                 // the publisher's folder: only the part named after this program
                 let Ok(inner) = std::fs::read_dir(e.path()) else { continue };
@@ -896,6 +926,9 @@ fn recycle(path: &str) -> Result<(), String> {
     if let Some(why) = crate::disk::protected(&real_s) {
         return Err(why.into());
     }
+    if personal(&real_s, &personal_places()) {
+        return Err("it is one of your own folders, or holds one, so it was left".into());
+    }
     let mut from: Vec<u16> = real_s.encode_utf16().collect();
     from.extend([0, 0]);
     let mut op = SHFILEOPSTRUCTW {
@@ -960,6 +993,21 @@ mod tests {
         // Radmin VPN's, as Windows Installer stores it and as its uninstall command names it
         assert_eq!(unpack_code("F1D0924654EA36A4C913D6A421006785").as_deref(), Some("{64290D1F-AE45-4A63-9C31-6D4A12007658}"));
         assert_eq!(unpack_code("nothex"), None);
+    }
+
+    #[test]
+    fn your_own_folders_and_what_holds_them_are_never_leftovers() {
+        let places = vec![r"c:\users\me".to_string(), r"c:\users\me\documents".to_string(), r"d:\docs".to_string()];
+        assert!(personal(r"C:\Users\me\Documents", &places));
+        assert!(personal(r"C:\Users\me", &places));
+        assert!(personal(r"D:\", &places), "a drive that holds moved Documents");
+        assert!(personal(r"D:\Docs", &places));
+        assert!(!personal(r"C:\Users\me\Documents\Obsidian", &places), "inside is only unticked, not refused");
+        assert!(!personal(r"C:\Program Files\Foo", &places));
+        assert!(on_drive_root(Path::new(r"D:\Games")));
+        assert!(!on_drive_root(Path::new(r"D:\Games\Foo")));
+        // a lowercase that changes the length leaves the command alone instead of cutting it wrong
+        assert_eq!(msi_uninstall("İ MsiExec.exe /I{X}"), "İ MsiExec.exe /I{X}");
     }
 
     #[test]

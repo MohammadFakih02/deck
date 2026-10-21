@@ -4,7 +4,7 @@ import { applySideWidth } from "./layout.js";
 import { refreshHome, renderHome } from "./home.js";
 import { doSearch, renderResults, searchKey } from "./search.js";
 import { head } from "./pages1.js";
-import { applyAccent, themeWelcome } from "./pages3.js";
+import { applyAccent, themeWelcome, updateProgress } from "./pages3.js";
 import { HW } from "./hw.js";
 
 
@@ -405,6 +405,12 @@ export async function boot() {
       S.state = withLocalWrites(await invoke("get_state"));
       applyAccent();
       if (S.page === "settings" || S.page === "phone" || topic === "remote") renderSide();
+    } else if (topic === "update") {
+      const u = await invoke("update_state").catch(() => null);
+      const was = S.cache.update?.state;
+      S.cache.update = u;
+      // the download bar moves in place; a new state (done, failed, installing) draws the card again
+      if (S.page === "settings" && !S.query && !(u?.state === was && updateProgress(u)) && !S.interacting) render();
     } else if (topic === "clipboard") {
       S.cache.clips = await invoke("clip_list", { q: "", limit: 8 });
       if (S.page === "clipboard") { await Pages.clipboard.load(); if (!S.interacting) render(); }

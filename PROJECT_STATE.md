@@ -1,10 +1,19 @@
 # Deck — project state
 
-The dated history of the work. Last updated: 2026-10-21.
+The dated history of the work. Last updated: 2026-10-22.
 
 **Start with `DECK.md`** (full overview: features, hardware, files, build/test, status). This file is the dated history.
 
 > **RULE: before every commit, update the docs.** Add today's dated entry here, add user-visible changes to `CHANGELOG.md`, update `DECK.md` / `README.md` when facts change, and stage them in the same commit. The pre-commit hook enforces it; never bypass it. No personal data in these files (that goes in the git-ignored `PRIVATE_NOTES.md`).
+
+## 2026-10-22: v2.8.0 — merged with 2.7.9, update progress, safer leftovers
+
+Released at the user's request as **2.8.0** (tag `v2.8.0`, built and published by `release.yml`): the friend's 2.7.9 (5 commits: Apps page, Store app updates, phone controller page, Workspace Sync, TLS crates) merged with the local work below (committed first on `merge-2.8`, then `origin/main` merged in). Conflicts: `rtss.rs` (`start_rtss`: their `keep_out_of_hooking()` + our log lines), `tweaks/apps.rs` (their 404-aware Store lookup through our `log::http_agent`), `PROJECT_STATE.md` (both entries kept). The CHANGELOG auto-merge put our Unreleased lines into 2.7.9's section; moved to 2.8.0.
+
+- **Update progress** (user request): `Status.got` / `size` (Content-Length; 0 when missing); `download` reads in 64 KB pieces and sets `got` every 250 ms (`PROGRESS_EVERY`); each `set` emits `changed("update")`. UI: `app.js` handles the `update` topic (the page only polled every 1.5 s before); `updateProgress` in `pages3.js` moves `#upd-bar` / `#upd-pct` in place, a new state redraws the card. Unknown size: `.bar.indet` stripe (a still bar under reduced motion).
+- **Install button back after Check now** (user report): `check_now` set "checking" unconditionally, so `apply_found`'s keep-while-installing test saw "checking" and set "available". It now returns the current state while `BUSY` (an install runs).
+- **Review of 2.7.9** (user: "try to fix anything you find"): `programs::scan` could offer a personal folder as "Its install folder", ticked (`disk::protected` covers Windows' folders, not Documents/Desktop/Downloads or a drive holding them). `personal_places` (home, its usual folders, the known folders via `util::personal_folders` also when redirected, AppData roots, Start menu roots, Public) is refused in `scan` and again in `recycle`, also for a folder that holds one; finds in Documents and drive-root install folders are unticked (`on_drive_root`). `msi_uninstall` sliced `cmd` with an index from its lowercase (a panic when lowercasing changes a byte length); guarded. `VPad::new` (sleeps up to ~2 s for the player number) ran on the phone server's async threads; `new_pad` uses `spawn_blocking`. Test `your_own_folders_and_what_holds_them_are_never_leftovers`.
+- **Checked** (-j 6, low priority; Warframe and League open): `cargo clippy --all-targets -D warnings` clean, `cargo test --bin deck` 476 passed, 0 failed (51 ignored); `regress.mjs` all pass; the Updates card shot in three states (35% · 3.2 of 9.3 MB, starting, size unknown) and `updateProgress` moved it in place (91%).
 
 ## 2026-10-21: logging across Deck, overlay key timing
 

@@ -81,6 +81,17 @@ fn known_folder(id: &windows::core::GUID, fallback: &str) -> PathBuf {
         .unwrap_or_else(|| PathBuf::from(fallback))
 }
 
+/// The signed-in user's own folders as Windows records them (also when moved to another drive):
+/// Documents, Desktop, Downloads, Pictures, Music, Videos. Folders Deck never deletes as a whole.
+pub fn personal_folders() -> Vec<PathBuf> {
+    use windows::Win32::UI::Shell::{FOLDERID_Desktop, FOLDERID_Documents, FOLDERID_Downloads, FOLDERID_Music, FOLDERID_Pictures, FOLDERID_Videos};
+    let h = home();
+    [(&FOLDERID_Documents, "Documents"), (&FOLDERID_Desktop, "Desktop"), (&FOLDERID_Downloads, "Downloads"), (&FOLDERID_Pictures, "Pictures"), (&FOLDERID_Music, "Music"), (&FOLDERID_Videos, "Videos")]
+        .into_iter()
+        .map(|(id, name)| known_folder(id, &h.join(name).display().to_string()))
+        .collect()
+}
+
 pub fn program_files() -> PathBuf {
     known_folder(&windows::Win32::UI::Shell::FOLDERID_ProgramFiles, r"C:\Program Files")
 }

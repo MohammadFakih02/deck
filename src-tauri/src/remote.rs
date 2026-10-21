@@ -1090,6 +1090,12 @@ async fn pad_ws(State(app): State<St>, ConnectInfo(addr): ConnectInfo<SocketAddr
     up.on_upgrade(move |socket| pad_client(socket, app, reg))
 }
 
+/// Plugs in a virtual controller off the async threads: it waits up to about 2 s for Windows to
+/// give it a player number, which would hold up the other phones' connections meanwhile.
+async fn new_pad() -> Result<crate::vpad::VPad, String> {
+    tokio::task::spawn_blocking(crate::vpad::VPad::new).await.unwrap_or_else(|_| Err("The controller couldn't be added".into()))
+}
+
 /// Phones being controllers right now (several phones: one controller each, for party games).
 static PADS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
@@ -1121,7 +1127,7 @@ async fn pad_client(mut socket: WebSocket, app: Arc<App>, reg: Registered) {
                 match v["t"].as_str() {
                     Some("gp") if !failed => {
                         if pad.is_none() {
-                            match crate::vpad::VPad::new() {
+                            match new_pad().await {
                                 Ok(p) => {
                                     pad = Some(p);
                                     // known now; the tick below only tells the phone when all 4 were taken
@@ -1239,7 +1245,7 @@ async fn screen_client(mut socket: WebSocket, app: Arc<App>, video: crate::scree
                             continue;
                         }
                         if pad.is_none() {
-                            match crate::vpad::VPad::new() {
+                            match new_pad().await {
                                 Ok(p) => pad = Some(p),
                                 Err(e) => {
                                     pad_failed = true;
