@@ -137,14 +137,27 @@ pub fn release() {
     let lock = CLOCK_LOCKED.swap(false, std::sync::atomic::Ordering::SeqCst);
     if fans || lock {
         if let Some(n) = nvml::Nvml::shared() {
+            // the hardware first; the log after (it only queues a line)
+            let mut failed = vec![];
             if fans {
                 for i in 0..n.fans() {
-                    let _ = n.fan_auto(i);
+                    if let Err(e) = n.fan_auto(i) {
+                        failed.push(format!("fan {i}: {e}"));
+                    }
                 }
             }
             if lock {
-                let _ = n.unlock_clocks();
+                if let Err(e) = n.unlock_clocks() {
+                    failed.push(format!("clock lock: {e}"));
+                }
             }
+            if failed.is_empty() {
+                crate::log::info(format!("gpu: handed back to the driver ({}{})", if fans { "fans" } else { "" }, if lock { if fans { ", clock lock" } else { "clock lock" } } else { "" }));
+            } else {
+                crate::log::warn(format!("gpu: not everything went back to the driver: {}", failed.join(" · ")));
+            }
+        } else {
+            crate::log::warn("gpu: NVML wasn't available to hand the fans or clock lock back");
         }
     }
 }

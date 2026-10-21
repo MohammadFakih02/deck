@@ -8,6 +8,7 @@ import { indexView } from "./pages2.js";
 import { hotkeyField } from "./hw.js";
 import { row } from "./pcs.js";
 import { render, resetSide } from "./app.js";
+import { releaseNotes } from "./relnotes.js";
 
 
 // ------------------------------------------------------------------ tools
@@ -511,7 +512,7 @@ function updatesCard(s, set, page) {
       u && u.state === "available" ? h("button", { class: "btn", disabled: busy ? "" : null, onclick: install }, I("download"), "Install " + u.latest) : null,
       h("button", { class: "btn", disabled: busy ? "" : null, onclick: check }, I("refresh"), "Check now"))),
     settingRow("Update by itself", "Looks once a day on GitHub and installs a newer Deck when no game is in front. Settings and profiles stay. Off: Deck only looks when you press Check now.", toggle(s.auto_update, set("auto_update"))),
-    u && u.state === "available" && u.notes ? h("div", { class: "setting" }, h("div", { class: "grow dim small", style: { whiteSpace: "pre-wrap" } }, u.notes)) : null);
+    u && u.state === "available" && u.notes ? h("div", { class: "setting" }, releaseNotes(u.notes, u.latest, () => invoke("open_url", { url: `https://github.com/MohammadFakih02/deck/releases/tag/v${u.latest}`, keep: true }))) : null);
 }
 
 /** The theme cards; `pick` gets the theme id. */

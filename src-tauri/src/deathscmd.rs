@@ -60,10 +60,31 @@ fn save_as(handle: &tauri::AppHandle, title: &str, name: &str, kind: &str, ext: 
     Ok(Some(path.to_string_lossy().to_string()))
 }
 
+/// Clears every game's death history (settings and learned death screens stay).
+#[tauri::command]
+pub async fn deaths_reset(app: A<'_>) -> R<()> {
+    deaths::reset(&app)
+}
+
 /// A note for a boss (empty removes it).
 #[tauri::command]
 pub async fn deaths_note(app: A<'_>, game: String, boss: String, text: String) -> R<()> {
     deaths::set_note(&app, &game, &boss, &text)
+}
+
+/// Where `game`'s boss bar and the boss's name are: "picture" (the last picture with bar-like
+/// strips, to show them on), "pick" (strip `bar` of it), "forget" (the bar: back to the
+/// catalogue's, or the middle), "name" (the name is in `area`), "forget_name".
+#[tauri::command]
+pub async fn deaths_bar(app: A<'_>, what: String, game: String, bar: Option<usize>, area: Option<deaths::screen::bar::Spot>) -> R<Value> {
+    match what.as_str() {
+        "picture" => Ok(deaths::bar_picture(&game)),
+        "pick" => deaths::teach_bar(&app, &game, Some(bar.ok_or("pick a bar")?)).map(|_| Value::Null),
+        "forget" => deaths::teach_bar(&app, &game, None).map(|_| Value::Null),
+        "name" => deaths::teach_name(&app, &game, Some(area.ok_or("draw a box around the name")?)).map(|_| Value::Null),
+        "forget_name" => deaths::teach_name(&app, &game, None).map(|_| Value::Null),
+        _ => Err(format!("unknown action {what}")),
+    }
 }
 
 /// The frames before the last death counted by hand in `game` (null: none), to teach from.
@@ -74,13 +95,16 @@ pub async fn deaths_strip(game: String) -> R<Value> {
 
 /// "teach" (with `pick`, a frame of the strip), "forget" (with `pick`, a taught one), "share"
 /// and "submit" (return a code; submit is for the shared library), "import" (with `code`;
-/// returns the game's name).
+/// returns the game's name), "library_off" / "library_on" (the library's screens for this game).
 #[tauri::command]
 pub async fn deaths_teach(app: A<'_>, what: String, game: Option<String>, pick: Option<usize>, code: Option<String>) -> R<String> {
     let game = game.unwrap_or_default();
     match what.as_str() {
         "teach" => deaths::teach(&app, &game, pick.ok_or("pick a picture")?).map(|_| String::new()),
         "forget" => deaths::forget(&app, &game, pick.ok_or("which one?")?).map(|_| String::new()),
+        "forget_won" => deaths::forget_won(&app, &game, pick.ok_or("which one?")?).map(|_| String::new()),
+        "guess_yes" => deaths::accept_guess(&app, &game).map(|_| String::new()),
+        "guess_no" => deaths::refuse_guess(&app, &game).map(|_| String::new()),
         "share" => deaths::share(&game),
         "submit" => {
             if !deaths::library::good_key(&game) {
@@ -89,6 +113,7 @@ pub async fn deaths_teach(app: A<'_>, what: String, game: Option<String>, pick: 
             deaths::share(&game)
         }
         "import" => deaths::import(&app, code.as_deref().unwrap_or_default()),
+        "library_off" | "library_on" => deaths::library_for(&app, &game, what == "library_on").map(|_| String::new()),
         _ => Err(format!("unknown action {what}")),
     }
 }

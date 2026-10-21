@@ -154,6 +154,9 @@ pub struct App {
 impl App {
     pub fn new() -> Arc<Self> {
         let (settings, load_note) = Settings::load_from(&Settings::dir());
+        if let Some(n) = &load_note {
+            crate::log::warn(format!("settings: {n}"));
+        }
         let (tx, rx) = channel::<()>();
         let (changes, _) = tokio::sync::broadcast::channel(64);
         let clip = crate::clipboard::Clip::new();
@@ -233,6 +236,7 @@ impl App {
         // comes first, and leaving it goes through this check too (see the "crash-loop" action)
         let changed = if crate::elevation::is_admin() { crate::seal::changed_outside(&self.settings.lock()) } else { vec![] };
         if crate::restart::safe_mode() {
+            crate::log::warn("startup: safe mode (Deck was ended several times in a row): hardware control waits for the user");
             // Deck was ended from outside again and again: it starts with the fans on the BIOS and no
             // overclock until the user says it is fine
             HW_HELD.store(true, Ordering::SeqCst);
@@ -247,6 +251,7 @@ impl App {
                 )
             });
         } else if !changed.is_empty() {
+            crate::log::warn(format!("startup: hardware settings were changed outside Deck ({}); hardware control waits for the user", changed.len()));
             HW_HELD.store(true, Ordering::SeqCst);
             // the pages show the hardware as not running (not as still loading) until Apply
             self.hw_done.store(true, Ordering::SeqCst);
@@ -300,6 +305,9 @@ impl App {
                         }
                     });
                     let sh = crate::hw::start(notify);
+                    if sh.is_none() {
+                        crate::log::warn("hw: the hardware engine didn't start");
+                    }
                     *me.hw.lock() = sh.clone();
                     me.hw_done.store(true, Ordering::SeqCst);
                     me.changed("hw");
@@ -334,6 +342,7 @@ impl App {
                 .spawn(move || {
                     crate::gpu::guard::rearm();
                     let Some(g) = crate::gpu::Gpu::new() else {
+                        crate::log::info("gpu: no NVIDIA card (or NVML not loaded): GPU tuning is off");
                         me.gpu_done.store(true, Ordering::SeqCst);
                         return;
                     };
@@ -350,6 +359,7 @@ impl App {
                         }
                         Some(p) if crate::elevation::is_admin() => {
                             if crate::gpu::guard::hold_back(&p) {
+                                crate::log::warn(format!("gpu: the startup profile {} was held back (crash guard: {})", p.name, if crate::gpu::guard::held_after_quit() { "Deck was closed while it was on" } else { "the PC restarted unexpectedly while it was on" }));
                                 *crate::profcmd::HELD.lock() = Some(p.id.clone());
                                 me.settings.lock().active_gpu.clear();
                                 me.toast(Toast {

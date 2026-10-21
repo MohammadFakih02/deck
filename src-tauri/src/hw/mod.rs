@@ -195,6 +195,7 @@ impl Shared {
         };
         let n = hw.fan_names.len();
         let nt = hw.temp_names.len();
+        crate::log::info(format!("hw: {} {} · fan chip: {} · control {:?} · {n} fans, {nt} temperatures", board.board_vendor, board.board_name, hw.chip, hw.control));
         let status = Status { ram: "RAM: scanning...".into(), fans: chip.is_none().then(|| hw.chip.clone()), ..Default::default() };
         Arc::new(Shared {
             s: Settings::load(),
@@ -823,9 +824,13 @@ pub fn spawn_all(sh: &Arc<Shared>) -> Workers {
 /// Stops every worker; the fan thread hands the fans back to the BIOS before it ends.
 pub fn shutdown(sh: &Shared, w: Workers) {
     sh.running.store(false, SeqCst);
-    let _ = w.fans.join();
-    for h in w.others {
-        let _ = h.join();
+    // a worker that panicked earlier is only seen here (its panic was logged when it happened)
+    if w.fans.join().is_err() {
+        crate::log::warn("hw: the fan worker had ended with a panic; the fans were released by the panic handler");
+    }
+    let failed = w.others.into_iter().map(|h| h.join()).filter(Result::is_err).count();
+    if failed > 0 {
+        crate::log::warn(format!("hw: {failed} hardware worker(s) had ended with a panic"));
     }
 }
 
@@ -901,6 +906,7 @@ pub fn start(notify: Box<dyn Fn(&str, &str) + Send + Sync>) -> Option<Arc<Shared
     let _ = HW.set(sh.clone());
     // fans are Deck's now: if Deck is ended from outside, the watchdog gives them back
     crate::watchdog::start();
+    crate::log::info("hw: hardware engine started (fans, sensors, lighting); the watchdog guards the fans");
     Some(sh)
 }
 
@@ -913,9 +919,11 @@ pub fn stop() {
     };
     match w {
         Some(w) => {
+            let t0 = Instant::now();
             sh.s.save();
             shutdown(sh, w);
             STOPPED.store(true, SeqCst);
+            crate::log::info(format!("hw: hardware engine stopped in {}; the fans are back with the BIOS", crate::log::took(t0.elapsed())));
         }
         None => {
             // someone else is stopping: wait for the fans to be released before the process may end
@@ -923,6 +931,9 @@ pub fn stop() {
             let t0 = Instant::now();
             while !STOPPED.load(SeqCst) && t0.elapsed() < Duration::from_secs(4) {
                 sleep(Duration::from_millis(50));
+            }
+            if !STOPPED.load(SeqCst) {
+                crate::log::warn("hw: another stop didn't finish within 4 s; going on (the watchdog releases the fans if Deck ends now)");
             }
         }
     }
@@ -953,7 +964,8 @@ pub fn on_panic() {
         return; // already stopping
     }
     std::thread::sleep(Duration::from_millis(1300));
-    let _ = release_fans_direct();
+    let msg = release_fans_direct();
+    crate::log::error(format!("hw: stopped after a panic; fans handed straight back to the BIOS: {msg}"));
 }
 
 /// Last resort after a crash: hands every fan header straight back to the BIOS.

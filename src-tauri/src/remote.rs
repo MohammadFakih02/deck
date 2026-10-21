@@ -172,11 +172,13 @@ pub fn start(app: Arc<App>, remote: Arc<Remote>) {
             }
         }
         let Some(listener) = listener else {
+            crate::log::warn(format!("phone remote: no network port could be opened (tried {preferred}-{} and any free one)", preferred + 2));
             *r2.error.lock() = Some("Couldn't open a network port for the phone".into());
             app.changed("remote");
             return;
         };
         *r2.port.lock() = listener.local_addr().map(|a| a.port()).ok();
+        crate::log::info(format!("phone remote: listening on port {}{}", listener.local_addr().map(|a| a.port()).unwrap_or(0), if crate::settings::is_test_profile() { " (this PC only: test profile)" } else { "" }));
         *r2.error.lock() = None;
         app.changed("remote");
         let router = Router::new()
@@ -207,6 +209,7 @@ pub fn start(app: Arc<App>, remote: Arc<Remote>) {
         let listener = crate::phonetls::Mixed::new(listener).tap_io(|_| {});
         // the phone's address: home or online, and one count per phone
         if let Err(e) = axum::serve(listener, router.into_make_service_with_connect_info::<SocketAddr>()).await {
+            crate::log::warn(format!("phone remote: the server stopped: {e}"));
             *r2.error.lock() = Some(format!("Phone remote stopped: {e}"));
         }
     });
@@ -216,6 +219,7 @@ pub fn start(app: Arc<App>, remote: Arc<Remote>) {
 pub fn stop(remote: &Remote) {
     if let Some(h) = remote.server.lock().take() {
         h.abort();
+        crate::log::info("phone remote: stopped");
     }
     *remote.port.lock() = None;
 }
@@ -253,7 +257,7 @@ fn tailscale_apk() -> Option<String> {
             return v.clone();
         }
     }
-    let page = ureq::get("https://pkgs.tailscale.com/stable/").timeout(Duration::from_secs(8)).call().ok().and_then(|r| r.into_string().ok());
+    let page = crate::log::http_agent().get("https://pkgs.tailscale.com/stable/").timeout(Duration::from_secs(8)).call().ok().and_then(|r| r.into_string().ok());
     let apk = page.and_then(|p| {
         let i = p.find("tailscale-android-universal-")?;
         let end = i + p[i..].find(".apk")? + 4;
@@ -408,7 +412,10 @@ fn decide(list: &[Conn], ip: IpAddr, l: Limits) -> Result<(), String> {
 fn admit(app: &App, ip: IpAddr) -> Result<Registered, String> {
     let l = limits(app);
     let mut list = CONNS.lock();
-    decide(&list, ip, l)?;
+    if let Err(why) = decide(&list, ip, l) {
+        crate::log::info(format!("phone remote: a phone {} was turned away: {why}", if is_online(ip) { "away from home" } else { "at home" }));
+        return Err(why);
+    }
     let id = NEXT_CONN.fetch_add(1, Ordering::Relaxed);
     list.push(Conn { id, ip });
     Ok(Registered(id))
@@ -443,7 +450,13 @@ static SESSIONS: Mutex<crate::phoneauth::Sessions> = parking_lot::const_mutex(cr
 fn verdict(app: &App, s: &Option<String>, c: &Option<String>, m: &Option<String>, path: &str, repeatable: bool) -> crate::phoneauth::Verdict {
     let token = app.settings.lock().remote_token.clone();
     let counter = c.as_deref().and_then(|c| c.parse().ok()).unwrap_or(0);
-    SESSIONS.lock().check(&token, s.as_deref().unwrap_or(""), counter, m.as_deref().unwrap_or(""), path, repeatable)
+    let v = SESSIONS.lock().check(&token, s.as_deref().unwrap_or(""), counter, m.as_deref().unwrap_or(""), path, repeatable);
+    // a refused signature: an old page after a new code, or someone guessing. The path only (no
+    // signature, no session id); counted by the log when it repeats
+    if v != crate::phoneauth::Verdict::Ok {
+        crate::log::info(format!("phone remote: a request for {path} was refused ({})", if v == crate::phoneauth::Verdict::NoSession { "unknown session" } else { "wrong signature" }));
+    }
+    v
 }
 
 fn authorized(app: &App, s: &Option<String>, c: &Option<String>, m: &Option<String>, path: &str, repeatable: bool) -> bool {
@@ -1130,7 +1143,9 @@ async fn screen_client(mut socket: WebSocket, app: Arc<App>, video: crate::scree
 }
 
 async fn client(mut socket: WebSocket, app: Arc<App>, reg: Registered) {
-    app.remote_clients.fetch_add(1, Ordering::Relaxed);
+    let n = app.remote_clients.fetch_add(1, Ordering::Relaxed) + 1;
+    let since = std::time::Instant::now();
+    crate::log::info(format!("phone remote: a phone connected (#{}, {n} now)", reg.0));
     app.changed("remote");
     let mut changes = app.changes.subscribe();
     let mut tick = tokio::time::interval(Duration::from_millis(1500));
@@ -1174,6 +1189,7 @@ async fn client(mut socket: WebSocket, app: Arc<App>, reg: Registered) {
         }
     }
     app.remote_clients.fetch_sub(1, Ordering::Relaxed);
+    crate::log::info(format!("phone remote: a phone left (#{}) after {}", reg.0, crate::log::took(since.elapsed())));
     drop(reg);
     app.changed("remote");
 }
@@ -1294,6 +1310,10 @@ fn handle(app: &Arc<App>, v: &Value) -> Option<Value> {
         }
         _ => Err("unknown".into()),
     };
+    // the action's name, never what it carried (clipboard text, file names)
+    if let Err(e) = &r {
+        crate::log::info(format!("phone remote: \"{}\" failed: {e}", a.chars().take(40).collect::<String>()));
+    }
     r.err().map(|e| json!({ "t": "error", "msg": e }))
 }
 

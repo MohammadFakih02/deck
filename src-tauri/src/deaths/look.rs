@@ -36,6 +36,8 @@ pub struct Card {
     pub deaths: u32,
     pub try_ms: u64,
     pub boss_ms: u64,
+    /// the boss's health left at this death (%) and the fight's phase, where its bar was seen
+    pub boss_hp: Option<(u8, u8)>,
     pub session_deaths: u32,
     /// the last tries, oldest first (0 = unknown length)
     pub bars: Vec<u64>,
@@ -156,10 +158,11 @@ pub fn counter(c: &Counter, s: &DeathSettings, t: &Theme, k: f32) -> Option<Img>
     if !shows(c, s) {
         return None;
     }
-    // the main number and its name, and the game's total beside it when counting both
-    let (main, name, label) = match fight {
-        Some((boss, d)) => (*d, cut(boss), "DEATHS"),
-        None => (c.game.1, cut(&c.game.0), "IN THIS GAME"),
+    // the main number and its name (the skull style shows no name), and the game's total beside it
+    // when counting both
+    let (main, name) = match fight {
+        Some((boss, d)) => (*d, cut(boss)),
+        None => (c.game.1, cut(&c.game.0)),
     };
     let second = (fight.is_some() && s.pill_counts == "both").then_some(c.game.1);
     let txt = |s: &str, px: f32, w: &str, col: &str| art::text_line(s, px * k, w, col);
@@ -201,17 +204,15 @@ pub fn counter(c: &Counter, s: &DeathSettings, t: &Theme, k: f32) -> Option<Img>
             Some(out)
         }
         _ => {
+            // just the skull and the number (the game's total after a slash when counting both)
             let sk = icon(SKULL_PATH, SKULL, 21.0 * k);
             let num = txt(&main.to_string(), 26.0, "bold", t.text);
-            let l1 = txt(label, 9.5, "bold", t.dim);
-            let l2 = txt(&name, 12.0, "semibold", t.text);
-            let words = vstack(&[&l1, &l2], (1.0 * k) as i32, false);
-            let mut parts: Vec<&Img> = vec![&sk, &num, &words];
-            let sec = second.map(|g| vstack(&[&txt(&g.to_string(), 15.0, "bold", t.text), &txt("GAME", 8.5, "bold", t.dim)], 0, false));
+            let mut parts: Vec<&Img> = vec![&sk, &num];
+            let sec = second.map(|g| txt(&format!("/ {g}"), 16.0, "bold", t.dim));
             if let Some(g) = &sec {
                 parts.push(g);
             }
-            Some(boxed(&hstack(&parts, (9.0 * k) as i32), 12.0 * k, 7.0 * k, k, t, None))
+            Some(boxed(&hstack(&parts, (8.0 * k) as i32), 12.0 * k, 7.0 * k, k, t, None))
         }
     }
 }
@@ -258,6 +259,9 @@ pub fn card(c: &Card, s: &DeathSettings, t: &Theme, k: f32) -> Img {
     let fig = |v: String, lab: &str| vstack(&[&txt(&v, 15.0, "bold", t.text), &txt(lab, 9.5, "semibold", t.dim)], 0, false);
     if l.try_len && c.try_ms > 0 {
         figs.push(fig(dur(c.try_ms), "this try"));
+    }
+    if let Some((hp, phase)) = c.boss_hp.filter(|_| l.boss_hp && c.in_fight) {
+        figs.push(fig(format!("{hp}%"), &if phase > 1 { format!("boss left, phase {phase}") } else { "boss left".into() }));
     }
     if l.boss_time && c.in_fight && c.boss_ms > 0 {
         figs.push(fig(span(c.boss_ms), "on this boss"));
@@ -333,6 +337,7 @@ mod tests {
             deaths: 15,
             try_ms: 161_000,
             boss_ms: 41 * 60_000,
+            boss_hp: Some((23, 1)),
             session_deaths: 23,
             bars: vec![30_000, 45_000, 25_000, 70_000, 55_000, 80_000, 40_000, 90_000, 65_000, 100_000],
             note: Some("Your longest try yet".into()),
@@ -349,6 +354,19 @@ mod tests {
             assert!(b.w() >= a.w(), "{style}");
             assert!(a.w() > 40 && a.h() > 30, "{style}: {}x{}", a.w(), a.h());
         }
+    }
+
+    #[test]
+    fn the_skull_style_is_only_the_skull_and_the_number() {
+        let s = DeathSettings::default();
+        let t = art::theme("ds4");
+        let a = counter(&one("M", 9, 40), &s, t, 1.0).unwrap();
+        let b = counter(&one("Malenia, Blade of Miquella", 9, 40), &s, t, 1.0).unwrap();
+        assert_eq!((a.w(), a.h()), (b.w(), b.h()), "no boss name");
+        let outside = |name: &str| counter(&Counter { boss: None, game: (name.into(), 27), ring_mark: None }, &s, t, 1.0).unwrap();
+        let (a, b) = (outside("G"), outside("The First Berserker: Khazan"));
+        assert_eq!((a.w(), a.h()), (b.w(), b.h()), "no game name");
+        assert!(a.w() < 110, "small: {}", a.w());
     }
 
     #[test]

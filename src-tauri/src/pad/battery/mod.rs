@@ -18,7 +18,7 @@ pub mod sony;
 pub mod wgi;
 pub mod xinput;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::time::Duration;
@@ -124,32 +124,61 @@ pub fn merge(mut all: Vec<Entry>) -> Vec<Entry> {
 /// while you play and recovers at rest, so turning a pad off and on reads 10-15 points higher
 /// than a minute before. On battery the shown level never rises: the lowest since the last charge
 /// is kept (on disk, across power cycles and restarts) until it charges, or jumps so far that it
-/// must have been charged elsewhere.
+/// must have been charged elsewhere, or until the pad has been away for `AWAY_MS` (it may have
+/// been charged while off, which Deck can't see, or rested and recovered for real).
 #[derive(Default)]
 pub struct Floors {
-    pub map: HashMap<String, u8>,
+    pub map: HashMap<String, Floor>,
+    /// a floor changed: save now
     pub dirty: bool,
+    /// a pad was seen since the last save: save its last-seen time within `SEEN_SAVE_MS`
+    touched: bool,
+    saved_at: u64,
+}
+
+/// The lowest level since the last charge, and when the pad last reported (ms since 1970).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Floor {
+    pub pct: u8,
+    pub seen: u64,
 }
 
 pub const RECHARGED: u8 = 20;
+/// Away this long and the floor is forgotten.
+pub const AWAY_MS: u64 = 60 * 60_000;
+/// How often last-seen times reach the disk while nothing else changes.
+pub const SEEN_SAVE_MS: u64 = 5 * 60_000;
 
 impl Floors {
-    pub fn steady(&mut self, id: &str, r: Reading) -> Reading {
+    pub fn steady(&mut self, id: &str, r: Reading, now: u64) -> Reading {
         let Some(p) = r.percent.filter(|_| !r.charging) else {
             if self.map.remove(id).is_some() {
                 self.dirty = true;
             }
             return r;
         };
-        let floor = match self.map.get(id) {
-            Some(&f) if p >= f && p - f < RECHARGED => f,
+        let old = self.map.get(id).filter(|f| now.saturating_sub(f.seen) <= AWAY_MS).map(|f| f.pct);
+        let pct = match old {
+            Some(f) if p >= f && p - f < RECHARGED => f,
             _ => p,
         };
-        if self.map.get(id) != Some(&floor) {
-            self.map.insert(id.to_string(), floor);
+        if old != Some(pct) {
             self.dirty = true;
         }
-        Reading { percent: Some(floor), ..r }
+        self.touched = true;
+        self.map.insert(id.to_string(), Floor { pct, seen: now });
+        Reading { percent: Some(pct), ..r }
+    }
+
+    /// Whether `save_floors` should write now.
+    pub fn due(&self, now: u64) -> bool {
+        self.dirty || (self.touched && now.saturating_sub(self.saved_at) >= SEEN_SAVE_MS)
+    }
+
+    pub fn saved(&mut self, now: u64) {
+        self.dirty = false;
+        self.touched = false;
+        self.saved_at = now;
     }
 }
 
@@ -182,18 +211,32 @@ fn floors_path() -> PathBuf {
     crate::settings::Settings::dir().join("pad-battery.json")
 }
 
-pub fn load_floors() -> Floors {
-    let map = std::fs::read(floors_path())
-        .ok()
-        .and_then(|b| serde_json::from_slice::<HashMap<String, serde_json::Value>>(&b).ok())
-        .map(|m| m.into_iter().filter_map(|(k, v)| v.as_u64().filter(|n| *n <= 100).map(|n| (k, n as u8))).collect())
+/// The saved floors; a bare number (the format before last-seen times) counts as seen long ago.
+pub fn parse_floors(b: &[u8]) -> Floors {
+    let map = serde_json::from_slice::<HashMap<String, serde_json::Value>>(b)
+        .map(|m| {
+            m.into_iter()
+                .filter_map(|(k, v)| {
+                    let f = match v.as_u64() {
+                        Some(n) => Floor { pct: u8::try_from(n).ok()?, seen: 0 },
+                        None => serde_json::from_value::<Floor>(v).ok()?,
+                    };
+                    (f.pct <= 100).then_some((k, f))
+                })
+                .collect()
+        })
         .unwrap_or_default();
-    Floors { map, dirty: false }
+    Floors { map, ..Floors::default() }
+}
+
+pub fn load_floors() -> Floors {
+    std::fs::read(floors_path()).map(|b| parse_floors(&b)).unwrap_or_default()
 }
 
 pub fn save_floors(f: &mut Floors) {
-    if f.dirty {
-        f.dirty = false;
+    let now = crate::util::now_ms();
+    if f.due(now) {
+        f.saved(now);
         if let Ok(b) = serde_json::to_vec(&f.map) {
             if let Err(e) = crate::util::write_atomic(&floors_path(), &b) {
                 crate::log::warn(format!("controller battery: {e}"));
@@ -230,8 +273,9 @@ pub fn run(wanted: impl Fn() -> bool, mut publish: impl FnMut(Vec<Entry>)) {
         all.extend(bt::poll(&ifaces));
         all.extend(xinput::poll());
         let mut polled = merge(all);
+        let now = crate::util::now_ms();
         for e in &mut polled {
-            e.reading = floors.steady(&e.id, e.reading);
+            e.reading = floors.steady(&e.id, e.reading, now);
         }
         save_floors(&mut floors);
         let shown = misses.update(polled);
@@ -245,7 +289,9 @@ pub fn run(wanted: impl Fn() -> bool, mut publish: impl FnMut(Vec<Entry>)) {
 
 /// Starts the battery thread once.
 pub fn start(wanted: impl Fn() -> bool + Send + 'static, publish: impl FnMut(Vec<Entry>) + Send + 'static) {
-    let _ = std::thread::Builder::new().name("pad-battery".into()).spawn(move || run(wanted, publish));
+    if let Err(e) = std::thread::Builder::new().name("pad-battery".into()).spawn(move || run(wanted, publish)) {
+        crate::log::error(format!("controller battery: its thread couldn't be started: {e}"));
+    }
 }
 
 /// The low-battery warning: once per discharge, when a controller first reads low.
@@ -289,25 +335,73 @@ mod tests {
         assert_eq!(known_name(0x045E, 0x028E), None);
     }
 
+    const T: u64 = 1_800_000_000_000;
+
     #[test]
     fn smoothing_never_rises_and_resets_at_20() {
         let mut f = Floors::default();
-        assert_eq!(f.steady("a", r(60)).percent, Some(60));
-        assert_eq!(f.steady("a", r(73)).percent, Some(60));
-        assert_eq!(f.steady("a", r(55)).percent, Some(55));
-        assert_eq!(f.steady("a", r(74)).percent, Some(55));
-        assert_eq!(f.steady("a", r(75)).percent, Some(75));
+        assert_eq!(f.steady("a", r(60), T).percent, Some(60));
+        assert_eq!(f.steady("a", r(73), T).percent, Some(60));
+        assert_eq!(f.steady("a", r(55), T).percent, Some(55));
+        assert_eq!(f.steady("a", r(74), T).percent, Some(55));
+        assert_eq!(f.steady("a", r(75), T).percent, Some(75));
         assert!(f.dirty);
     }
 
     #[test]
     fn charging_clears_floor() {
         let mut f = Floors::default();
-        f.steady("a", r(40));
-        let c = f.steady("a", Reading { percent: Some(45), level: None, charging: true });
+        f.steady("a", r(40), T);
+        let c = f.steady("a", Reading { percent: Some(45), level: None, charging: true }, T);
         assert_eq!(c.percent, Some(45));
         assert!(!f.map.contains_key("a"));
-        assert_eq!(f.steady("a", r(48)).percent, Some(48));
+        assert_eq!(f.steady("a", r(48), T).percent, Some(48));
+    }
+
+    #[test]
+    fn floor_is_forgotten_after_the_pad_was_away() {
+        // stuck at 57 for a day: charged while off (Deck never saw it charging), back at 64
+        let mut f = Floors::default();
+        assert_eq!(f.steady("a", r(57), T).percent, Some(57));
+        assert_eq!(f.steady("a", r(64), T + 10 * 60_000).percent, Some(57), "a quick power cycle still rebounds");
+        assert_eq!(f.steady("a", r(64), T + 10 * 60_000 + AWAY_MS + 1).percent, Some(64));
+    }
+
+    #[test]
+    fn seen_keeps_the_floor_alive_while_playing() {
+        let mut f = Floors::default();
+        f.steady("a", r(57), T);
+        let mut t = T;
+        while t < T + 3 * AWAY_MS {
+            t += 2_000;
+            assert_eq!(f.steady("a", r(64), t).percent, Some(57));
+        }
+    }
+
+    #[test]
+    fn floors_round_trip_and_old_numbers_are_stale() {
+        let mut f = Floors::default();
+        f.steady("a", r(57), T);
+        let back = parse_floors(&serde_json::to_vec(&f.map).unwrap());
+        assert_eq!(back.map.get("a"), Some(&Floor { pct: 57, seen: T }));
+        // the format before last-seen times: a bare number, taken as seen long ago
+        let mut old = parse_floors(br#"{"gamesir:4c4ac9f61901":57,"bad":300}"#);
+        assert_eq!(old.map.len(), 1);
+        assert_eq!(old.steady("gamesir:4c4ac9f61901", r(64), T).percent, Some(64));
+    }
+
+    #[test]
+    fn last_seen_is_saved_now_and_then() {
+        let mut f = Floors::default();
+        f.steady("a", r(57), T);
+        assert!(f.due(T));
+        f.saved(T);
+        f.steady("a", r(57), T + 2_000);
+        assert!(!f.due(T + 2_000), "not every poll");
+        f.steady("a", r(57), T + SEEN_SAVE_MS);
+        assert!(f.due(T + SEEN_SAVE_MS));
+        f.saved(T + SEEN_SAVE_MS);
+        assert!(!f.due(T + 2 * SEEN_SAVE_MS), "nothing seen since: nothing to save");
     }
 
     #[test]

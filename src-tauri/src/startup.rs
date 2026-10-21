@@ -209,11 +209,16 @@ pub fn set_enabled(id: &str, on: bool) -> Result<(), String> {
         let ft = (crate::util::now_ms() * 10_000) + 116_444_736_000_000_000;
         data[4..].copy_from_slice(&ft.to_le_bytes());
     }
-    unsafe {
+    let r = unsafe {
         RegSetKeyValueW(root, &HSTRING::from(format!("{APPROVED}\\{sub}")), &HSTRING::from(name), REG_BINARY.0, Some(data.as_ptr() as *const _), data.len() as u32)
             .ok()
             .map_err(|e| e.to_string())
+    };
+    match &r {
+        Ok(()) => crate::log::info(format!("startup apps: {name} ({}) turned {}", if all_users { "all users" } else { "this user" }, if on { "on" } else { "off" })),
+        Err(e) => crate::log::warn(format!("startup apps: {name} couldn't be turned {}: {e}", if on { "on" } else { "off" })),
     }
+    r
 }
 
 #[cfg(test)]

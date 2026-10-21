@@ -40,7 +40,7 @@ pub fn set_dark(app: A, dark: bool) -> R<()> {
 /// Rough location from the internet address, for the sunset schedule.
 #[tauri::command]
 pub async fn locate(app: A<'_>) -> R<Value> {
-    let v: Value = ureq::get("https://ipwho.is/")
+    let v: Value = crate::log::http_agent().get("https://ipwho.is/")
         .timeout(std::time::Duration::from_secs(6))
         .call()
         .map_err(|e| e.to_string())?

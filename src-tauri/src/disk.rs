@@ -245,7 +245,13 @@ impl Disk {
                 let t = Instant::now();
                 // drop the last scan first: two whole drives in memory at once isn't needed
                 *me.scan.lock() = None;
+                let op = crate::log::Op::start("disk", format!("scan {root}"));
                 let result = me.scan_path(Path::new(&root));
+                match &result {
+                    Some(s) => op.ok(format!("{} files by {}, {} unreadable", s.files.len(), s.method, s.errors)),
+                    None if me.cancel.load(Ordering::Relaxed) => op.skipped("cancelled"),
+                    None => op.fail("nothing could be read"),
+                }
                 if let Some(mut s) = result {
                     s.took = t.elapsed().as_secs_f32();
                     *me.scan.lock() = Some(s);

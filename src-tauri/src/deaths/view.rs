@@ -41,19 +41,28 @@ fn clean(name: &str) -> String {
 
 /// Every event but play lines, with the boss of the fight it happened in.
 fn lines(events: &[Event]) -> Vec<Line<'_>> {
-    let mut open: Option<(String, u64, u32)> = None;
+    // (boss, started, deaths, found on screen, its bar up now)
+    let mut open: Option<(String, u64, u32, bool, bool)> = None;
     let mut out = Vec::with_capacity(events.len());
     for (i, e) in events.iter().enumerate() {
         let mut line = Line { i, e, boss: String::new(), deaths: 0, ms: 0 };
         match e.ev {
             Ev::Play => continue,
+            Ev::Engage | Ev::Leave => {
+                if let Some(o) = open.as_mut() {
+                    o.4 = e.ev == Ev::Engage;
+                }
+                continue;
+            }
             Ev::FightStart => {
-                open = Some((clean(&e.boss), e.t, 0));
+                open = Some((clean(&e.boss), e.t, 0, e.src == "screen", false));
                 line.boss = clean(&e.boss);
             }
             Ev::Death => {
-                if let Some(o) = open.as_mut() {
+                // as the book counts it: a fight found on screen only has the deaths in its arena
+                if let Some(o) = open.as_mut().filter(|o| !o.3 || o.4) {
                     o.2 += 1;
+                    o.4 = false;
                     line.boss = o.0.clone();
                 }
             }
@@ -70,7 +79,7 @@ fn lines(events: &[Event]) -> Vec<Line<'_>> {
                 }
             }
             Ev::Win | Ev::Abandon => {
-                if let Some((boss, started, deaths)) = open.take() {
+                if let Some((boss, started, deaths, _, _)) = open.take() {
                     line.boss = boss;
                     line.deaths = deaths;
                     line.ms = e.t.saturating_sub(started);
@@ -100,6 +109,18 @@ impl Sum {
             if beaten { &mut self.beaten } else { &mut self.fought }.push(name.to_string());
         }
     }
+}
+
+/// Deaths still counted, per death screen that saw them (`Event.by`): (deaths, the last one's time).
+pub fn by_screen(events: &[Event], b: &Book) -> BTreeMap<String, (u32, u64)> {
+    let counted: std::collections::HashSet<u64> = b.deaths.iter().map(|d| d.0).collect();
+    let mut out: BTreeMap<String, (u32, u64)> = BTreeMap::new();
+    for e in events.iter().filter(|e| e.ev == Ev::Death && !e.by.is_empty() && counted.contains(&e.t)) {
+        let c = out.entry(e.by.clone()).or_default();
+        c.0 += 1;
+        c.1 = c.1.max(e.t);
+    }
+    out
 }
 
 /// The game's numbers for the page: `tries`, `session`, `bosses`, `sessions`, `records`.
@@ -144,7 +165,7 @@ pub fn game_stats(events: &[Event], b: &Book, notes: &BTreeMap<String, String>, 
             _ => {}
         }
     }
-    let line_json = |l: &Line| json!({ "i": l.i, "t": l.e.t, "ev": l.e.ev, "boss": l.boss, "src": l.e.src, "deaths": l.deaths, "ms": l.ms });
+    let line_json = |l: &Line| json!({ "i": l.i, "t": l.e.t, "ev": l.e.ev, "boss": l.boss, "src": l.e.src, "deaths": l.deaths, "ms": l.ms, "hp": l.e.hp });
     let mut list = vec![];
     for (s, sum) in sess.iter().zip(&sums).rev().take(MAX_SESSIONS) {
         let len = s.end.saturating_sub(s.start);
@@ -297,6 +318,19 @@ mod tests {
     }
     fn d(t: u64) -> Event {
         Event::new(t, Ev::Death)
+    }
+    fn seen(t: u64, by: &str) -> Event {
+        Event { src: "screen".into(), by: by.into(), ..Event::new(t, Ev::Death) }
+    }
+
+    #[test]
+    fn deaths_are_counted_per_death_screen() {
+        let ev = vec![seen(10, "taught:1"), d(20), seen(30, "library"), seen(40, "taught:1"), seen(50, "taught:1"), Event::new(51, Ev::Undo)];
+        let b = Book::replay(&ev);
+        let c = by_screen(&ev, &b);
+        assert_eq!(c.get("taught:1"), Some(&(2, 40)), "the undone one doesn't count");
+        assert_eq!(c.get("library"), Some(&(1, 30)));
+        assert_eq!(c.len(), 2, "deaths counted by hand aren't a screen's");
     }
     fn win(t: u64) -> Event {
         Event::new(t, Ev::Win)

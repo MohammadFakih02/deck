@@ -232,7 +232,7 @@ pub fn install() -> Result<(), String> {
         return Ok(());
     }
     // a stalled connection ends it, not a slow line (the setup is about 20 MB)
-    let agent = ureq::AgentBuilder::new().timeout_connect(Duration::from_secs(10)).timeout_read(Duration::from_secs(60)).build();
+    let agent = crate::log::http(ureq::AgentBuilder::new()).timeout_connect(Duration::from_secs(10)).timeout_read(Duration::from_secs(60)).build();
     let rel: Value = agent.get("https://api.github.com/repos/rustdesk/rustdesk/releases/latest").set("User-Agent", "Deck").call().map_err(|e| format!("Couldn't reach GitHub ({e})"))?.into_json().map_err(|e| e.to_string())?;
     let asset = rel["assets"].as_array().and_then(|a| a.iter().find(|x| x["name"].as_str().is_some_and(|n| n.ends_with("-x86_64.msi")))).ok_or("No Windows setup in RustDesk's newest release")?;
     let url = asset["browser_download_url"].as_str().ok_or("No download link")?;

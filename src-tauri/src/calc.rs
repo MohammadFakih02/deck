@@ -421,7 +421,7 @@ impl Rates {
                 return Some(c.1.clone());
             }
         }
-        let fresh = ureq::get("https://open.er-api.com/v6/latest/USD")
+        let fresh = crate::log::http_agent().get("https://open.er-api.com/v6/latest/USD")
             .timeout(std::time::Duration::from_secs(4))
             .call()
             .ok()

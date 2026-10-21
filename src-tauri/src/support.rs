@@ -120,9 +120,10 @@ pub fn report(app: &App) -> String {
         }
     }
 
-    // ---- what went wrong lately (Deck's own log)
-    sec(&mut r, "Log (last 40 lines)");
-    let tail = crate::log::tail(40);
+    // ---- what went wrong lately (Deck's own log; its lines are already masked, see `log`)
+    sec(&mut r, "Log (last 80 lines)");
+    let _ = write!(r, "Detail (debug) logging: {} · log folder: {}\r\n", on(crate::log::debug_on()), private(&crate::log::dir().to_string_lossy()));
+    let tail = crate::log::tail(80);
     r.push_str(if tail.is_empty() { "Nothing logged" } else { &tail });
     r.push_str("\r\n");
     private(&r)
@@ -149,37 +150,8 @@ fn or_none(s: &str) -> &str {
     }
 }
 
-/// The user's name out of paths: C:\Users\<name> → %USERPROFILE%.
-fn private(s: &str) -> String {
-    let mut out = s.to_string();
-    if let Ok(home) = std::env::var("USERPROFILE") {
-        if !home.is_empty() {
-            out = replace_ci(&out, &home, "%USERPROFILE%");
-        }
-    }
-    if let Ok(user) = std::env::var("USERNAME") {
-        if user.len() > 2 {
-            out = replace_ci(&out, &format!("\\{user}\\"), "\\<user>\\");
-        }
-    }
-    out
-}
-
-fn replace_ci(hay: &str, needle: &str, with: &str) -> String {
-    let (lh, ln) = (hay.to_lowercase(), needle.to_lowercase());
-    if ln.is_empty() || lh.len() != hay.len() {
-        return hay.replace(needle, with);
-    }
-    let mut out = String::new();
-    let mut i = 0;
-    while let Some(p) = lh[i..].find(&ln) {
-        out.push_str(&hay[i..i + p]);
-        out.push_str(with);
-        i += p + ln.len();
-    }
-    out.push_str(&hay[i..]);
-    out
-}
+// the user's name out of paths (shared with the log)
+use crate::log::private;
 
 fn reg_str(key: &str, value: &str) -> Option<String> {
     use windows::core::HSTRING;

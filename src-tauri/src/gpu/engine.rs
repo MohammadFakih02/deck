@@ -129,6 +129,12 @@ impl Gpu {
             caps.volt = a.volt_boost().is_ok();
         }
         let temp_default = caps.temp.and(crate::profiles::afterburner::default_temp_saved(&caps.pci));
+        crate::log::info(format!(
+            "gpu: {} · driver {} · power {}-{} W · {} fan(s) · NvAPI {} · curve editing {}",
+            caps.name, caps.driver, caps.power.0, caps.power.1, caps.fans,
+            if api.is_some() { "loaded" } else { "not available" },
+            if caps.curve { "yes" } else { "no" }
+        ));
         Some(Arc::new(Gpu {
             nvml,
             api,
@@ -461,10 +467,20 @@ impl Gpu {
                         resume_at = None;
                         let p = me.st.lock().applied.clone();
                         if let Some(p) = p.filter(|_| !super::afterburner_running()) {
-                            let _ = me.apply_fields(&p);
+                            let failed: Vec<String> = me.apply_fields(&p).into_iter().filter(|f| !f.ok).map(|f| format!("{}: {}", f.what, f.note)).collect();
+                            if failed.is_empty() {
+                                crate::log::info(format!("gpu: {} applied again after waking from sleep", p.name));
+                            } else {
+                                crate::log::warn(format!("gpu: {} after waking from sleep, not applied: {}", p.name, failed.join(" · ")));
+                            }
                         }
                     }
-                    let _ = me.fan_step(false);
+                    if let Err(e) = me.fan_step(false) {
+                        // every second while it fails: said once in a while
+                        if crate::log::every("gpu fan step", Duration::from_secs(600)) {
+                            crate::log::warn(format!("gpu: the fan curve couldn't be applied: {e}"));
+                        }
+                    }
                     if tick % 5 == 4 && me.drifted() && !super::afterburner_running() {
                         let p = me.st.lock().applied.clone();
                         let first = me.st.lock().reset_reapplied.is_none();
@@ -474,10 +490,12 @@ impl Gpu {
                             Some(p) if first && !super::guard::risky(&p) => {
                                 me.st.lock().reset_reapplied = Some(Instant::now());
                                 let ok = me.apply_fields(&p).iter().all(|f| f.ok);
+                                crate::log::warn(format!("gpu: the card's clocks no longer match {} (a driver reset?); applied again: {}", p.name, if ok { "yes" } else { "not fully" }));
                                 let body = format!("The card went back to stock (a driver reset?). {} {}", if ok { "Re-applied" } else { "Could not re-apply" }, p.name);
                                 app.toast(crate::app::Toast::simple("gpu-reset", if ok { "GPU settings re-applied" } else { "GPU settings changed by something else" }, &body));
                             }
                             Some(p) => {
+                                crate::log::warn(format!("gpu: the card's clocks changed again under {} (risky overclock: {}); left off", p.name, super::guard::risky(&p)));
                                 me.st.lock().expected = None; // stop watching until the next apply
                                 let body = if super::guard::risky(&p) {
                                     format!("The card went back to stock (a driver reset?) while the overclock {} was on. Deck did not apply it again.", p.name)

@@ -649,10 +649,13 @@ fn set_inner(id: &str, opt: &str) -> Result<(), String> {
     for s in &o.steps {
         let b = steps::before(s);
         if let Err(e) = steps::apply(s) {
-            for x in befores.iter().rev() {
-                let _ = steps::restore(x);
+            // undone step by step; one that can't be undone is said, since the PC is then half-changed
+            let undo_failed: Vec<String> = befores.iter().rev().filter_map(|x| steps::restore(x).err()).collect();
+            if undo_failed.is_empty() {
+                crate::log::warn(format!("tweaks: {id} → {opt} failed and was rolled back: {e}"));
+            } else {
+                crate::log::error(format!("tweaks: {id} → {opt} failed ({e}) and {} step(s) couldn't be rolled back: {}", undo_failed.len(), undo_failed.join(" · ")));
             }
-            crate::log::warn(format!("tweaks: {id} → {opt} failed and was rolled back: {e}"));
             return Err(e);
         }
         befores.extend(b);

@@ -3,7 +3,12 @@
 import { icon } from "./icons.js";
 
 export const T = window.__TAURI__;
-export const invoke = (c, a) => T.core.invoke(c, a || {});
+// a failed command goes into Deck's log by name (see core.js); never its arguments
+export const invoke = (c, a) => T.core.invoke(c, a || {}).catch((e) => {
+  if (c !== "ui_log") T.core.invoke("ui_log", { level: "info", msg: `toast window: ${c} failed: ${String(e).slice(0, 300)}` }).catch(() => {});
+  throw e;
+});
+window.addEventListener("error", (e) => T.core.invoke("ui_log", { level: "error", msg: `toast window: ${e.message} at ${(e.filename || "").split("/").pop()}:${e.lineno}` }).catch(() => {}));
 export const stack = document.getElementById("stack");
 export const timers = {};
 export const KIND_ICON = { timer: "timer", plan: "power", break: "coffee", file: "download", info: "bell" };

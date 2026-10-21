@@ -120,7 +120,7 @@ impl Read for CancelReader<'_> {
 }
 
 fn agent() -> ureq::Agent {
-    ureq::AgentBuilder::new().timeout_connect(Duration::from_secs(5)).timeout(Duration::from_secs(30)).build()
+    crate::log::http(ureq::AgentBuilder::new()).timeout_connect(Duration::from_secs(5)).timeout(Duration::from_secs(30)).build()
 }
 
 impl Net {

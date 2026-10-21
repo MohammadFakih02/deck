@@ -115,7 +115,7 @@ pub fn normalize(s: &str) -> String {
     out.trim_end().to_string()
 }
 
-fn edits(a: &str, b: &str) -> usize {
+pub fn edits(a: &str, b: &str) -> usize {
     let (a, b): (Vec<char>, Vec<char>) = (a.chars().collect(), b.chars().collect());
     let mut row: Vec<usize> = (0..=b.len()).collect();
     for i in 1..=a.len() {

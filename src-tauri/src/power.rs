@@ -196,6 +196,17 @@ pub fn shutdown_exe(args: &[&str]) -> Result<(), String> {
 }
 
 pub fn run_action(action: &str) -> Result<(), String> {
+    // said before it happens: after a shutdown or sign-out there is no "after"
+    crate::log::info(format!("power: {} now", action_label(action)));
+    crate::log::flush();
+    let r = run_action_inner(action);
+    if let Err(e) = &r {
+        crate::log::warn(format!("power: {} didn't happen: {e}", action_label(action)));
+    }
+    r
+}
+
+fn run_action_inner(action: &str) -> Result<(), String> {
     match action {
         "shutdown" => shutdown_exe(&["/s", "/t", "0"]),
         "restart" => shutdown_exe(&["/r", "/t", "0"]),
@@ -572,6 +583,7 @@ fn plan_tick(app: &App) {
     if st == Step::Missed {
         let label = action_label(&plan.action);
         let late = now - plan.at;
+        crate::log::info(format!("power: {label} skipped: it was due {} s ago, while the PC was asleep or off", late));
         *guard = None;
         drop(guard);
         app.changed("power");
@@ -585,6 +597,7 @@ fn plan_tick(app: &App) {
         return;
     }
     if fire {
+        crate::log::info(format!("power: the condition \"{}\" was met: {} after the countdown", plan.cond, action_label(&plan.action)));
         plan.state = "countdown".into();
         plan.countdown_until = now + if plan.action == "notify" { 0 } else { COUNTDOWN_S };
         let label = action_label(&plan.action);

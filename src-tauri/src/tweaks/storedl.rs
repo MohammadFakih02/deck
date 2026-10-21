@@ -44,7 +44,7 @@ fn agent() -> ureq::Agent {
             .expect("tls versions")
             .with_root_certificates(roots)
             .with_no_client_auth();
-        ureq::AgentBuilder::new().tls_config(Arc::new(cfg)).timeout_connect(Duration::from_secs(15)).timeout_read(Duration::from_secs(60)).build()
+        crate::log::http(ureq::AgentBuilder::new()).tls_config(Arc::new(cfg)).timeout_connect(Duration::from_secs(15)).timeout_read(Duration::from_secs(60)).build()
     })
     .clone()
 }
@@ -399,7 +399,13 @@ pub fn start(id: &str, mode: &str) -> Result<(), String> {
     std::thread::Builder::new()
         .name("store-download".into())
         .spawn(move || {
+            let op = crate::log::Op::start("store apps", format!("{mode} {id}"));
             let r = run(&id, &mode, &stop);
+            match &r {
+                Ok(()) => op.ok(""),
+                Err(e) if stop.load(Ordering::SeqCst) => op.skipped(format!("cancelled ({e})")),
+                Err(e) => op.fail(e),
+            }
             update(&id, |j| match r {
                 Ok(()) => j.phase = "done".into(),
                 Err(e) if stop.load(Ordering::SeqCst) => {
@@ -689,7 +695,7 @@ pub fn to_fluxdm(id: &str) -> Result<usize, String> {
     let mut n = 0;
     for f in &files {
         let (Some(url), Some(name)) = (f["url"].as_str(), f["name"].as_str()) else { continue };
-        ureq::post("http://127.0.0.1:7878/api/add")
+        crate::log::http_agent().post("http://127.0.0.1:7878/api/add")
             .timeout(Duration::from_secs(5))
             .send_json(json!({ "urls": [url], "fileName": name }))
             .map_err(|_| "FluxDM isn't running (or its browser bridge is off in its settings)".to_string())?;

@@ -772,6 +772,7 @@ pub fn clean(app: &App) -> Result<Value, String> {
         "freed": freed,
         "ram_gain": ram_after.saturating_sub(ram_before),
     });
+    crate::log::info(format!("boost: clean up closed {} ({} kept running), freed {} MB", out["closed"], out["kept"].as_array().map(|k| k.len()).unwrap_or(0), freed / 1_048_576));
     *app.boost.last_clean.lock() = Some(out.clone());
     app.boost.busy.store(false, Ordering::SeqCst);
     app.changed("boost");
@@ -818,7 +819,11 @@ pub fn start(app: &App) -> Result<Value, String> {
         match plan::choose() {
             plan::Choice::Scheme(g, name) => {
                 let prev = plan::active();
-                if plan::set_active(&g).is_ok() {
+                let set = plan::set_active(&g);
+                if let Err(e) = &set {
+                    crate::log::warn(format!("boost: the power plan {name} couldn't be switched on: {e}"));
+                }
+                if set.is_ok() {
                     a.plan_from = prev.map(|x| plan::name(&x)).unwrap_or_default();
                     a.plan_to = name;
                     a.prev_scheme = prev.map(|x| plan::guid_str(&x));
@@ -861,6 +866,10 @@ pub fn start(app: &App) -> Result<Value, String> {
         "closed": a.closed.iter().map(|c| c.name.clone()).collect::<Vec<_>>().dedup_names(),
         "kept": a.kept, "plan_to": a.plan_to, "lowered": a.lowered.len(), "freed": a.freed,
     });
+    crate::log::info(format!(
+        "boost: Full power on: closed {}, plan {}, {} background programs lowered, {} MB trimmed, game {}",
+        report["closed"], if a.plan_to.is_empty() { "unchanged" } else { a.plan_to.as_str() }, a.lowered.len(), a.freed / 1_048_576, a.game.as_deref().unwrap_or("not found yet")
+    ));
     save(&Some(a.clone()));
     *app.boost.active.lock() = Some(a);
     ON.store(true, Ordering::Relaxed);
@@ -886,6 +895,7 @@ pub fn stop(app: &App, why: &str) -> Result<Value, String> {
     app.boost.fs_games.lock().clear();
     app.changed("boost");
     let reopened = out["reopened"].as_array().map(|v| v.len()).unwrap_or(0);
+    crate::log::info(format!("boost: Full power off{}: {reopened} app(s) reopened", if why.is_empty() { String::new() } else { format!(" ({why})") }));
     let mut body = String::from("Power plan and background apps are back to normal.");
     if reopened > 0 {
         body = format!("Reopened {reopened} app{} and put the power plan back.", if reopened == 1 { "" } else { "s" });

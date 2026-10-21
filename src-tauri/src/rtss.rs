@@ -518,21 +518,14 @@ fn set_rtss_osd_visible(visible: bool) {
 /// the switch Afterburner's limiter key flips; the limit itself stays in RivaTuner's profile.
 const LIMITER_DISABLED: u32 = 4;
 
-/// Sets (`on`) or clears one of RivaTuner's switch bits in both hooks.
+/// Sets (`on`) or clears one of RivaTuner's switch bits in both hooks: the 64-bit one first, in
+/// Deck itself; the 32-bit one through a helper program, which a busy game's anti-cheat can make
+/// slow to start, so 64-bit games (nearly all) don't wait for it.
 fn set_rtss_flag(flag: u32, on: bool) {
     use windows::core::{HSTRING, PCSTR};
     use windows::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
     type SetFlags = unsafe extern "C" fn(u32, u32) -> u32;
     let Some(dir) = rtss_exe().and_then(|e| e.parent().map(|p| p.to_path_buf())) else { return };
-    if let Some(helper) = rtss32_helper() {
-        use std::os::windows::process::CommandExt;
-        let _ = std::process::Command::new(helper)
-            .arg(if on { "on" } else { "off" })
-            .arg(&dir)
-            .arg(flag.to_string())
-            .creation_flags(crate::util::CREATE_NO_WINDOW)
-            .status();
-    }
     static SET64: OnceLock<Option<SetFlags>> = OnceLock::new();
     let set = SET64.get_or_init(|| unsafe {
         let m = LoadLibraryW(&HSTRING::from(dir.join("RTSSHooks64.dll").as_os_str())).ok()?;
@@ -540,6 +533,25 @@ fn set_rtss_flag(flag: u32, on: bool) {
     });
     if let Some(set) = *set {
         unsafe { set(!flag, if on { flag } else { 0 }) };
+        trace("64-bit switch");
+    } else if crate::log::every("rtss hooks64", Duration::from_secs(3600)) {
+        crate::log::warn("overlay: RivaTuner's RTSSHooks64.dll couldn't be loaded; its switches can't be set for 64-bit games");
+    }
+    if let Some(helper) = rtss32_helper() {
+        use std::os::windows::process::CommandExt;
+        let r = std::process::Command::new(helper)
+            .arg(if on { "on" } else { "off" })
+            .arg(&dir)
+            .arg(flag.to_string())
+            .creation_flags(crate::util::CREATE_NO_WINDOW)
+            .status();
+        trace("32-bit helper");
+        match r {
+            // 0: it was already as asked, 1: the helper changed it
+            Ok(st) if matches!(st.code(), Some(0 | 1)) => {}
+            Ok(st) => crate::log::info(format!("overlay: the 32-bit helper couldn't set RivaTuner's switch {flag} {} (exit {:?}); 32-bit games keep the old state", if on { "on" } else { "off" }, st.code())),
+            Err(e) => crate::log::warn(format!("overlay: the 32-bit helper couldn't be started: {e}")),
+        }
     }
 }
 
@@ -767,7 +779,16 @@ pub fn start_rtss() -> Result<(), String> {
         return Ok(());
     }
     let exe = rtss_exe().ok_or("RivaTuner Statistics Server is not installed.")?;
-    std::process::Command::new(&exe).current_dir(exe.parent().unwrap()).spawn().map(|_| ()).map_err(|e| e.to_string())
+    match std::process::Command::new(&exe).current_dir(exe.parent().unwrap()).spawn() {
+        Ok(_) => {
+            crate::log::info("overlay: RivaTuner started");
+            Ok(())
+        }
+        Err(e) => {
+            crate::log::warn(format!("overlay: RivaTuner couldn't be started: {e}"));
+            Err(e.to_string())
+        }
+    }
 }
 
 /// RivaTuner's windows: its main window ("RivaTunerStatisticsServer", which also owns the tray
@@ -893,6 +914,7 @@ pub fn install_rtss() -> Result<(), String> {
 
 /// Overlay on/off (the hotkey and the Sensors page switch).
 pub fn toggle(app: &App) {
+    trace("worker");
     let on = {
         let mut s = app.settings.lock();
         s.osd_on = !s.osd_on;
@@ -902,25 +924,133 @@ pub fn toggle(app: &App) {
     if on && !rtss_running() {
         let _ = start_rtss();
     }
+    trace("RivaTuner checked");
     refresh_now();
+    // RivaTuner's own switch at once: the loop would flip it only after its next sensor read,
+    // which a busy game (Helldivers 2) can hold up for a long while
+    follow_switch(app, rtss_running());
+    if let Some(at) = trace_end(on) {
+        if on {
+            watch_drawn(at);
+        }
+    }
+}
+
+/// After the overlay key turned it on: how long until the game in front took the new overlay.
+/// The game's hook copies RivaTuner's overlay frame number into its own entry when it does, so
+/// a late overlay shows as Deck's (the key line), or RivaTuner's and the game's (this line).
+fn watch_drawn(at: Instant) {
+    const APP_OSD_FRAME: usize = 332; // dwOSDFrame in RTSS_SHARED_MEMORY_APP_ENTRY
+    let _ = std::thread::Builder::new().name("osd-drawn".into()).spawn(move || {
+        let Some(v) = open_rtss() else { return };
+        let ms = || at.elapsed().as_millis();
+        // the global frame number after Deck's write, and RivaTuner's foreground app
+        let (want, pid) = unsafe { (rd(v.p, 32), rd(v.p, 68)) };
+        let entry = || unsafe {
+            let (size, off, n) = array(v.p, v.len, 8, APP_OSD_FRAME + 4);
+            (0..n).map(|i| v.p.add(off + i * size)).find(|e| pid != 0 && rd(*e, 0) == pid).map(|e| (rd(e, APP_OSD_FRAME), rd(e, 280)))
+        };
+        loop {
+            let Some((got, frame_us)) = entry() else {
+                crate::log::info(format!("overlay key: RivaTuner has no game in front to draw in ({} ms after the press)", ms()));
+                return;
+            };
+            if got.wrapping_sub(want) as i32 >= 0 {
+                crate::log::info(format!("overlay key: the game took the overlay {} ms after the press (a frame takes it {:.1} ms)", ms(), frame_us as f32 / 1000.0));
+                return;
+            }
+            if ms() > 5000 {
+                crate::log::info(format!("overlay key: the game hadn't taken the overlay 5 s after the press (its overlay frame {got}, RivaTuner's {want})"));
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    });
+}
+
+/// What Deck last did to RivaTuner's own switch: (the overlay was on, the switch is on in a
+/// running RivaTuner). Shared by the loop and the overlay key, so it is flipped once.
+static SWITCH: Mutex<(Option<bool>, bool)> = Mutex::new((None, false));
+
+/// RivaTuner's own switch follows Deck's overlay, like Afterburner's key: on when it comes on (or
+/// RivaTuner (re)starts while it is on), off when it is switched off. Deck starting with its
+/// overlay off leaves the switch alone. The setting is read under the lock, so two quick presses
+/// can't leave the switch at the older one.
+fn follow_switch(app: &App, running: bool) {
+    let mut g = SWITCH.lock();
+    let on = app.settings.lock().osd_on;
+    let (was_on, shown) = *g;
+    if running {
+        if on && !shown {
+            set_rtss_osd_visible(true);
+        } else if !on && was_on == Some(true) {
+            set_rtss_osd_visible(false);
+        }
+    }
+    *g = (Some(on), on && running);
+}
+
+/// The overlay key's last press, timed step by step until RivaTuner's switch followed it;
+/// written to the log as one line (finding why it shows late in some games).
+struct Trace {
+    at: Instant,
+    how: String,
+    steps: Vec<(&'static str, Instant)>,
+}
+static TRACE: Mutex<Option<Trace>> = Mutex::new(None);
+
+/// The overlay key went down at `at`; `how` says how the key thread learned of it.
+pub fn trace_key(at: Instant, how: String) {
+    *TRACE.lock() = Some(Trace { at, how, steps: vec![] });
+}
+
+fn trace(step: &'static str) {
+    if let Some(t) = TRACE.lock().as_mut() {
+        t.steps.push((step, Instant::now()));
+    }
+}
+
+/// Logs the press's line; the time of the press, when there was one.
+fn trace_end(on: bool) -> Option<Instant> {
+    let t = TRACE.lock().take()?;
+    let ms = |i: Instant| i.saturating_duration_since(t.at).as_millis();
+    let steps: Vec<String> = t.steps.iter().map(|(n, i)| format!("{n} {}", ms(*i))).collect();
+    crate::log::info(format!("overlay key: {} in {} ms ({}); ms after the press: {}", if on { "on" } else { "off" }, t.at.elapsed().as_millis(), t.how, steps.join(", ")));
+    Some(t.at)
 }
 
 /// Set when something changed (the overlay switched on, items or style edited): the loop stops
 /// sleeping and writes straight away.
 static WAKE: AtomicBool = AtomicBool::new(false);
+/// The loop's thread, woken by `refresh_now` and `stop` instead of checking `WAKE` every 25 ms.
+static LOOP: std::sync::OnceLock<std::thread::Thread> = std::sync::OnceLock::new();
+
+fn wake_loop() {
+    if let Some(t) = LOOP.get() {
+        t.unpark();
+    }
+}
 
 /// Shows a change at once: writes the overlay from the readings the loop already has (it keeps
 /// them fresh even while the overlay is off) and wakes the loop for new ones.
 pub fn refresh_now() {
     WAKE.store(true, Ordering::SeqCst);
+    wake_loop();
     let Some(app) = APP.get() else { return };
     let (on, items, style) = {
         let s = app.settings.lock();
         (s.osd_on, s.osd_items.clone(), s.osd_render_style())
     };
-    let Some((snap, name)) = LAST.lock().clone() else { return };
-    let Some(v) = open_rtss() else { return };
+    let Some((snap, name)) = LAST.lock().clone() else {
+        trace("no readings yet");
+        return;
+    };
+    let Some(v) = open_rtss() else {
+        trace("RivaTuner not open");
+        return;
+    };
     let _w = WRITE.lock();
+    trace("write lock");
     if STOP.load(Ordering::SeqCst) {
         return;
     }
@@ -931,6 +1061,7 @@ pub fn refresh_now() {
     } else {
         write_osd(&v, "");
     }
+    trace("text written");
 }
 
 /// The Sensors page's view: what is installed, the catalogue of items, and the overlay as lines.
@@ -1162,12 +1293,34 @@ fn stats_wanted() -> bool {
     app.settings.lock().osd_on || PREVIEW_AT.lock().map(|t| t.elapsed() < Duration::from_secs(10)).unwrap_or(false)
 }
 
+/// How long ago process `pid` started, when Windows lets Deck ask.
+fn process_age(pid: u32) -> Option<Duration> {
+    use windows_sys::Win32::Foundation::FILETIME;
+    use windows_sys::Win32::System::SystemInformation::GetSystemTimeAsFileTime;
+    use windows_sys::Win32::System::Threading::{GetProcessTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+    unsafe {
+        let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        if h.is_null() {
+            return None;
+        }
+        let z = FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 };
+        let (mut c, mut e, mut k, mut u, mut now) = (z, z, z, z, z);
+        let ok = GetProcessTimes(h, &mut c, &mut e, &mut k, &mut u) != 0;
+        CloseHandle(h);
+        GetSystemTimeAsFileTime(&mut now);
+        let ft = |f: FILETIME| ((f.dwHighDateTime as u64) << 32) | f.dwLowDateTime as u64;
+        ok.then(|| Duration::from_nanos(ft(now).saturating_sub(ft(c)).saturating_mul(100)))
+    }
+}
+
 /// Copies new frametimes out of RivaTuner's rings, twenty times a second, while something wants them.
 fn frame_loop() {
     use std::collections::HashMap;
     // app slot → (process, ring position last seen); app slot → when its ring last moved
     let mut seen: HashMap<u32, (u32, u32)> = HashMap::new();
     let mut drew: HashMap<u32, Instant> = HashMap::new();
+    // process → (when RivaTuner first listed it, how old it was then, its name) until its first frame is logged
+    let mut launch: HashMap<u32, Option<(Instant, Duration, String)>> = HashMap::new();
     let mut view: Option<(View, Instant)> = None;
     while !STOP.load(Ordering::SeqCst) {
         std::thread::sleep(Duration::from_millis(50));
@@ -1197,6 +1350,7 @@ fn frame_loop() {
                 continue; // too old a RivaTuner for the ring
             }
             fg = rd(p, 64);
+            launch.retain(|pid, _| (0..n).any(|i| rd(p.add(off + i * size), 0) == *pid));
             for i in 0..n {
                 let e = p.add(off + i * size);
                 let (key, pid) = (i as u32, rd(e, 0));
@@ -1206,12 +1360,25 @@ fn frame_loop() {
                     continue;
                 }
                 let pos = rd(e, FT_POS);
+                // a game started in the last two minutes: log how long it took to show the overlay
+                launch.entry(pid).or_insert_with(|| {
+                    let raw = std::slice::from_raw_parts(e.add(4), 260);
+                    let name = String::from_utf8_lossy(&raw[..raw.iter().position(|&c| c == 0).unwrap_or(260)]).rsplit('\\').next().unwrap_or("").to_string();
+                    process_age(pid).filter(|a| *a < Duration::from_secs(120)).map(|a| (now, a, name))
+                });
                 match seen.insert(key, (pid, pos)) {
                     // the same game moved on: what it wrote since is new; on first sight the ring is old history
                     Some((was, last)) if was == pid && last != pos => {
                         let buf: Vec<u32> = (0..FT_LEN).map(|k| rd(e, FT_BUF + k * 4)).collect();
                         fresh.insert(key, ring_since(&buf, last, pos));
                         drew.insert(key, now);
+                        if let Some((hooked, age, name)) = launch.get_mut(&pid).and_then(Option::take) {
+                            crate::log::info(format!(
+                                "overlay: RivaTuner hooked {name} {:.1} s after it started; its first frame came {:.1} s after that",
+                                age.as_secs_f32(),
+                                now.duration_since(hooked).as_secs_f32()
+                            ));
+                        }
                     }
                     Some((was, _)) if was != pid => {
                         drew.remove(&key);
@@ -1387,6 +1554,7 @@ pub fn start(app: Arc<App>) {
     std::thread::Builder::new()
         .name("rtss".into())
         .spawn(move || {
+            let _ = LOOP.set(std::thread::current());
             let mut sys = sysinfo::System::new();
             let mut net = crate::util::NetCounter::new();
             let mut net_at = Instant::now();
@@ -1396,8 +1564,6 @@ pub fn start(app: Arc<App>) {
                 write_osd(&v, "");
             }
             let mut wrote = false;
-            let mut shown = false;
-            let mut was_on: Option<bool> = None;
             let mut tray_at = Instant::now() - Duration::from_secs(60);
             while !STOP.load(Ordering::SeqCst) {
                 let (on, items, ms, mahm, style) = {
@@ -1405,7 +1571,11 @@ pub fn start(app: Arc<App>) {
                     (s.osd_on, s.osd_items.clone(), s.osd_ms.clamp(250, 2000), s.mahm_on, s.osd_render_style())
                 };
                 let rt = open_rtss();
+                let read_at = Instant::now();
                 let (mut snap, name) = snapshot(&app, &mut sys, &clocks, rt.as_ref());
+                if crate::log::debug_on() && crate::log::every("rtss snapshot time", Duration::from_secs(600)) {
+                    crate::log::debug(format!("overlay: one reading of the sensors took {} ms", read_at.elapsed().as_millis()));
+                }
                 {
                     let dt = net_at.elapsed().as_secs_f32().max(0.2);
                     net_at = Instant::now();
@@ -1418,18 +1588,7 @@ pub fn start(app: Arc<App>) {
                 if STOP.load(Ordering::SeqCst) {
                     break;
                 }
-                // RivaTuner's own switch follows Deck's overlay, like Afterburner's key: on when it
-                // comes on (or RivaTuner (re)starts while it is on), off when it is switched off.
-                // Deck starting with its overlay off leaves the switch alone.
-                if rt.is_some() {
-                    if on && !shown {
-                        set_rtss_osd_visible(true);
-                    } else if !on && was_on == Some(true) {
-                        set_rtss_osd_visible(false);
-                    }
-                }
-                shown = on && rt.is_some();
-                was_on = Some(on);
+                follow_switch(&app, rt.is_some());
                 if let Some(v) = &rt {
                     if on {
                         let (text, width) = osd::osd_text_width(&items, &style, &snap, name.as_deref().unwrap_or(""));
@@ -1454,10 +1613,14 @@ pub fn start(app: Arc<App>) {
                 }
                 *LAST.lock() = Some((snap, name));
                 drop(rt);
-                // sleep, but wake at once when something changed
-                let t0 = Instant::now();
-                while t0.elapsed() < Duration::from_millis(ms as u64) && !WAKE.swap(false, Ordering::SeqCst) && !STOP.load(Ordering::SeqCst) {
-                    std::thread::sleep(Duration::from_millis(25));
+                // sleep, but wake at once when something changed (`wake_loop`)
+                let until = Instant::now() + Duration::from_millis(ms as u64);
+                while !WAKE.swap(false, Ordering::SeqCst) && !STOP.load(Ordering::SeqCst) {
+                    let left = until.saturating_duration_since(Instant::now());
+                    if left.is_zero() {
+                        break;
+                    }
+                    std::thread::park_timeout(left);
                 }
             }
         })
@@ -1468,6 +1631,7 @@ pub fn start(app: Arc<App>) {
 pub fn stop() {
     let _w = WRITE.lock();
     STOP.store(true, Ordering::SeqCst);
+    wake_loop();
     if let Some(v) = open_rtss() {
         write_osd(&v, "");
     }

@@ -21,7 +21,7 @@ pub mod view;
 
 use crate::app::App;
 use crate::pad::art;
-use book::boss_key;
+use book::{boss_key, same_boss};
 use book::{Book, Ev, Event};
 use parking_lot::Mutex;
 use serde_json::{json, Value};
@@ -61,6 +61,20 @@ struct Log {
     book: Book,
 }
 
+/// A death (or victory) screen Deck found by itself, to ask about.
+struct Guess {
+    game: String,
+    win: bool,
+    print: screen::teach::Print,
+    /// the picture it was found on (PNG)
+    png: Option<Vec<u8>>,
+    /// how many counted by hand it showed up before
+    seen: usize,
+}
+
+/// Strips of deaths counted by hand kept to look for the screen they share.
+const HAND_STRIPS: usize = 3;
+
 #[derive(Default)]
 struct St {
     games: BTreeMap<String, store::GameInfo>,
@@ -73,8 +87,19 @@ struct St {
     /// how a game is counted automatically right now: (game key, "save" | "save_missing" |
     /// "screen" | "screen_blind" | "screen_failed")
     auto: Option<(String, &'static str)>,
-    /// the frames before the last death you counted yourself: (game, when, frames), to teach from
+    /// the frames before the last death (or win) you counted yourself: (game, when, frames), to teach from
     strip: Option<(String, u64, Vec<screen::Shot>)>,
+    /// the strip is from a win: what's taught from it is a victory screen
+    strip_win: bool,
+    /// the thumbnails before the last few deaths (or wins) you counted yourself in one game, to
+    /// find the screen they share: (game, wins, strips)
+    hand: Option<(String, bool, Vec<Vec<Vec<u8>>>)>,
+    /// a screen found that way, waiting for a yes
+    guess: Option<Guess>,
+    /// guesses you said no to (their masks): not offered again
+    refused: Vec<String>,
+    /// the bar-like strips of the picture you pick a game's boss bar from: (game, strips)
+    bar_pick: Option<(String, Vec<screen::bar::Spot>)>,
     /// the last death counted: (game, when, where from), so one death seen two ways counts once
     last_death: Option<(String, u64, String)>,
     /// the play session going on now
@@ -204,6 +229,8 @@ impl St {
             deaths: bs.as_ref().map_or(b.total_deaths(), |s| s.deaths),
             try_ms: mine.last().map_or(0, |t| t.ms),
             boss_ms: bs.as_ref().map_or(0, |s| s.time_ms),
+            // the death just counted, if it was in this fight with the bar seen
+            boss_hp: b.deaths.last().and_then(|d| d.1).filter(|i| Some(*i) == open).and_then(|i| b.fights[i].hp.last().copied()).filter(|h| h.1 != book::NO_HP).map(|(phase, hp)| (hp, phase)),
             session_deaths: b.deaths.iter().filter(|d| d.0 >= session_start).count() as u32,
             bars: mine[mine.len().saturating_sub(10)..].iter().map(|t| t.ms).collect(),
             note: stats::death_note(b),
@@ -292,11 +319,24 @@ fn wake() {
 /// "rename" (`boss` = new name for the open fight), "off" / "on" (count this game or not),
 /// "delete:<index>" (a history line, oldest = 0). `src`: "manual", "hotkey", "pad", "save", "screen".
 pub fn act(app: &App, what: &str, boss: Option<&str>, game: Option<&str>, src: &str) -> Result<(), String> {
+    act_seen(app, what, boss, game, src, "")
+}
+
+/// `act`, for a death the screen watcher saw: `by` is the death screen that saw it (`Event.by`).
+fn act_seen(app: &App, what: &str, boss: Option<&str>, game: Option<&str>, src: &str, by: &str) -> Result<(), String> {
     let Some(sh) = shared() else { return Err("the death counter isn't running".into()) };
     let ds = app.settings.lock().deaths.clone().clamped();
     let off_games = ds.off_games.clone();
     let mut st = sh.st.lock();
     let key = st.target(game).ok_or(NO_GAME)?;
+    // what was counted and how it was seen (a hotkey, the screen, the controller combo): enough to
+    // tell a misdetection from a press, without what was on screen
+    let line = format!("death counter: {what} in {key} (from {src}{}{})", if by.is_empty() { "" } else { ", seen by " }, by);
+    if matches!(what, "death" | "undo" | "win" | "start" | "end") {
+        crate::log::info(line);
+    } else {
+        crate::log::debug(line);
+    }
     if refused(&off_games, &key, what) {
         return Err("Counting is turned off for this game.".into());
     }
@@ -332,7 +372,34 @@ pub fn act(app: &App, what: &str, boss: Option<&str>, game: Option<&str>, src: &
         "death" => {
             let mut e = Event::new(t, Ev::Death);
             e.src = src.into();
+            e.by = by.into();
+            if let Some((hp, phase)) = screen::bar_now(&key, t) {
+                e.hp = Some(hp);
+                e.phase = (phase > 1).then_some(phase);
+            }
             (Some(e), "+1")
+        }
+        "not_boss" => {
+            // the screen took something for a boss: forget the fight (its deaths are the game's)
+            // and never open one for that name again
+            let Some(f) = st.log(&key).book.open().cloned() else { return Err("No fight is open.".into()) };
+            drop(st); // the settings' lock is never taken inside this one
+            {
+                let mut s = app.settings.lock();
+                for n in std::iter::once(&f.boss).chain(&f.seen) {
+                    let entry = format!("{key}\t{n}");
+                    if !s.deaths.not_bosses.contains(&entry) {
+                        s.deaths.not_bosses.push(entry);
+                    }
+                }
+            }
+            app.save_settings();
+            st = sh.st.lock();
+            let log = st.log(&key);
+            log.events.retain(|e| e.fight != f.id);
+            log.book = Book::replay(&log.events);
+            st.flash = Some((key.clone(), format!("Not a boss  ·  {}", f.boss), Instant::now()));
+            (None, "")
         }
         "undo" => {
             if !st.log(&key).book.can_undo() {
@@ -358,6 +425,24 @@ pub fn act(app: &App, what: &str, boss: Option<&str>, game: Option<&str>, src: &
                 return Err("Give the boss a name.".into());
             }
             (Some(Event { fight: id, boss: boss.clone(), ..Event::new(t, Ev::Rename) }), "")
+        }
+        w if w.starts_with("merge:") => {
+            let from = w[6..].trim();
+            if boss.is_empty() || from.is_empty() || book::boss_key(from) == book::boss_key(&boss) {
+                return Err("Pick another boss to merge it into.".into());
+            }
+            let log = st.log(&key);
+            if book::merge_boss(&mut log.events, from, &boss) == 0 {
+                return Err("That boss is gone already.".into());
+            }
+            log.book = Book::replay(&log.events);
+            // its note goes with it, unless the other boss has one
+            let mut notes = store::load_notes(&key);
+            if let Some(n) = notes.remove(&book::boss_key(from)) {
+                notes.entry(book::boss_key(&boss)).or_insert(n);
+                store::save_notes(&key, &notes)?;
+            }
+            (None, "")
         }
         w if w.starts_with("delete:") => {
             let i: usize = w[7..].parse().map_err(|_| "bad history line")?;
@@ -385,11 +470,34 @@ pub fn act(app: &App, what: &str, boss: Option<&str>, game: Option<&str>, src: &
         _ => {}
     }
     store::save_games(&st.games);
-    if what == "death" && src != "screen" && src != "save" {
-        // a death Deck didn't see: keep the frames before it, so it can be taught
+    let mut guess_from = None;
+    if (what == "death" || what == "win") && src != "screen" && src != "save" {
+        // a death or a win Deck didn't see: keep the frames before it, so its screen can be taught
         let shots = screen::recent(&key);
         if shots.last().is_some_and(|s| t.saturating_sub(s.t) < STRIP_FRESH_MS) {
+            let win = what == "win";
+            // and look for the screen the last few counted by hand share
+            if st.hand.as_ref().is_none_or(|h| h.0 != key || h.1 != win) {
+                st.hand = Some((key.clone(), win, Vec::new()));
+            }
+            let asking = st.guess.as_ref().is_some_and(|g| g.game == key);
+            if let Some(h) = st.hand.as_mut() {
+                h.2.push(shots.iter().map(|s| s.thumb.clone()).collect());
+                if h.2.len() > HAND_STRIPS {
+                    h.2.remove(0);
+                }
+                if h.2.len() >= 2 && !asking {
+                    guess_from = Some((key.clone(), win, h.2.clone(), shots.clone()));
+                }
+            }
             st.strip = Some((key.clone(), t, shots));
+            st.strip_win = win;
+        }
+    }
+    if what == "undo" {
+        // a death taken back wasn't one: its frames say nothing
+        if let Some(h) = st.hand.as_mut().filter(|h| h.0 == key && !h.1) {
+            h.2.pop();
         }
     }
     // a death shows as the card (or the counter's new number); the rest as a short label
@@ -399,9 +507,184 @@ pub fn act(app: &App, what: &str, boss: Option<&str>, game: Option<&str>, src: &
         st.flash = Some((key.clone(), shown, Instant::now()));
     }
     drop(st);
+    if let Some((game, win, strips, newest)) = guess_from {
+        let _ = std::thread::Builder::new().name("deaths-guess".into()).spawn(move || find_guess(game, win, strips, newest));
+    }
     app.changed("deaths");
     wake();
     Ok(())
+}
+
+/// Looks for the screen the last deaths (or wins) counted by hand in `game` share, and offers it
+/// ("Is this the death screen?"). Off the page's thread: it tries every frame.
+fn find_guess(game: String, win: bool, strips: Vec<Vec<Vec<u8>>>, newest: Vec<screen::Shot>) {
+    let Some((i, mut print)) = screen::teach::shared_screen(&strips, now_ms()) else { return };
+    let Some(sh) = shared() else { return };
+    let mut st = sh.st.lock();
+    let have = if win { store::load_won(&game) } else { store::load_taught(&game) };
+    if st.refused.contains(&print.mask) || have.len() >= screen::teach::MAX_PER_GAME || have.iter().any(|p| p.mask == print.mask) {
+        return;
+    }
+    let shot = newest.get(i);
+    print.aspect = shot.map_or(0, |s| s.aspect);
+    let png = shot.and_then(|s| png_bytes(&s.preview, screen::PW, screen::PH));
+    crate::log::info(format!("death counter: found the {} screen shared by {} counted by hand in {game}", if win { "victory" } else { "death" }, strips.len()));
+    st.guess = Some(Guess { game, win, print, png, seen: strips.len() });
+    drop(st);
+    if let Some(app) = sh.app.upgrade() {
+        app.changed("deaths");
+    }
+}
+
+/// "Yes, that's it": the screen Deck found is learned like one you showed it.
+pub fn accept_guess(app: &App, game: &str) -> Result<(), String> {
+    let sh = shared().ok_or("the death counter isn't running")?;
+    let mut st = sh.st.lock();
+    let Some(g) = st.guess.take().filter(|g| g.game == game) else { return Err("That picture is gone.".into()) };
+    let mut prints = if g.win { store::load_won(game) } else { store::load_taught(game) };
+    if prints.len() >= screen::teach::MAX_PER_GAME {
+        return Err(format!("This game already has {} learned screens of that kind. Forget one first.", screen::teach::MAX_PER_GAME));
+    }
+    let kind = if g.win { "won" } else { "taught" };
+    if let Some(b) = &g.png {
+        store::save_shot(game, kind, g.print.made, b);
+    }
+    prints.push(g.print);
+    if g.win { store::save_won(game, &prints) } else { store::save_taught(game, &prints) }?;
+    st.hand = None;
+    st.strip = None;
+    drop(st);
+    screen::taught_changed();
+    app.changed("deaths");
+    Ok(())
+}
+
+/// "No": not that screen, and it isn't offered again.
+pub fn refuse_guess(app: &App, game: &str) -> Result<(), String> {
+    let sh = shared().ok_or("the death counter isn't running")?;
+    let mut st = sh.st.lock();
+    if let Some(g) = st.guess.take().filter(|g| g.game == game) {
+        st.refused.push(g.print.mask);
+        st.hand = None;
+    }
+    drop(st);
+    app.changed("deaths");
+    Ok(())
+}
+
+/// `name` was marked "Not a boss" in `game`.
+fn not_a_boss(s: &cfg::DeathSettings, game: &str, name: &str) -> bool {
+    s.not_bosses.iter().any(|e| e.split_once('\t').is_some_and(|(k, n)| k == game && same_boss(n, name)))
+}
+
+/// What the screen saw of a boss fight, as history lines for a game's book at `t`, and the label
+/// to show: its bar came up (a try starts; a new boss opens its fight), went away, or the boss was
+/// beaten. `not_a_boss`: names marked "Not a boss".
+fn boss_events(b: &Book, out: screen::boss::Out, t: u64, not_a_boss: impl Fn(&str) -> bool) -> (Vec<Event>, Option<String>) {
+    use screen::boss::Out;
+    let open = b.open();
+    match out {
+        Out::Engage { since, name, phase } => {
+            if !name.is_empty() && not_a_boss(&name) {
+                return (vec![], None);
+            }
+            match open {
+                // the same boss, or the same try's next phase (another name, another bar)
+                Some(f) if phase > 1 || name.is_empty() || f.fits(&name) => (vec![Event { fight: f.id.clone(), boss: name, ..Event::new(since, Ev::Engage) }], None),
+                // its bar back after a death, the name read badly ("aldii" for "Xaldin"): the same
+                // fight, and the misreading isn't kept as one of its names
+                Some(f) if f.auto && f.misread(&name) => (vec![Event { fight: f.id.clone(), ..Event::new(since, Ev::Engage) }], None),
+                // a bar after a win the screen called: the win was a phase; the fight goes on
+                None if phase > 1 => match b.fights.last().filter(|f| f.won && f.auto && f.ended.is_some_and(|e| since.saturating_sub(e) <= screen::boss::PHASE_GAP_MS)) {
+                    Some(f) => {
+                        let reopen = Event { fight: f.id.clone(), ms: f.ended.unwrap_or(0), src: "reopen".into(), ..Event::new(since, Ev::Engage) };
+                        (vec![reopen], Some(format!("Not beaten yet  ·  {}", f.boss)))
+                    }
+                    None => (vec![], None),
+                },
+                _ if name.is_empty() => (vec![], None),
+                _ => {
+                    let id = format!("f{since}");
+                    let start = Event { fight: id.clone(), boss: name.clone(), src: "screen".into(), ..Event::new(since, Ev::FightStart) };
+                    let flash = format!("Fight  ·  {name}");
+                    (vec![start, Event { fight: id, boss: name, ..Event::new(since, Ev::Engage) }], Some(flash))
+                }
+            }
+        }
+        // more reads agree on another spelling of a fight the screen just opened
+        Out::Rename { since, name } => match open {
+            Some(f) if f.auto && f.started == since && !same_boss(&f.boss, &name) && !not_a_boss(&name) => {
+                (vec![Event { fight: f.id.clone(), boss: name, ..Event::new(t, Ev::Rename) }], None)
+            }
+            _ => (vec![], None),
+        },
+        Out::Leave => match open {
+            Some(f) if f.engaged.is_some() => (vec![Event { fight: f.id.clone(), ..Event::new(t, Ev::Leave) }], None),
+            _ => (vec![], None),
+        },
+        Out::Won { last_seen } => {
+            // only a fight the screen saw; and a death counted since its bar was last seen (by
+            // hand, the screen missed it) means it wasn't beaten
+            match open.filter(|f| !f.engages.is_empty()) {
+                Some(f) if b.deaths.last().is_none_or(|d| d.0 + 2_000 < last_seen) => {
+                    (vec![Event { src: "screen".into(), ..Event::new(t, Ev::Win) }], Some(format!("Defeated  ·  {}", f.boss)))
+                }
+                _ => (vec![], None),
+            }
+        }
+    }
+}
+
+/// Removes the win the screen called at `at` (the last one, if it's still the latest win).
+fn take_back_win(events: &mut Vec<Event>, at: u64) -> bool {
+    match events.iter().rposition(|e| e.ev == Ev::Win) {
+        Some(i) if events[i].t == at && events[i].src == "screen" => {
+            events.remove(i);
+            true
+        }
+        _ => false,
+    }
+}
+
+/// `boss_events`, recorded for `game`.
+fn boss_seen(app: &App, game: &str, out: screen::boss::Out) {
+    let Some(sh) = shared() else { return };
+    let ds = app.settings.lock().deaths.clone();
+    if !ds.on || !ds.auto_boss || ds.off_games.iter().any(|k| k == game) {
+        return;
+    }
+    crate::log::info(format!("death counter: boss bar in {game}: {out:?}"));
+    let mut st = sh.st.lock();
+    let t = now_ms();
+    let (mut evs, flash) = boss_events(&st.log(game).book, out, t, |n| not_a_boss(&ds, game, n));
+    if evs.is_empty() {
+        return;
+    }
+    let name = st.name_of(game);
+    let log = st.log(game);
+    if evs[0].src == "reopen" {
+        // take back the win the screen called (`ms`: when), then go on with the fight
+        let won_at = evs[0].ms;
+        if !take_back_win(&mut log.events, won_at) {
+            return;
+        }
+        log.book = Book::replay(&log.events);
+        evs[0].src.clear();
+        evs[0].ms = 0;
+    }
+    for e in evs {
+        log.book.apply(&e);
+        log.events.push(e);
+    }
+    store::save(game, &log.events);
+    st.games.insert(game.to_string(), store::GameInfo { name, last: t });
+    store::save_games(&st.games);
+    if let Some(f) = flash {
+        st.flash = Some((game.to_string(), f, Instant::now()));
+    }
+    drop(st);
+    app.changed("deaths");
+    wake();
 }
 
 fn png_url(img: &crate::pad::raster::Img) -> Option<String> {
@@ -425,6 +708,7 @@ pub fn preview(app: &App) -> Value {
         deaths: 15,
         try_ms: 161_000,
         boss_ms: 41 * 60_000,
+            boss_hp: Some((23, 1)),
         session_deaths: 23,
         bars: vec![30_000, 45_000, 25_000, 70_000, 55_000, 80_000, 40_000, 90_000, 65_000, 100_000],
         note: Some("Your longest try yet".into()),
@@ -518,14 +802,30 @@ fn refused(off_games: &[String], key: &str, what: &str) -> bool {
 
 // ------------------------------------------------------------------ taught death screens
 
-fn png(rgb: &[u8], w: usize, h: usize) -> String {
+fn png_bytes(rgb: &[u8], w: usize, h: usize) -> Option<Vec<u8>> {
     let mut out = std::io::Cursor::new(Vec::new());
-    let ok = image::RgbImage::from_raw(w as u32, h as u32, rgb.to_vec()).is_some_and(|img| img.write_to(&mut out, image::ImageFormat::Png).is_ok());
-    if ok {
-        format!("data:image/png;base64,{}", crate::util::base64(out.get_ref()))
-    } else {
-        String::new()
-    }
+    let img = image::RgbImage::from_raw(w as u32, h as u32, rgb.to_vec())?;
+    img.write_to(&mut out, image::ImageFormat::Png).ok()?;
+    Some(out.into_inner())
+}
+
+fn data_url(png: &[u8]) -> String {
+    format!("data:image/png;base64,{}", crate::util::base64(png))
+}
+
+fn png(rgb: &[u8], w: usize, h: usize) -> String {
+    png_bytes(rgb, w, h).map(|b| data_url(&b)).unwrap_or_default()
+}
+
+/// A learned screen for the page: the picture it was taught on (none for older ones and shared
+/// ones), where on it Deck looks, and the cells it looks for.
+fn print_json(game: &str, kind: &str, p: &screen::teach::Print) -> Value {
+    json!({
+        "made": p.made,
+        "shot": store::load_shot(game, kind, p.made).map(|b| data_url(&b)),
+        "area": screen::teach::area(p),
+        "img": screen::teach::picture(p).map(|px| png(&px, screen::teach::W, screen::teach::H)),
+    })
 }
 
 /// The frames before the last death you counted in `game`, for the page to pick from.
@@ -546,20 +846,68 @@ pub fn teach(app: &App, game: &str, pick: usize) -> Result<(), String> {
     let sh = shared().ok_or("the death counter isn't running")?;
     let mut st = sh.st.lock();
     let Some((g, _, shots)) = st.strip.as_ref().filter(|(g, _, _)| g == game) else { return Err("Those pictures are gone; count the next death and try again.".into()) };
-    let mut prints = store::load_taught(g);
+    let win = st.strip_win;
+    let mut prints = if win { store::load_won(g) } else { store::load_taught(g) };
     if prints.len() >= screen::teach::MAX_PER_GAME {
-        return Err(format!("This game already has {} taught death screens. Forget one first.", screen::teach::MAX_PER_GAME));
+        let what = if win { "victory" } else { "death" };
+        return Err(format!("This game already has {} taught {what} screens. Forget one first.", screen::teach::MAX_PER_GAME));
     }
     let thumbs: Vec<Vec<u8>> = shots.iter().map(|s| s.thumb.clone()).collect();
     let mut print = screen::teach::learn(&thumbs, pick, now_ms())?;
     // a fingerprint only fits pictures of the same shape (16:9, 21:9, ...)
     print.aspect = shots.get(pick).map_or(0, |s| s.aspect);
+    let kind = if win { "won" } else { "taught" };
+    if let Some(b) = shots.get(pick).and_then(|s| png_bytes(&s.preview, screen::PW, screen::PH)) {
+        store::save_shot(game, kind, print.made, &b);
+    }
     prints.push(print);
-    store::save_taught(game, &prints)?;
+    if win { store::save_won(game, &prints) } else { store::save_taught(game, &prints) }?;
     st.strip = None;
+    st.hand = None;
+    st.guess = None;
     drop(st);
     screen::taught_changed();
     app.changed("deaths");
+    Ok(())
+}
+
+/// Uses the shared library's death screens for `game` or not (one of them counts wrong deaths).
+pub fn library_for(app: &App, game: &str, on: bool) -> Result<(), String> {
+    if game.is_empty() {
+        return Err("Which game?".into());
+    }
+    {
+        let mut s = app.settings.lock();
+        s.deaths.library_off.retain(|k| k != game);
+        if !on {
+            s.deaths.library_off.push(game.to_string());
+        }
+    }
+    app.save_settings();
+    app.changed("deaths");
+    wake();
+    Ok(())
+}
+
+/// Starts over: every game's counts, fights, sessions and boss notes are cleared (moved aside to
+/// `deaths\reset-<time>`, a way back by hand). Settings and learned death screens stay.
+pub fn reset(app: &App) -> Result<(), String> {
+    let sh = shared().ok_or("the death counter isn't running")?;
+    let mut st = sh.st.lock();
+    let to = store::reset_in(&store::dir(), now_ms()).map_err(|e| format!("Couldn't reset: {e}"))?;
+    crate::log::info(format!("deaths: reset; the old history is in {}", to.display()));
+    st.games.clear();
+    st.logs.clear();
+    st.playing = None;
+    st.overall = None;
+    st.card = None;
+    st.edge = None;
+    st.flash = None;
+    st.strip = None;
+    st.last_death = None;
+    drop(st);
+    app.changed("deaths");
+    wake();
     Ok(())
 }
 
@@ -569,9 +917,80 @@ pub fn forget(app: &App, game: &str, i: usize) -> Result<(), String> {
     if i >= prints.len() {
         return Err("That one is gone already.".into());
     }
-    prints.remove(i);
+    let gone = prints.remove(i);
     store::save_taught(game, &prints)?;
+    store::remove_shot(game, "taught", gone.made);
     screen::taught_changed();
+    app.changed("deaths");
+    Ok(())
+}
+
+/// Forgets the victory screen `i` taught for `game`.
+pub fn forget_won(app: &App, game: &str, i: usize) -> Result<(), String> {
+    let mut prints = store::load_won(game);
+    if i >= prints.len() {
+        return Err("That one is gone already.".into());
+    }
+    let gone = prints.remove(i);
+    store::save_won(game, &prints)?;
+    store::remove_shot(game, "won", gone.made);
+    screen::taught_changed();
+    app.changed("deaths");
+    Ok(())
+}
+
+/// The last picture of `game` with a bar-like strip on it (big, colour), with its strips
+/// (thousandths of the picture), to show where the boss's bar and name are. Its strips are kept
+/// until one is picked.
+pub fn bar_picture(game: &str) -> Value {
+    let Some(sh) = shared() else { return json!(null) };
+    let Some(b) = screen::big(game) else { return json!(null) };
+    sh.st.lock().bar_pick = Some((game.to_string(), b.bars.clone()));
+    json!({ "img": png(&b.rgb, b.w, b.h), "w": b.w, "h": b.h, "bars": b.bars, "t": b.t, "now": now_ms() })
+}
+
+/// `game`'s boss bar is strip `bar` of the last `bar_picture`; None forgets it (the catalogue's,
+/// or the middle, again).
+pub fn teach_bar(app: &App, game: &str, bar: Option<usize>) -> Result<(), String> {
+    let spot = match bar {
+        Some(i) => {
+            let sh = shared().ok_or("the death counter isn't running")?;
+            let st = sh.st.lock();
+            let bars = st.bar_pick.as_ref().filter(|(g, _)| g == game).map(|(_, b)| b).ok_or("That picture is gone; show it again.")?;
+            Some(*bars.get(i).ok_or("That bar isn't on this picture.")?)
+        }
+        None => None,
+    };
+    {
+        let mut s = app.settings.lock();
+        match spot {
+            Some(p) => s.deaths.bar_spots.insert(game.to_string(), p),
+            None => s.deaths.bar_spots.remove(game),
+        };
+    }
+    app.save_settings();
+    wake();
+    app.changed("deaths");
+    Ok(())
+}
+
+/// `game` shows the boss's name in `area` (thousandths of the picture); None forgets it (read
+/// next to the bar again).
+pub fn teach_name(app: &App, game: &str, area: Option<screen::bar::Spot>) -> Result<(), String> {
+    if let Some(a) = area {
+        if !(a.x0 < a.x1 && a.y0 < a.y1 && a.x1 <= 1000 && a.y1 <= 1000 && a.x1 - a.x0 >= 20 && a.y1 - a.y0 >= 8) {
+            return Err("Draw the box around the whole name.".into());
+        }
+    }
+    {
+        let mut s = app.settings.lock();
+        match area {
+            Some(a) => s.deaths.name_spots.insert(game.to_string(), a),
+            None => s.deaths.name_spots.remove(game),
+        };
+    }
+    app.save_settings();
+    wake();
     app.changed("deaths");
     Ok(())
 }
@@ -632,6 +1051,7 @@ pub fn state(app: &App, game: Option<&str>) -> Value {
         let log = st.log(k);
         let b = &log.book;
         let more = view::game_stats(&log.events, b, &store::load_notes(k), live, now);
+        let seen_by = view::by_screen(&log.events, b);
         let mut g = json!({
             "key": k,
             "name": name,
@@ -639,17 +1059,38 @@ pub fn state(app: &App, game: Option<&str>) -> Value {
             "known": entry.is_some(),
             "total": b.total_deaths(),
             "loose": b.loose,
-            "open": b.open().map(|f| json!({ "boss": f.boss, "deaths": f.deaths, "started": f.started })),
+            "open": b.open().map(|f| json!({ "boss": f.boss, "deaths": f.deaths, "started": f.started, "auto": f.auto, "seen": !f.engages.is_empty(), "in_arena": f.engaged })),
+            "not_bosses": settings.not_bosses.iter().filter_map(|e| e.split_once('\t')).filter(|(g, _)| g == k).map(|(_, n)| n).collect::<Vec<_>>(),
             "bosses": b.bosses(now),
             "names": b.boss_names(),
             "can_undo": b.can_undo(),
             "off": settings.off_games.contains(k),
             "save": entry.map(|e| e.save.as_str()).filter(|s| save::known(s)),
             "auto": st.auto.as_ref().filter(|(g, _)| g == k).map(|(_, a)| *a),
-            "taught": store::load_taught(k).iter().map(|p| p.made).collect::<Vec<_>>(),
+            "taught": store::load_taught(k).iter().map(|p| {
+                let (deaths, last) = seen_by.get(&format!("taught:{}", p.made)).copied().unwrap_or_default();
+                let mut j = print_json(k, "taught", p);
+                j["deaths"] = json!(deaths);
+                j["last"] = json!(last);
+                j
+            }).collect::<Vec<_>>(),
             "library": library::count(k),
+            "library_deaths": seen_by.get("library").map_or(0, |c| c.0),
+            "library_off": settings.library_off.contains(k),
             "can_submit": library::good_key(k),
             "strip": st.strip.as_ref().filter(|(g, _, _)| g == k).map(|(_, at, _)| *at),
+            "strip_win": st.strip_win,
+            "guess": st.guess.as_ref().filter(|g| g.game == *k).map(|g| json!({
+                "win": g.win,
+                "seen": g.seen,
+                "shot": g.png.as_deref().map(data_url),
+                "area": screen::teach::area(&g.print),
+                "img": screen::teach::picture(&g.print).map(|px| png(&px, screen::teach::W, screen::teach::H)),
+            })),
+            "won_taught": store::load_won(k).iter().map(|p| print_json(k, "won", p)).collect::<Vec<_>>(),
+            "bar_spot": settings.bar_spots.get(k),
+            "name_spot": settings.name_spots.get(k),
+            "bar_preset": entry.is_some_and(|e| e.bar.is_some()),
         });
         if let Some(o) = g.as_object_mut() {
             o.extend(more);
@@ -693,6 +1134,10 @@ pub fn start(app: &Arc<App>) {
     let _ = std::thread::Builder::new().name("deaths".into()).spawn(move || run(sh, rx));
 }
 
+fn window_open(hwnd: isize) -> bool {
+    unsafe { windows::Win32::UI::WindowsAndMessaging::IsWindow(Some(windows::Win32::Foundation::HWND(hwnd as *mut _))).as_bool() }
+}
+
 fn pump() {
     use windows_sys::Win32::UI::WindowsAndMessaging::{DispatchMessageW, PeekMessageW, TranslateMessage, MSG, PM_REMOVE};
     unsafe {
@@ -730,8 +1175,9 @@ fn run(sh: Arc<Shared>, rx: Receiver<()>) {
             let front = if s.on { ident::front() } else { None };
             let counted = front.as_ref().is_some_and(|f| !s.off_games.contains(&f.game.key));
             combo_on = s.pad_combo && counted;
+            screen::set_bosses(s.auto_boss);
             let shared = s.on && s.community_library;
-            if library::set_enabled(shared) {
+            if library::set_enabled(shared) | library::set_off(&s.library_off) {
                 screen::taught_changed();
             }
             library::maybe_refresh(shared);
@@ -765,16 +1211,37 @@ fn run(sh: Arc<Shared>, rx: Receiver<()>) {
                 Some(f) if watch.as_ref().is_none_or(|w| w.game != f.game.key || w.hwnd != f.hwnd) => {
                     let (weak, key) = (sh.app.clone(), f.game.key.clone());
                     let words = f.game.entry.map(|e| e.words.clone()).unwrap_or_default();
+                    let win = f.game.entry.map(|e| e.win.clone()).unwrap_or_default();
                     // games Deck knows are watched 4 times a second, any other 2 (enough for a
                     // banner that stays up, and half the work in games that may never show one)
-                    watch = Some(screen::Watch::start(&f.game.key, f.hwnd, &words, move || {
+                    watch = Some(screen::Watch::start(&f.game.key, f.hwnd, &words, &win, move |seen| {
                         if let Some(a) = weak.upgrade() {
-                            let _ = act(&a, "death", None, Some(&key), "screen");
+                            match seen {
+                                screen::Seen::Death(by) => {
+                                    let _ = act_seen(&a, "death", None, Some(&key), "screen", &by);
+                                }
+                                screen::Seen::Boss(out) => boss_seen(&a, &key, out),
+                                screen::Seen::Victory => {
+                                    let _ = act(&a, "win", None, Some(&key), "screen");
+                                }
+                            }
                         }
                     }));
                 }
-                None => watch = None,
-                _ => {}
+                Some(_) => {
+                    if let Some(w) = &watch {
+                        w.pause(false);
+                    }
+                }
+                None => {
+                    // another window in front (Deck, chat, a browser): the game's watcher waits
+                    // instead of starting over, while its window is open and it's still watched
+                    let keep = watch.as_ref().is_some_and(|w| s.on && s.auto_screen && !s.off_games.contains(&w.game) && !save_ok(&w.game) && window_open(w.hwnd));
+                    match &watch {
+                        Some(w) if keep => w.pause(true),
+                        _ => watch = None,
+                    }
+                }
             }
             let mut st = sh.st.lock();
             let key = front.as_ref().map(|f| f.game.key.clone());
@@ -786,6 +1253,10 @@ fn run(sh: Arc<Shared>, rx: Receiver<()>) {
             }
             if let Some(f) = &front {
                 st.seen = Some(f.game.clone());
+                screen::set_spot(&f.game.key, s.bar_spots.get(&f.game.key).copied().or(f.game.entry.and_then(|e| e.bar)));
+                screen::set_name_spot(&f.game.key, s.name_spots.get(&f.game.key).copied());
+                let known = st.log(&f.game.key).book.boss_names();
+                screen::set_known(&f.game.key, known);
             }
             st.front = front.clone();
             // play sessions: the counted game in front
@@ -997,6 +1468,101 @@ mod tests {
         assert!(!refused(&off, "exe:eldenring", "delete:3"), "editing the history too");
         assert!(!refused(&off, "exe:other", "death"), "another game");
         assert!(!refused(&[], "exe:eldenring", "death"));
+    }
+
+    /// The screen's boss events as history: a new boss opens a fight, its next phase (another name)
+    /// stays in it, "Not a boss" names are left alone, and a win needs no death after the bar.
+    #[test]
+    fn boss_bars_open_fights_and_phases_stay_in_them() {
+        use screen::boss::Out;
+        let engage = |since: u64, name: &str, phase: u8| Out::Engage { since, name: name.into(), phase };
+        let mut b = Book::default();
+        let feed = |b: &mut Book, out: Out, t: u64| {
+            let (evs, flash) = boss_events(b, out, t, |n| n == "Torrent");
+            for e in &evs {
+                b.apply(e);
+            }
+            (evs.len(), flash)
+        };
+        assert_eq!(feed(&mut b, engage(1_000, "Torrent", 1), 1_000), (0, None), "not a boss");
+        assert_eq!(feed(&mut b, engage(2_000, "", 1), 2_000), (0, None), "no name, no fight");
+        let (n, flash) = feed(&mut b, engage(3_000, "Radagon of the Golden Order", 1), 3_000);
+        assert_eq!((n, flash.as_deref()), (2, Some("Fight  ·  Radagon of the Golden Order")));
+        assert_eq!(feed(&mut b, engage(60_000, "Elden Beast", 2), 60_000).0, 1, "phase 2 joins the fight");
+        assert_eq!(b.fights.len(), 1);
+        b.apply(&Event { hp: Some(30), phase: Some(2), ..Event::new(90_000, Ev::Death) });
+        assert_eq!(b.open().unwrap().deaths, 1);
+        // the next try: phase 1's name again, and then the second name is already the fight's
+        assert_eq!(feed(&mut b, engage(150_000, "Radagon of the Golden Order", 1), 150_000).0, 1);
+        assert_eq!(b.fights.len(), 1);
+        assert!(b.open().unwrap().fits("Elden Beast"));
+        // a death counted by hand after the bar went: not a win
+        b.apply(&Event::new(200_000, Ev::Death));
+        assert_eq!(feed(&mut b, Out::Won { last_seen: 199_000 }, 320_000).0, 0);
+        assert_eq!(feed(&mut b, engage(400_000, "Radagon of the Golden Order", 1), 400_000).0, 1);
+        assert_eq!(feed(&mut b, Out::Leave, 420_000).0, 1);
+        assert_eq!(feed(&mut b, Out::Leave, 421_000).0, 0, "left already");
+        let (n, flash) = feed(&mut b, Out::Won { last_seen: 419_000 }, 540_000);
+        assert_eq!((n, flash.as_deref()), (1, Some("Defeated  ·  Radagon of the Golden Order")));
+        assert_eq!(b.bosses(0)[0].wins, 1);
+        assert_eq!(b.bosses(0)[0].closest, Some((2, 30)));
+        // a different boss later opens its own fight
+        assert_eq!(feed(&mut b, engage(600_000, "Godrick the Grafted", 1), 600_000).0, 2);
+    }
+
+    /// Khazan, 2026-10-21: Xaldin's bar came back after a death read as "aldii" and opened a
+    /// second fight. Now it's the same fight, and "aldii" isn't kept as a name.
+    #[test]
+    fn a_misread_name_after_a_death_stays_in_the_fight() {
+        use screen::boss::Out;
+        fn feed(b: &mut Book, out: Out, t: u64) -> Vec<Event> {
+            let (evs, _) = boss_events(b, out, t, |_| false);
+            for e in &evs {
+                b.apply(e);
+            }
+            evs
+        }
+        let mut b = Book::default();
+        feed(&mut b, Out::Engage { since: 0, name: "Xaldin".into(), phase: 1 }, 0);
+        b.apply(&Event { hp: Some(64), ..Event::new(119_000, Ev::Death) });
+        let evs = feed(&mut b, Out::Engage { since: 161_000, name: "aldii".into(), phase: 1 }, 161_000);
+        assert_eq!(evs.len(), 1, "joined, no new fight: {evs:?}");
+        assert!(evs[0].boss.is_empty(), "the misreading isn't a name of the fight");
+        assert_eq!((b.fights.len(), b.open().unwrap().seen.clone()), (1, vec!["xaldin".to_string()]));
+        b.apply(&Event::new(195_000, Ev::Death));
+        assert_eq!(b.bosses(0)[0].deaths, 2);
+        assert!(!b.open().unwrap().fits("Viper") && !b.open().unwrap().misread("Viper"), "another boss still opens its own fight");
+        // a fight opened under a misreading is renamed when the votes say so; an older fight never is
+        let mut b = Book::default();
+        feed(&mut b, Out::Engage { since: 500, name: "aldii".into(), phase: 1 }, 500);
+        assert_eq!(feed(&mut b, Out::Rename { since: 500, name: "Xaldin".into() }, 3_000).len(), 1);
+        assert_eq!(b.open().unwrap().boss, "Xaldin");
+        assert_eq!(feed(&mut b, Out::Rename { since: 9, name: "Viper".into() }, 4_000).len(), 0, "not this fight's try");
+    }
+
+    /// The screen called a win (the bar emptied and went), then the next phase's bar came up: the
+    /// win is taken back and the fight goes on.
+    #[test]
+    fn a_win_the_screen_called_is_taken_back_when_a_phase_follows() {
+        use screen::boss::Out;
+        let mut events = vec![
+            Event { fight: "f0".into(), boss: "Radagon".into(), src: "screen".into(), ..Event::new(0, Ev::FightStart) },
+            Event { fight: "f0".into(), boss: "Radagon".into(), ..Event::new(0, Ev::Engage) },
+            Event { src: "screen".into(), ..Event::new(100_000, Ev::Win) },
+        ];
+        let b = Book::replay(&events);
+        let (evs, flash) = boss_events(&b, Out::Engage { since: 140_000, name: "Elden Beast".into(), phase: 2 }, 140_000, |_| false);
+        assert_eq!((evs.len(), evs[0].src.as_str(), evs[0].ms), (1, "reopen", 100_000));
+        assert_eq!(flash.as_deref(), Some("Not beaten yet  ·  Radagon"));
+        assert!(take_back_win(&mut events, 100_000));
+        let mut b = Book::replay(&events);
+        b.apply(&Event { fight: "f0".into(), boss: "Elden Beast".into(), ..Event::new(140_000, Ev::Engage) });
+        assert!(b.open().is_some_and(|f| f.fits("Elden Beast")) && b.wins.is_empty());
+        assert!(!take_back_win(&mut events, 100_000), "only once");
+        // too late: a bar long after a win is a new fight
+        let b = Book::replay(&[events[0].clone(), events[1].clone(), Event { src: "screen".into(), ..Event::new(100_000, Ev::Win) }]);
+        let (evs, _) = boss_events(&b, Out::Engage { since: 100_000 + screen::boss::PHASE_GAP_MS + 1, name: "Elden Beast".into(), phase: 2 }, 0, |_| false);
+        assert!(evs.is_empty(), "{evs:?}");
     }
 
     #[test]

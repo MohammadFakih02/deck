@@ -406,6 +406,19 @@ fn quit(handle: AppHandle) {
     quit_deck(&handle);
 }
 
+/// The page's own problems (a command that failed, a script error) into Deck's log: the page has
+/// no log of its own. Cut short; the log masks secrets as for every line.
+#[tauri::command]
+fn ui_log(level: String, msg: String) {
+    let msg: String = msg.chars().take(600).collect();
+    // a page's script error is a warning: the page carries on, and Deck with it
+    match level.as_str() {
+        "info" => log::info(format!("ui: {msg}")),
+        "debug" => log::debug(format!("ui: {msg}")),
+        _ => log::warn(format!("ui: {msg}")),
+    }
+}
+
 /// Ends Deck cleanly and starts it again, hidden, through the admin task: a helper process waits for
 /// this one to be gone first (a second Deck would only hand over to this one). Without the admin
 /// task there is nothing that could start it again, so it stays running.
@@ -445,9 +458,14 @@ fn quit_deck(handle: &AppHandle) {
             remember_rect(handle, &w);
         }
     }
-    let _ = app.settings.lock().save();
+    log::info("Deck quitting");
+    if let Err(e) = app.settings.lock().save() {
+        log::warn(format!("quit: the settings couldn't be saved: {e}"));
+    }
     if boost::is_on() {
-        let _ = boost::stop(&app, "");
+        if let Err(e) = boost::stop(&app, "") {
+            log::warn(format!("quit: Full power couldn't be undone: {e}"));
+        }
     }
     shutdown_hardware(false);
     handle.exit(0);
@@ -463,6 +481,8 @@ fn shutdown_hardware(session_end: bool) {
     hw::stop();
     // released: the watchdog has nothing to do
     watchdog::clean_exit();
+    log::info(format!("hardware handed back{}", if session_end { " (Windows is signing out or shutting down)" } else { "" }));
+    log::flush();
 }
 
 /// Fans back to the BIOS, the GPU fan back to the driver, Game Mode back to the user's setting
@@ -492,6 +512,7 @@ fn set_setting(handle: AppHandle, app: A, remote: State<Arc<Remote>>, key: Strin
         }
         v[&key] = value.clone();
         *s = serde_json::from_value(v).map_err(|e| format!("bad value for {key}: {e}"))?;
+        log::debug(format!("settings: {key} changed"));
         if let Some(off) = off_games {
             s.deaths.off_games = off;
         }
@@ -1488,6 +1509,12 @@ fn percent_decode(s: &str) -> String {
     String::from_utf8_lossy(&out).to_string()
 }
 
+/// Ends the process once the log has written what is queued (its writer is a background thread).
+fn exit_logged(code: i32) -> ! {
+    log::flush();
+    std::process::exit(code)
+}
+
 fn main() {
     // before anything is loaded or any window made: an elevated Deck takes nothing that steers
     // WebView2 from the environment, which the user's own programs can set
@@ -1498,32 +1525,32 @@ fn main() {
     }
     // Claude Code's hook (Claude Sync): answers in milliseconds, never starts Deck
     if std::env::args().any(|a| a == "--claude-sync-hook") {
-        std::process::exit(ccsync::hook_main());
+        exit_logged(ccsync::hook_main());
     }
     // the uninstaller (hooks.nsh): Claude Code must not keep calling a hook program that is gone
     if std::env::args().any(|a| a == "--uninstall-cleanup") {
         ccsync::uninstall_cleanup();
-        std::process::exit(0);
+        exit_logged(0);
     }
     // PC to PC from the command line (scripts, Claude Code): prints, then exits
     {
         let args: Vec<String> = std::env::args().collect();
         if beam::cli::wanted(&args) {
-            std::process::exit(beam::cli::main(&args));
+            exit_logged(beam::cli::main(&args));
         }
     }
     // Transfer: a received installer, started as the user (see beam::setup::run_installer)
     {
         let args: Vec<String> = std::env::args().collect();
         if let Some(job) = args.iter().position(|a| a == "--run-installer").and_then(|i| args.get(i + 1)) {
-            std::process::exit(beam::setup::run_job(std::path::Path::new(job)));
+            exit_logged(beam::setup::run_job(std::path::Path::new(job)));
         }
     }
     // Transfer: applying a received Windhawk setup needs admin when Deck runs without it
     for (flag, undo) in [("--transfer-apply-windhawk", false), ("--transfer-undo-windhawk", true)] {
         let args: Vec<String> = std::env::args().collect();
         if let Some(d) = args.iter().position(|a| a == flag).and_then(|i| args.get(i + 1)) {
-            std::process::exit(beam::snapshot::windhawk_elevated(std::path::Path::new(d), undo));
+            exit_logged(beam::snapshot::windhawk_elevated(std::path::Path::new(d), undo));
         }
     }
     #[cfg(debug_assertions)]
@@ -1547,11 +1574,12 @@ fn main() {
     }
     // `Deck.exe --setup-task [--start]` (elevated, from Set up or install.ps1): create the tasks
     if std::env::args().any(|a| a == "--setup-task") {
+        log::set_role("setup");
         // from the installer: tasks made for another account (an administrator's password typed by a
         // standard user) would never start this user's Deck; the setup then starts it as the user
         if std::env::args().any(|a| a == "--from-setup") && elevation::runs_as_desktop_user() == Some(false) {
             log::warn("the setup runs as another account than the one signed in: Deck's admin tasks were not made (use Set up in Deck)");
-            std::process::exit(2);
+            exit_logged(2);
         }
         let code = match std::env::current_exe().map_err(|e| e.to_string()).and_then(|exe| elevation::setup(&exe, settings::Settings::load().autostart)) {
             Ok(()) => {
@@ -1572,11 +1600,12 @@ fn main() {
                 0
             }
             Err(e) => {
+                log::warn(format!("setup: Deck's admin tasks couldn't be made: {e}"));
                 eprintln!("{e}");
                 1
             }
         };
-        std::process::exit(code);
+        exit_logged(code);
     }
     // also in release builds: install.ps1 runs it elevated to prove apps start as the normal user
     if std::env::args().any(|a| a == "--launch-test") {
@@ -1633,20 +1662,24 @@ fn main() {
     // the hardware fail-safe: waits for Deck to end, releases the hardware if it was ended from outside
     let args: Vec<String> = std::env::args().collect();
     if let Some(pid) = args.iter().position(|a| a == "--watchdog").and_then(|i| args.get(i + 1)).and_then(|p| p.parse::<u32>().ok()) {
+        log::set_role("watchdog");
         if let watchdog::Outcome::Unclean { code } = watchdog::wait_for(pid) {
             let msg = release_everything();
             log::warn(format!("Deck (process {pid}) was ended from outside ({}); watchdog released the hardware: {msg}", watchdog::describe_exit(code)));
             // then Deck comes back by itself (hidden), unless it keeps ending
             restart::after_unclean_end(code);
         }
+        log::flush();
         return;
     }
     // `--install-update <setup> <checksum url> <version>`: an update the user allowed with the UAC prompt
     if let Some(i) = args.iter().position(|a| a == "--install-update") {
-        std::process::exit(update::install_helper(&args[i + 1..]));
+        log::set_role("update");
+        exit_logged(update::install_helper(&args[i + 1..]));
     }
     // a restart Deck asked for (after a driver install): once the old Deck is gone, start it hidden
     if let Some(pid) = args.iter().position(|a| a == "--start-after").and_then(|i| args.get(i + 1)).and_then(|p| p.parse::<u32>().ok()) {
+        log::set_role("restart");
         // starting while the old Deck still quits would hand the start to it, and then nothing runs
         if !watchdog::wait_for_exit(pid) {
             log::warn("restart: the old Deck did not quit within 2 minutes; not starting another");
@@ -1655,12 +1688,14 @@ fn main() {
         } else {
             elevation::run_task(elevation::BACKGROUND_TASK);
         }
+        log::flush();
         return;
     }
     // started without admin rights (setup's finish page, a shortcut) while the admin tasks exist: let the task start it
     if elevation::handover() {
         return;
     }
+    log::session_start();
     let minimized = std::env::args().any(|a| a == "--minimized" || a == "--switch" || a == "--quit");
     // `--quit` with no Deck running: nothing to do
     let quit_only = std::env::args().any(|a| a == "--quit");
@@ -1670,7 +1705,8 @@ fn main() {
         // the main thread ends the app; a hardware worker leaves its hardware unattended. Other
         // threads (a command, a background task) fail on their own and Deck carries on.
         let name = std::thread::current().name().map(str::to_string);
-        log::warn(format!("panic on thread {}: {info}", name.as_deref().unwrap_or("?")));
+        // error: written at once, the process may be about to end
+        log::error(format!("panic on thread {}: {info}", name.as_deref().unwrap_or("?")));
         let main = name.as_deref() == Some("main");
         if main || hw::on_worker_thread() {
             hw::on_panic();
@@ -1686,7 +1722,7 @@ fn main() {
         gpu::release();
         // what crashed and where (a driver's DLL, Deck itself), so the next report names the cause
         if let Some(rec) = info.as_ref().and_then(|i| i.ExceptionRecord.as_ref()) {
-            log::warn(format!("native crash {:#X} at {:p} in {}", rec.ExceptionCode as u32, rec.ExceptionAddress, watchdog::module_at(rec.ExceptionAddress as *const _)));
+            log::error(format!("native crash {:#X} at {:p} in {}", rec.ExceptionCode as u32, rec.ExceptionAddress, watchdog::module_at(rec.ExceptionAddress as *const _)));
         }
         0 // EXCEPTION_CONTINUE_SEARCH: Windows reports the crash as usual
     }
@@ -1918,7 +1954,7 @@ fn main() {
             }
 
             if quit_only {
-                std::process::exit(0);
+                exit_logged(0);
             }
             app.start();
             pad::start(&app);
@@ -2003,10 +2039,12 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            webview_guard::ui_heartbeat, get_state, live, hide, set_pinned, quit, set_setting, padcmd::pad_state, padcmd::pad_action, deathscmd::deaths_state, deathscmd::deaths_act,
+            webview_guard::ui_heartbeat, get_state, live, hide, set_pinned, quit, ui_log, set_setting, padcmd::pad_state, padcmd::pad_action, deathscmd::deaths_state, deathscmd::deaths_act,
             deathscmd::deaths_strip,
             deathscmd::deaths_teach,
+            deathscmd::deaths_bar,
             deathscmd::deaths_note,
+            deathscmd::deaths_reset,
             deathscmd::deaths_preview,
             deathscmd::deaths_share,
             deathscmd::deaths_export,

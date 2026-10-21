@@ -3,8 +3,36 @@ import { icon } from "./icons.js";
 import { HELP } from "./help.js";
 
 export const T = window.__TAURI__;
-export const invoke = (cmd, args) => T.core.invoke(cmd, args || {});
+const rawInvoke = (cmd, args) => T.core.invoke(cmd, args || {});
+
+/** Into Deck's log (the page has none of its own). The same message at most once a minute;
+ *  never throws. Commands are named, their arguments never sent. */
+const logged = new Map();
+export function logUi(level, msg) {
+  try {
+    const text = String(msg).slice(0, 600), now = Date.now();
+    if (now - (logged.get(text) || 0) < 60000) return;
+    if (logged.size > 300) logged.clear();
+    logged.set(text, now);
+    rawInvoke("ui_log", { level, msg: text }).catch(() => {});
+  } catch { /* logging must never break the page */ }
+}
+
+const errText = (e) => (e instanceof Error ? e.message : typeof e === "string" ? e : JSON.stringify(e) || String(e));
+
+/** A command; one that fails is logged (refusals like "already used" too: info, not warn). */
+export const invoke = (cmd, args) => rawInvoke(cmd, args).catch((e) => {
+  if (cmd !== "ui_log") logUi("info", `${cmd} failed: ${errText(e)}`);
+  throw e;
+});
 export const listen = (ev, fn) => T.event.listen(ev, fn);
+
+// script errors anywhere on the page; a rejected command was logged above (its error is a string)
+window.addEventListener("error", (e) => logUi("error", `${e.message} at ${(e.filename || "").split("/").pop()}:${e.lineno}:${e.colno}`));
+window.addEventListener("unhandledrejection", (e) => {
+  if (typeof e.reason === "string") return;
+  logUi("error", `unhandled: ${errText(e.reason)}${e.reason?.stack ? " | " + e.reason.stack.split("\n").slice(1, 3).join(" | ").trim() : ""}`);
+});
 
 export const S = {
   state: null,      // settings + static info

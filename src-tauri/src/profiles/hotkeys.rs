@@ -272,6 +272,15 @@ pub fn start(app: Arc<App>) {
                     st.insert(k.clone(), if *ok { "ok" } else { "busy" }.to_string());
                 }
                 let changed = STATUS.lock().as_ref() != Some(&st);
+                if changed {
+                    let mut busy: Vec<&String> = st.iter().filter(|(_, v)| *v == "busy").map(|(k, _)| k).collect();
+                    busy.sort();
+                    if busy.is_empty() {
+                        crate::log::info(format!("hotkeys: {} key(s) registered", st.len()));
+                    } else {
+                        crate::log::warn(format!("hotkeys: another program holds {} (tried again every 30 s); {} other key(s) registered", busy.iter().map(|k| k.as_str()).collect::<Vec<_>>().join(", "), st.len() - busy.len()));
+                    }
+                }
                 *STATUS.lock() = Some(st);
                 if changed {
                     app.changed("hotkeys");
@@ -288,7 +297,14 @@ pub fn start(app: Arc<App>) {
                             continue;
                         }
                         by_message.insert(id, std::time::Instant::now());
-                        run(bound.iter().find(|b| b.0 == id).map(|b| b.2.clone()));
+                        let a = bound.iter().find(|b| b.0 == id).map(|b| b.2.clone());
+                        if a == Some(Action::Overlay) {
+                            // the message carries when Windows posted it: how long it waited in this thread's queue
+                            let queued = windows_sys::Win32::System::SystemInformation::GetTickCount().wrapping_sub(msg.time).min(60_000);
+                            let at = std::time::Instant::now().checked_sub(std::time::Duration::from_millis(queued as u64)).unwrap_or_else(std::time::Instant::now);
+                            crate::rtss::trace_key(at, format!("shortcut message, {queued} ms in the queue, game in front: {fast}"));
+                        }
+                        run(a);
                     }
                     WM_APP_RELOAD => {
                         register(&mut bound, false);
@@ -323,9 +339,12 @@ pub fn start(app: Arc<App>) {
                             if down && !was && !by_message.get(id).is_some_and(|t| t.elapsed().as_millis() < 300) {
                                 pending.insert(*id, std::time::Instant::now());
                             }
-                            if pending.get(id).is_some_and(|t| t.elapsed().as_millis() >= 100) {
+                            if let Some(seen) = pending.get(id).copied().filter(|t| t.elapsed().as_millis() >= 100) {
                                 pending.remove(id);
                                 by_poll.insert(*id, std::time::Instant::now());
+                                if *a == Action::Overlay {
+                                    crate::rtss::trace_key(seen, "no shortcut message within 100 ms, seen by polling".into());
+                                }
                                 run(Some(a.clone()));
                             }
                         }

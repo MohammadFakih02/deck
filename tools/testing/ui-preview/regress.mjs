@@ -349,6 +349,15 @@ const huge = await d.ev(`(async () => { await go("clipboard"); const big = "x".r
   return { card: Math.max(...card), pre, ms: Math.round(ms) }; })()`);
 check("a huge clipboard item shows a short preview, not all of it", huge.card <= 1000 && huge.pre <= 20100 && huge.pre > 0, JSON.stringify(huge));
 
+// Release notes on the Updates card are laid out, not shown as raw Markdown.
+const rn = await d.ev(`(async () => { await go("settings"); S.cache.setTab = "about"; S.cache.update = { current: "2.7.0", state: "available", latest: "2.7.5", checked: 0, error: null, waiting: false, silent: true,
+  notes: "### Added\\n- **Phone as a mic:** (Deck → Phone) over Wi-Fi, \\x60https://\\x60 too\\n### Fixed\\n- a fix\\n- another *fix*\\n\\nSHA-256 of Deck.exe: \\x60abc\\x60" };
+  render(); await new Promise((r) => setTimeout(r, 200));
+  const el = document.querySelector(".rn"); const t = el ? el.textContent : "";
+  const secs = [...document.querySelectorAll(".rn-sec")].map((s) => [s.querySelector(".rn-tag").textContent, s.open, s.querySelectorAll(".rn-item").length]);
+  return { found: !!el, raw: /###|\\*\\*|\\x60/.test(t), sha: t.includes("SHA-256"), lead: document.querySelector(".rn-lead")?.textContent, body: document.querySelector(".rn-body")?.textContent, secs }; })()`);
+check("release notes are laid out, not raw Markdown", rn.found && !rn.raw && !rn.sha && rn.lead === "Phone as a mic (Deck → Phone)" && rn.body === "Over Wi-Fi, https:// too" && JSON.stringify(rn.secs) === JSON.stringify([["New", true, 1], ["Fixed", false, 2]]), JSON.stringify(rn));
+
 check("no script errors", d.logs.length === 0, d.logs.slice(0, 3).join(" | "));
 d.close();
 process.exit(failed ? 1 : 0);

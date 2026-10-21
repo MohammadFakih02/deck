@@ -206,7 +206,7 @@ pub fn store_search(query: &str) -> Result<Value, String> {
         "https://storeedgefd.dsx.mp.microsoft.com/v9.0/search?market={market}&locale={loc}&deviceFamily=windows.desktop&query={}",
         crate::remote::pct(q)
     );
-    let v: Value = ureq::get(&url).timeout(Duration::from_secs(15)).call().map_err(|e| format!("The Store didn't answer: {e}"))?.into_json().map_err(|e| e.to_string())?;
+    let v: Value = crate::log::http_agent().get(&url).timeout(Duration::from_secs(15)).call().map_err(|e| format!("The Store didn't answer: {e}"))?.into_json().map_err(|e| e.to_string())?;
     let results: Vec<Value> = v["Payload"]["SearchResults"]
         .as_array()
         .map(|a| {
@@ -230,7 +230,7 @@ pub fn store_search(query: &str) -> Result<Value, String> {
 fn product_for_family(family: &str) -> Option<String> {
     let (market, loc) = super::storedl::market();
     let url = format!("https://displaycatalog.mp.microsoft.com/v7.0/products/lookup?alternateId=PackageFamilyName&value={family}&market={market}&languages={loc}&fieldsTemplate=details");
-    let v: Value = ureq::get(&url).timeout(Duration::from_secs(15)).call().ok()?.into_json().ok()?;
+    let v: Value = crate::log::http_agent().get(&url).timeout(Duration::from_secs(15)).call().ok()?.into_json().ok()?;
     v["BigIds"].as_array()?.first()?.as_str().map(String::from)
 }
 

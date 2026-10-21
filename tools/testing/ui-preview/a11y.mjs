@@ -2,7 +2,7 @@
 // problems: unnamed buttons/links, unlabelled form fields, small click targets, horizontal overflow,
 // script errors. Also times page switches.
 //   PORT=9360 node a11y.mjs [w h] [out.json]
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL, fileURLToPath } from "node:url";
@@ -11,6 +11,8 @@ const [, , w = "1260", hgt = "900", outFile = ""] = process.argv;
 const port = +(process.env.PORT || 9360);
 setTimeout(() => { console.log("TIMEOUT"); process.exit(2); }, 240000).unref();
 const edge = spawn(BROWSER, ["--headless=new", `--remote-debugging-port=${port}`, "--allow-file-access-from-files", "--disable-gpu", "--hide-scrollbars", `--user-data-dir=${process.env.TEMP}\\deck-a11y-edge-${process.pid}`, `--window-size=${w},${hgt}`, "about:blank"], { stdio: "ignore" });
+// Close Edge however this run ends (a timeout or a busy port used to leave it running).
+process.on("exit", () => { try { spawnSync("taskkill", ["/pid", String(edge.pid), "/T", "/F"], { stdio: "ignore" }); } catch {} });
 let list;
 for (let i = 0; i < 150; i++) { try { list = await (await fetch(`http://127.0.0.1:${port}/json`)).json(); if (list.find((t) => t.type === "page" && t.url === "about:blank")) break; } catch {} await new Promise((r) => setTimeout(r, 200)); }
 const t = list.find((x) => x.type === "page" && x.url === "about:blank");

@@ -229,7 +229,11 @@ pub fn switch(app: &App, kind: &str, id: &str, source: &str) {
         while !flag.load(SeqCst) && t0.elapsed() < std::time::Duration::from_secs(20) {
             std::thread::sleep(std::time::Duration::from_millis(200));
         }
+        if !flag.load(SeqCst) {
+            crate::log::warn(format!("profiles: the {} engine wasn't up after 20 s; switching anyway ({source})", if kind == "gpu" { "GPU" } else { "hardware" }));
+        }
     }
+    let op = crate::log::Op::start("profiles", format!("switch {kind} to {id} ({source})"));
     let r = match kind {
         "cpu" => {
             let p = app.settings.lock().cpu_profiles.iter().find(|p| p.id == id).cloned();
@@ -254,6 +258,10 @@ pub fn switch(app: &App, kind: &str, id: &str, source: &str) {
         }
         _ => Err("Unknown profile kind.".into()),
     };
+    match &r {
+        Ok((name, note)) => op.ok(format!("{name}{}{note}", if note.is_empty() { "" } else { ": " })),
+        Err(e) => op.fail(e),
+    }
     match r {
         Ok((name, note)) => {
             {

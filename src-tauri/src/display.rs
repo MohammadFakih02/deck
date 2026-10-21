@@ -203,6 +203,7 @@ pub fn set_refresh(device: &str, hz: u32) -> Result<(), String> {
         }
         let r = ChangeDisplaySettingsExW(&dev_w, Some(&m), None, CDS_UPDATEREGISTRY, None);
         if r == DISP_CHANGE_SUCCESSFUL {
+            crate::log::info(format!("display: {device} set to {hz} Hz"));
             Ok(())
         } else {
             Err(format!("Windows refused {hz} Hz (code {})", r.0))
@@ -248,6 +249,7 @@ pub fn set_hdr(device: &str, on: bool) -> Result<(), String> {
         s.Anonymous.value = if on { 1 } else { 0 };
         let r = DisplayConfigSetDeviceInfo(&s.header);
         if r == 0 {
+            crate::log::info(format!("display: HDR {} on {device}", if on { "on" } else { "off" }));
             Ok(())
         } else {
             Err(format!("Windows couldn't switch HDR (code {r})"))
@@ -286,6 +288,7 @@ pub fn set_dark(dark: bool) -> Result<(), String> {
     let v = if dark { 0 } else { 1 };
     write_dword(PERSONALIZE, "AppsUseLightTheme", v)?;
     write_dword(PERSONALIZE, "SystemUsesLightTheme", v)?;
+    crate::log::info(format!("display: Windows set to {} mode", if dark { "dark" } else { "light" }));
     let s = crate::util::wide("ImmersiveColorSet");
     unsafe {
         let _ = SendMessageTimeoutW(HWND_BROADCAST, WM_SETTINGCHANGE, WPARAM(0), LPARAM(s.as_ptr() as isize), SMTO_ABORTIFHUNG, 200, None);

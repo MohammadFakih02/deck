@@ -11,7 +11,8 @@ pub const SESSION_GAP_MS: u64 = 15 * 60_000;
 /// Old history without play lines: a gap this long between events starts another session.
 pub const ESTIMATE_GAP_MS: u64 = 60 * 60_000;
 
-/// One attempt: from the fight's start (or the last death or win in it) to a death or a win.
+/// One attempt: from the fight's start (or the last death or win in it) to a death or a win. Where
+/// Deck saw the boss's health bar, from when it showed up: the run back isn't part of the try.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Try {
     pub fight: Option<usize>,
@@ -37,9 +38,19 @@ pub fn tries(b: &Book) -> Vec<Try> {
     }
     for (i, (f, mut ends)) in b.fights.iter().zip(by_fight).enumerate() {
         ends.sort();
+        let mut engages = f.engages.clone();
+        engages.sort_unstable();
+        let mut next = engages.iter().copied().peekable();
         let mut from = f.started;
         for (end, won) in ends {
-            out.push(Try { fight: Some(i), end, ms: len(from, end), won });
+            // the first time the bar showed up in this try
+            let mut start = None;
+            while let Some(t) = next.next_if(|t| *t <= end) {
+                if t >= from && start.is_none() {
+                    start = Some(t);
+                }
+            }
+            out.push(Try { fight: Some(i), end, ms: len(start.unwrap_or(from), end), won });
             from = from.max(end);
         }
     }
@@ -142,6 +153,23 @@ pub fn death_note(b: &Book) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_try_starts_when_the_boss_bar_shows_up() {
+        let e = |t: u64, ev: Ev| Event { fight: "f0".into(), boss: "Margit".into(), ..Event::new(t, ev) };
+        let b = Book::replay(&[
+            Event { src: "screen".into(), ..e(0, Ev::FightStart) },
+            e(0, Ev::Engage),
+            Event::new(50_000, Ev::Death),
+            e(140_000, Ev::Engage), // 90 s walking back
+            Event::new(200_000, Ev::Death),
+        ]);
+        let ms: Vec<u64> = tries(&b).iter().map(|t| t.ms).collect();
+        assert_eq!(ms, vec![50_000, 60_000]);
+        // a fight opened by hand with no bar seen: from the last death, as before
+        let b = Book::replay(&[e(0, Ev::FightStart), Event::new(50_000, Ev::Death), Event::new(200_000, Ev::Death)]);
+        assert_eq!(tries(&b).iter().map(|t| t.ms).collect::<Vec<_>>(), vec![50_000, 150_000]);
+    }
 
     fn fs(t: u64, boss: &str) -> Event {
         Event { fight: format!("f{t}"), boss: boss.into(), ..Event::new(t, Ev::FightStart) }

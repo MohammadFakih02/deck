@@ -1,7 +1,7 @@
 //! The overlay thread: owns the overlay and toast windows, the raw-input window and the frame
 //! clock. The clock is a high-resolution waitable timer the thread sleeps on together with its
-//! messages: 60 Hz while something moves, 30 Hz faded, 20 Hz hidden, and no timer at all while
-//! the overlay is off (the thread then only wakes for a command).
+//! messages: 60 Hz while something moves, 30 Hz faded, 20 Hz hidden (4 Hz with no controller),
+//! and no timer at all while the overlay is off (the thread then only wakes for a command).
 
 use super::art::{self, Art, Frame, Look};
 use super::battery::Reading;
@@ -529,9 +529,10 @@ impl Ov {
         let toast_on = self.w.as_ref().is_some_and(|w| w.toast.win.alpha > 0.0);
         let alpha = self.w.as_ref().map_or(0.0, |w| w.main.alpha);
         let visible = alpha > 0.0 || toast_on || target > 0.0;
-        // full rate while something moves; faded, 30 Hz is enough to notice the next press; hidden, 20 Hz
+        // full rate while something moves; faded, 30 Hz is enough to notice the next press; hidden, 20 Hz;
+        // hidden with no controller, 4 Hz is enough to notice one coming on
         let lively = self.edit || toast_on || alpha != target || self.sh.tweaking() || test || now.duration_since(self.last_input) < IDLE_FADE + Duration::from_secs(1);
-        self.frame_ms = if visible { if lively { 1000.0 / FPS } else { 33.0 } } else { 50.0 };
+        self.frame_ms = if visible { if lively { 1000.0 / FPS } else { 33.0 } } else if connected { 50.0 } else { 250.0 };
     }
 }
 

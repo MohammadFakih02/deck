@@ -93,7 +93,7 @@ pub fn import_old(app: &App) {
         let mut f = battery::load_floors();
         for (mac, v) in m {
             if let Some(p) = v.as_u64().filter(|p| *p <= 100) {
-                f.map.entry(format!("gamesir:{}", mac.to_ascii_lowercase())).or_insert(p as u8);
+                f.map.entry(format!("gamesir:{}", mac.to_ascii_lowercase())).or_insert(battery::Floor { pct: p as u8, seen: 0 });
                 f.dirty = true;
             }
         }
@@ -132,11 +132,23 @@ pub fn start(app: &Arc<App>) {
         let weak = Arc::downgrade(app);
         let sh2 = sh.clone();
         let mut low = battery::LowWarn::default();
+        // (id, name): the id (a MAC address, a device path) stays out of the log
+        let mut seen: Vec<(String, String)> = vec![];
         battery::start(wanted, move |entries: Vec<battery::Entry>| {
+            // controllers coming and going (by name; the reading changes too often to log)
+            let now: Vec<(String, String)> = entries.iter().map(|e| (e.id.clone(), e.name.clone())).collect();
+            for e in entries.iter().filter(|e| !seen.iter().any(|x| x.0 == e.id)) {
+                crate::log::info(format!("controller: {} found ({}, battery {})", e.name, e.source, e.reading.text()));
+            }
+            for (_, name) in seen.iter().filter(|x| !now.iter().any(|n| n.0 == x.0)) {
+                crate::log::info(format!("controller: {name} gone"));
+            }
+            seen = now;
             *sh2.battery.lock() = entries.clone();
             let Some(a) = weak.upgrade() else { return };
             if a.settings.lock().pad.battery_warn {
                 for e in low.check(&entries) {
+                    crate::log::info(format!("controller: {} battery low ({})", e.name, e.reading.text()));
                     let text = format!("Controller battery low  ·  {}", e.reading.percent.map(|p| format!("{p}%")).unwrap_or_else(|| "low".into()));
                     if sh2.shown.load(Ordering::Relaxed) {
                         post(overlay::Cmd::Say(text, true));
@@ -154,10 +166,12 @@ pub fn start(app: &Arc<App>) {
         let (tx, rx) = channel();
         let a = app.clone();
         let sh2 = sh.clone();
-        let _ = std::thread::Builder::new().name("pad-overlay".into()).spawn(move || {
+        if let Err(e) = std::thread::Builder::new().name("pad-overlay".into()).spawn(move || {
             let sh3 = sh2.clone();
             overlay::run(a, sh2, rx, move |tid| *sh3.cmd.lock() = Some((tx, tid)));
-        });
+        }) {
+            crate::log::error(format!("controller overlay: its thread couldn't be started: {e}"));
+        }
     }
 }
 

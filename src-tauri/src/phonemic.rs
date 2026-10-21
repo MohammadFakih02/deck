@@ -267,7 +267,7 @@ fn get_cable_inner() -> Result<(), String> {
     let dir = std::env::temp_dir().join(format!("deck-vbcable-{}", crate::util::random_token(8)));
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let zip = dir.join("VBCABLE_Driver_Pack.zip");
-    let resp = ureq::get(CABLE_ZIP).timeout(Duration::from_secs(60)).call().map_err(|e| format!("Couldn't download VB-CABLE: {e}"))?;
+    let resp = crate::log::http_agent().get(CABLE_ZIP).timeout(Duration::from_secs(60)).call().map_err(|e| format!("Couldn't download VB-CABLE: {e}"))?;
     let mut body = Vec::new();
     use std::io::Read;
     resp.into_reader().take(20 << 20).read_to_end(&mut body).map_err(|e| e.to_string())?;

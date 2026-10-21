@@ -72,8 +72,23 @@ pub fn pick(v: &Value) -> Option<Release> {
     let assets = v["assets"].as_array()?;
     let url_of = |name: &str| assets.iter().find(|a| a["name"].as_str() == Some(name)).and_then(|a| a["browser_download_url"].as_str()).filter(|u| u.starts_with(FILES) && !u.contains("..") && !u.contains(['\\', ' ']));
     let setup = assets.iter().filter_map(|a| a["name"].as_str()).find(|n| n.ends_with("-setup.exe") && !n.contains(['/', '\\', ':']))?;
-    let notes: String = v["body"].as_str().unwrap_or("").chars().take(4000).collect();
+    let notes = notes_of(v["body"].as_str().unwrap_or(""));
     Some(Release { version: tag.trim_start_matches('v').to_string(), setup_name: setup.to_string(), setup_url: url_of(setup)?.to_string(), sha_url: url_of(&format!("{setup}.sha256"))?.to_string(), notes })
+}
+
+/// Release notes longer than this are cut (at a line end) for the Updates card.
+const NOTES_MAX: usize = 20_000;
+
+/// A release's notes as kept: all of them, or whole lines up to `NOTES_MAX` characters.
+pub fn notes_of(body: &str) -> String {
+    if body.chars().count() <= NOTES_MAX {
+        return body.to_string();
+    }
+    let cut: String = body.chars().take(NOTES_MAX).collect();
+    match cut.rfind('\n') {
+        Some(i) => cut[..i].to_string(),
+        None => cut,
+    }
 }
 
 /// The SHA-256 in a `.sha256` file ("<hex>  <name>" or just "<hex>"), lower case.
@@ -162,7 +177,9 @@ fn load() -> Saved {
 
 fn store(s: &Saved) {
     let _ = std::fs::create_dir_all(crate::settings::Settings::dir());
-    let _ = crate::util::write_atomic(&saved_path(), serde_json::to_string(s).unwrap_or_default().as_bytes());
+    if let Err(e) = crate::util::write_atomic(&saved_path(), serde_json::to_string(s).unwrap_or_default().as_bytes()) {
+        crate::log::warn(format!("update: what was found couldn't be saved ({e}); the next start asks GitHub again"));
+    }
 }
 
 // ------------------------------------------------------------ checking
@@ -170,12 +187,23 @@ fn store(s: &Saved) {
 /// Gives up on a connection that stalls for a minute, not on a download that takes longer than one
 /// (a 10 MB setup takes about a minute on a slow line).
 fn agent() -> ureq::Agent {
-    ureq::AgentBuilder::new().timeout_connect(Duration::from_secs(10)).timeout_read(Duration::from_secs(60)).timeout_write(Duration::from_secs(60)).build()
+    crate::log::http(ureq::AgentBuilder::new()).timeout_connect(Duration::from_secs(10)).timeout_read(Duration::from_secs(60)).timeout_write(Duration::from_secs(60)).build()
 }
 
 /// Asks GitHub for the latest release (one request; a 304 costs nothing). Updates the saved
 /// answer and returns the release when it is newer than this build.
 fn check() -> Result<Option<Release>, String> {
+    let op = crate::log::Op::start("update", "check for a newer version");
+    let r = check_inner();
+    match &r {
+        Ok(Some(rel)) => op.ok(format!("{} is out (this is {})", rel.version, env!("CARGO_PKG_VERSION"))),
+        Ok(None) => op.ok_quiet("nothing newer"),
+        Err(e) => op.fail(e),
+    }
+    r
+}
+
+fn check_inner() -> Result<Option<Release>, String> {
     let mut saved = load();
     let mut req = agent().get(API).timeout(Duration::from_secs(60)).set("User-Agent", "Deck").set("Accept", "application/vnd.github+json");
     if let (Some(tag), Some(_)) = (&saved.etag, &saved.release) {
@@ -434,13 +462,17 @@ fn install(app: &Arc<App>, r: &Release) {
         s.error = None;
         s.waiting = false;
     });
+    let op = crate::log::Op::start("update", format!("install {} ({})", r.version, if silent { "without a prompt" } else { "asking for admin rights" }));
     let result = if silent { install_silent(app, r) } else { install_asking(app, r) };
+    match &result {
+        Ok(()) => op.ok("the setup runs; it closes this Deck"),
+        Err((e, retry_after)) => op.fail(format!("{e} (tried again in {} min)", retry_after / 60)),
+    }
     if let Err((e, retry_after)) = result {
         let mut saved = load();
         saved.failed = Some(r.version.clone());
         saved.retry_at = crate::util::now_s() + retry_after;
         store(&saved);
-        crate::log::warn(format!("update {}: {e}", r.version));
         set(app, |s| {
             s.state = "error";
             s.error = Some(e);
@@ -571,10 +603,8 @@ fn tick(app: &Arc<App>) -> Duration {
     if now.saturating_sub(saved.checked) >= CHECK_EVERY_S {
         match check() {
             Ok(r) => release = r,
-            Err(e) => {
-                crate::log::info(format!("update check: {e}"));
-                return RETRY;
-            }
+            // logged by `check`
+            Err(_) => return RETRY,
         }
     }
     apply_found(app, release.as_ref());
@@ -593,6 +623,9 @@ fn tick(app: &Arc<App>) -> Duration {
         return Duration::from_secs(CHECK_EVERY_S / 4);
     }
     if busy_with_game(app) {
+        if crate::log::every(&format!("update waits {}", r.version), Duration::from_secs(3600)) {
+            crate::log::info(format!("update {}: waiting for the game in front to close", r.version));
+        }
         set_quiet(app, |s| s.waiting = true);
         return POLL;
     }
@@ -634,6 +667,17 @@ mod tests {
                 { "name": format!("{setup}.sha256"), "browser_download_url": sha_url },
             ]
         })
+    }
+
+    #[test]
+    fn release_notes_are_kept_whole_or_cut_at_a_line_end() {
+        // 2.7.5's notes were 5,672 characters and ended "a release bi" on the Updates card
+        let notes = "### Fixed\n".to_string() + &"- a fix that takes a while to explain\n".repeat(160);
+        assert_eq!(notes_of(&notes), notes, "a long changelog is kept whole");
+        let huge = "- line\n".repeat(5000);
+        let kept = notes_of(&huge);
+        assert!(kept.chars().count() <= NOTES_MAX);
+        assert!(kept.ends_with("- line"), "never cut mid-line");
     }
 
     #[test]

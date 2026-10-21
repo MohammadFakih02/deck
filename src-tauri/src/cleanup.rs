@@ -213,11 +213,14 @@ fn clean(t: &Target) -> (u64, u64) {
                 }
             }
         }
-        if crate::disk::recycle(&batch).is_err() {
+        if let Err(e) = crate::disk::recycle(&batch) {
+            crate::log::warn(format!("cleanup: {}: {n} files couldn't go to the Recycle Bin: {e}", t.id));
             return (0, 0);
         }
+        crate::log::info(format!("cleanup: {}: {n} files ({}) to the Recycle Bin", t.id, crate::util::fmt_bytes(freed)));
         return (freed, n);
     }
+    let mut skipped = 0u64;
     for root in &t.paths {
         // deleted through a held folder that really is inside the target (fsguard.rs): a folder
         // swapped for a link after the scan can't lead the deletes anywhere else
@@ -232,6 +235,8 @@ fn clean(t: &Target) -> (u64, u64) {
                 if remove_in(&root_real, &e.path(), &mut held).is_ok() {
                     freed += len;
                     n += 1;
+                } else {
+                    skipped += 1;
                 }
             }
         }
@@ -245,6 +250,8 @@ fn clean(t: &Target) -> (u64, u64) {
             }
         }
     }
+    // which target, how much: the files themselves stay out of the log
+    crate::log::info(format!("cleanup: {}: {n} files removed ({}), {skipped} skipped (in use or protected)", t.id, crate::util::fmt_bytes(freed)));
     (freed, n)
 }
 
@@ -323,9 +330,15 @@ impl Cleanup {
             }
             if ids.iter().any(|i| i == "recycle") {
                 let (s, c) = recycle_bin();
-                if empty_recycle_bin().is_ok() {
-                    freed += s;
-                    n += c;
+                match empty_recycle_bin() {
+                    Ok(()) => {
+                        crate::log::info(format!("cleanup: Recycle Bin emptied ({c} items, {})", crate::util::fmt_bytes(s)));
+                        freed += s;
+                        n += c;
+                    }
+                    // an empty bin answers with an error too
+                    Err(e) if c > 0 => crate::log::warn(format!("cleanup: the Recycle Bin couldn't be emptied ({c} items): {e}")),
+                    Err(_) => {}
                 }
             }
             *me.last.lock() = Some((freed, n));

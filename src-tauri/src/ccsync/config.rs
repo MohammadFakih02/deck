@@ -264,6 +264,7 @@ impl Shared {
 
     pub fn log(&self, msg: impl Into<String>) {
         let msg = msg.into();
+        crate::log::debug_with(|| format!("claude sync: {msg}"));
         let t = now_ms() / 1000;
         let line = format!("{} {}", clock(t), msg);
         {

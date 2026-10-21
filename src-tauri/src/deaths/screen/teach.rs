@@ -57,6 +57,8 @@ fn unhex(s: &str) -> Option<Vec<u8>> {
 
 /// A print decoded for matching.
 pub struct Taught {
+    /// where it came from, for the death it counts (`Event.by`): "taught:<made>", "library"
+    pub by: String,
     cells: Vec<usize>,
     values: Vec<f32>,
     mean: f32,
@@ -77,7 +79,7 @@ impl Taught {
         }
         let mean = values.iter().sum::<f32>() / values.len() as f32;
         let norm = values.iter().map(|v| (v - mean).powi(2)).sum::<f32>().sqrt();
-        Some(Taught { cells, values, mean, norm, aspect: p.aspect })
+        Some(Taught { by: String::new(), cells, values, mean, norm, aspect: p.aspect })
     }
 
     /// Taught on a picture of this shape (within 3 %): a 16:9 death screen lands on other cells of
@@ -105,6 +107,45 @@ impl Taught {
         let dot: f32 = got.iter().zip(&self.values).map(|(a, b)| (a - mean) * (b - self.mean)).sum();
         dot / (norm * self.norm) >= MIN_CORR
     }
+}
+
+/// A print's picture is `W` x `H`; cells outside the print are this colour.
+pub const W: usize = TW;
+pub const H: usize = TH;
+pub const BACK: [u8; 3] = [24, 26, 30];
+
+/// A print as an RGB picture for the page: its cells in their grey (stretched from dark to white:
+/// a faded death screen's words are dim), the rest dark, so you can see which death screen it is.
+pub fn picture(p: &Print) -> Option<Vec<u8>> {
+    let bits = unhex(&p.mask)?;
+    let values = unhex(&p.values)?;
+    if bits.len() != TW * TH / 8 {
+        return None;
+    }
+    let cells: Vec<usize> = (0..TW * TH).filter(|i| bits[i / 8] & (1 << (i % 8)) != 0).collect();
+    if cells.len() != values.len() {
+        return None;
+    }
+    let (lo, hi) = (values.iter().min().copied().unwrap_or(0) as u32, values.iter().max().copied().unwrap_or(0) as u32);
+    let mut px = BACK.repeat(TW * TH);
+    for (c, v) in cells.iter().zip(&values) {
+        let g = if hi > lo { 60 + (*v as u32 - lo) * 195 / (hi - lo) } else { 255 };
+        px[c * 3..c * 3 + 3].fill(g as u8);
+    }
+    Some(px)
+}
+
+/// Where on the screen a print looks (thousandths of the picture): around its cells.
+pub fn area(p: &Print) -> Option<super::bar::Spot> {
+    let bits = unhex(&p.mask)?;
+    if bits.len() != TW * TH / 8 {
+        return None;
+    }
+    let cells: Vec<usize> = (0..TW * TH).filter(|i| bits[i / 8] & (1 << (i % 8)) != 0).collect();
+    let (x0, x1) = (cells.iter().map(|i| i % TW).min()?, cells.iter().map(|i| i % TW).max()? + 1);
+    let (y0, y1) = (cells.iter().map(|i| i / TW).min()?, cells.iter().map(|i| i / TW).max()? + 1);
+    let k = |v: usize, of: usize| (v * 1000 / of) as u16;
+    Some(super::bar::Spot { x0: k(x0, TW), x1: k(x1, TW), y0: k(y0, TH), y1: k(y1, TH) })
 }
 
 fn mean_diff(a: &[u8], b: &[u8]) -> u32 {
@@ -194,6 +235,38 @@ pub fn learn(strip: &[Vec<u8>], pick: usize, made: u64) -> Result<Print, String>
     Ok(print)
 }
 
+/// The screen that showed up before each of several deaths (or wins) counted by hand: the one
+/// Deck missed, whatever it shows (words in any language, a symbol, a red flash). `strips`: the
+/// thumbnails before each, oldest first; the newest strip is learned from. A frame of it counts
+/// when it can be learned (it stands out from the play around it) and the print shows in every
+/// other strip without filling it. The first such screen wins (the death screen comes before the
+/// loading screen after it), at the middle of its run (clear, not fading in). Returns the frame of
+/// the newest strip and the print.
+pub fn shared_screen(strips: &[Vec<Vec<u8>>], made: u64) -> Option<(usize, Print)> {
+    let (newest, others) = strips.split_last()?;
+    if others.is_empty() {
+        return None;
+    }
+    let everywhere = |p: &Print| {
+        Taught::new(p).is_some_and(|t| {
+            others.iter().all(|s| {
+                let hits = s.iter().filter(|f| f.len() == TW * TH && t.matches(f)).count();
+                hits > 0 && hits < s.len()
+            })
+        })
+    };
+    let good: Vec<(usize, Print)> = (0..newest.len()).filter_map(|i| learn(newest, i, made).ok().filter(|p| everywhere(p)).map(|p| (i, p))).collect();
+    // the first run (a frame or two missing inside it is the same run)
+    let mut run = good.iter().take(1).collect::<Vec<_>>();
+    for g in good.iter().skip(1) {
+        if g.0 > run.last()?.0 + 2 {
+            break;
+        }
+        run.push(g);
+    }
+    run.get(run.len() / 2).map(|g| (*g).clone())
+}
+
 /// The cells that are part of a line across: words ("KHAZAN HAS FALLEN"), or a symbol's strokes. The
 /// figure and the scene behind a death screen are different at every death; those edges go.
 fn in_a_line(cells: &[usize]) -> Vec<usize> {
@@ -268,6 +341,19 @@ pub fn unshare(code: &str) -> Result<(String, String, Vec<Print>), String> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn a_print_draws_as_its_cells() {
+        let mut bits = vec![0u8; TW * TH / 8];
+        bits[0] = 0b101; // cells 0 and 2
+        let p = Print { mask: hex(&bits), values: hex(&[200, 90]), made: 1, aspect: 0 };
+        let px = picture(&p).unwrap();
+        assert_eq!(px.len(), TW * TH * 3);
+        assert_eq!(&px[0..3], &[255, 255, 255], "the brightest cell is white");
+        assert_eq!(&px[3..6], &BACK, "cells outside the print");
+        assert_eq!(&px[6..9], &[60, 60, 60], "the darkest is still above the background");
+        assert!(picture(&Print { values: hex(&[1]), ..p }).is_none(), "mask and values disagree");
+    }
+
     /// gameplay: a soft gradient that drifts a little each frame
     fn play(i: usize) -> Vec<u8> {
         (0..TW * TH).map(|c| (60 + (c % TW) + (c / TW) + (i * 3) % 20) as u8).collect()
@@ -299,6 +385,23 @@ mod tests {
         assert!(!t.matches(&vec![2u8; TW * TH]), "a black loading screen");
         let darker: Vec<u8> = play(42).iter().map(|v| v / 4).collect();
         assert!(!t.matches(&darker), "a dark scene without the symbol");
+    }
+
+    #[test]
+    fn the_screen_before_each_death_counted_by_hand_is_found() {
+        let loading = || vec![10u8; TW * TH];
+        // play, the death screen, a loading screen, play again; at different times in each strip
+        let a: Vec<Vec<u8>> = (0..20).map(play).chain((20..26).map(death)).chain((0..4).map(|_| loading())).chain((30..34).map(play)).collect();
+        let b: Vec<Vec<u8>> = (100..112).map(play).chain((112..117).map(death)).chain((0..3).map(|_| loading())).chain((120..130).map(play)).collect();
+        let (i, p) = shared_screen(&[a, b.clone()], 7).expect("the death screen");
+        assert!((12..17).contains(&i), "a frame of the death screen in the newest strip: {i}");
+        assert_eq!(p.made, 7);
+        assert!(Taught::new(&p).unwrap().matches(&death(200)), "and it sees the death screen later");
+        assert!(!Taught::new(&p).unwrap().matches(&play(201)));
+        // one strip alone, or a strip without that screen: nothing to go on
+        assert!(shared_screen(std::slice::from_ref(&b), 7).is_none());
+        let none: Vec<Vec<u8>> = (300..340).map(play).collect();
+        assert!(shared_screen(&[none, b], 7).is_none());
     }
 
     #[test]

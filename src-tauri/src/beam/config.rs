@@ -361,7 +361,9 @@ impl Shared {
     }
 
     pub fn log(&self, msg: impl Into<String>) {
-        let line = format!("{}  {}", clock(), msg.into());
+        let msg = msg.into();
+        crate::log::debug_with(|| format!("transfer: {msg}"));
+        let line = format!("{}  {}", clock(), msg);
         {
             let mut l = self.logs.lock_anyway();
             l.push_back(line.clone());
@@ -369,7 +371,12 @@ impl Shared {
                 l.pop_front();
             }
         }
-        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(self.paths.data.join("log.txt")) {
+        // kept to two files of 2 MB, as Deck's own log is kept small
+        let file = self.paths.data.join("log.txt");
+        if std::fs::metadata(&file).map(|m| m.len() > 2 << 20).unwrap_or(false) {
+            let _ = std::fs::rename(&file, self.paths.data.join("log.old.txt"));
+        }
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&file) {
             use std::io::Write;
             let _ = writeln!(f, "{line}");
         }

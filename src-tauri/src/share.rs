@@ -260,6 +260,14 @@ pub fn create(path: &str, hours: u64, max: u32, internet: bool) -> Result<Value,
         st.shares.push(share.clone());
         save(&st.shares);
     }
+    crate::log::info(format!(
+        "share: link {now} made for a {} ({}), {} h, {} download(s), {}",
+        if folder { "folder" } else { "file" },
+        if folder { "zipping".to_string() } else { crate::util::fmt_bytes(meta.len()) },
+        hours.clamp(1, 24 * 30),
+        if max == 0 { "any number of".to_string() } else { max.to_string() },
+        if internet { "open to the internet" } else { "home network only" }
+    ));
     if folder {
         // zipped by Windows' own tar (bsdtar), next to the shares list
         let (zip, parent, leaf, tok) = (share.path.clone(), p.parent().map(Path::to_path_buf).unwrap_or_default(), name.clone(), token.clone());
@@ -280,6 +288,7 @@ pub fn create(path: &str, hours: u64, max: u32, internet: bool) -> Result<Value,
                     s.preparing = false;
                     s.size = size;
                     if !ok || size == 0 {
+                        crate::log::warn(format!("share: link {} ended: the folder couldn't be zipped", s.created));
                         s.error = "Couldn't zip the folder".into();
                         s.expires = 0;
                     }
@@ -299,6 +308,7 @@ pub fn stop(token: &str) -> Value {
     {
         let mut st = ST.lock();
         if let Some(s) = st.shares.iter_mut().find(|s| s.token == token) {
+            crate::log::info(format!("share: link {} ended by the user", s.created));
             s.expires = 0;
             s.preparing = false;
         }
@@ -412,9 +422,13 @@ impl Drop for Slot {
         let left = {
             let mut st = ST.lock();
             end_slot(&mut st.shares, &self.token, self.done);
+            // a link by when it was made: its token is the key to the file and stays out of the log
+            let made = st.shares.iter().find(|s| s.token == self.token).map(|s| s.created).unwrap_or(0);
             if !self.done {
+                crate::log::info(format!("share: a download of link {made} broke off (its place is free again)"));
                 return;
             }
+            crate::log::info(format!("share: link {made} was downloaded"));
             save(&st.shares);
             st.shares.iter().find(|s| s.token == self.token).map(|s| if s.max == 0 { None } else { Some(s.max.saturating_sub(s.done)) })
         };

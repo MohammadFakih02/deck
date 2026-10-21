@@ -24,8 +24,13 @@ impl Ocr {
 
     /// The text in a BGRA picture, one line per line found ("" when none).
     pub fn read(&self, w: usize, h: usize, bgra: &[u8]) -> windows::core::Result<String> {
+        Ok(self.lines(w, h, bgra)?.into_iter().map(|l| l.text).collect::<Vec<_>>().join("\n"))
+    }
+
+    /// The lines of text in a BGRA picture, each with how high up it is (from its words' boxes).
+    pub fn lines(&self, w: usize, h: usize, bgra: &[u8]) -> windows::core::Result<Vec<Line>> {
         if w == 0 || h == 0 || w > self.max || h > self.max || bgra.len() < w * h * 4 {
-            return Ok(String::new());
+            return Ok(Vec::new());
         }
         let writer = DataWriter::new()?;
         writer.WriteBytes(&bgra[..w * h * 4])?;
@@ -33,10 +38,24 @@ impl Ocr {
         let result = self.engine.RecognizeAsync(&bmp)?.join()?;
         let mut lines = Vec::new();
         for line in result.Lines()? {
-            lines.push(line.Text()?.to_string());
+            let (mut y0, mut y1) = (f32::MAX, 0f32);
+            for word in line.Words()? {
+                let r = word.BoundingRect()?;
+                y0 = y0.min(r.Y);
+                y1 = y1.max(r.Y + r.Height);
+            }
+            lines.push(Line { text: line.Text()?.to_string(), y0: y0.min(y1), y1 });
         }
-        Ok(lines.join("\n"))
+        Ok(lines)
     }
+}
+
+/// A line of text read, and the rows it covers (pixels from the top of the picture read).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Line {
+    pub text: String,
+    pub y0: f32,
+    pub y1: f32,
 }
 
 #[cfg(test)]

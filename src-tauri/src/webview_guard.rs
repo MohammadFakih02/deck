@@ -139,8 +139,12 @@ pub fn spawn_watchdog(app: AppHandle, label: &'static str) {
             let quiet = now.saturating_sub(LAST_BEAT.load(Ordering::Relaxed));
             // Focus matters for the reload: a locked screen or a sleeping display also silences the page.
             if quiet > 90_000 && w.is_focused().unwrap_or(false) {
+                crate::log::warn(format!("window: the {label} page stopped answering for {} s; reloaded", quiet / 1000));
                 reload(&w);
             } else if quiet > 15_000 && now.saturating_sub(nudged_at) > 15_000 {
+                if crate::log::every(&format!("nudge {label}"), Duration::from_secs(600)) {
+                    crate::log::info(format!("window: the {label} page was quiet for {} s; asked it to repaint", quiet / 1000));
+                }
                 nudged_at = now;
                 repaint_nudge(&w);
             }

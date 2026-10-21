@@ -109,7 +109,7 @@ function overlayTab(st) {
     h("div", { class: "settings-card" },
       row("Fade when idle", "After 6 seconds without input it fades to 30%.", toggle(!!s.fade, (v) => setPad({ fade: v }))),
       kbm ? null : row("Hide without a controller", "Nothing on screen until a controller connects.", toggle(!!s.hide_no_pad, (v) => setPad({ hide_no_pad: v }))),
-      row("Hide from screenshots and recordings", "Off: it shows up in recordings and screen shares too.", toggle(!!s.capture_hidden, (v) => setPad({ capture_hidden: v }))),
+      row("Hide from screenshots and recordings", "Off: it shows up in recordings and screen shares too. On: NVIDIA Instant Replay (ShadowPlay) turns itself off while the overlay is up, because it takes a hidden window for protected video.", toggle(!!s.capture_hidden, (v) => setPad({ capture_hidden: v }))),
       row("Reset the overlay", "Look, position and keys back to how they started.",
         h("button", { class: "btn sm", onclick: async () => { if (await confirmBox("Reset the overlay?", "Its look, position and keys go back to how they started.", "Reset")) setPad(DEFAULTS); } }, I("undo"), "Reset"))),
     h("p", { class: "small dim pad-foot" }, "The tray menu has the same switches under Controller overlay. Some games in exclusive fullscreen hide every outside overlay; borderless or windowed mode shows it."));

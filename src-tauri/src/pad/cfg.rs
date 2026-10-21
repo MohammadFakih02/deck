@@ -70,7 +70,8 @@ pub struct PadSettings {
     pub mode: String,
     pub keys: Vec<String>,
     pub mouse: bool,
-    /// keep the overlay out of screenshots and recordings (WDA_EXCLUDEFROMCAPTURE)
+    /// keep the overlay out of screenshots and recordings (WDA_EXCLUDEFROMCAPTURE). Off by default:
+    /// NVIDIA's capture sees such a window as protected content and turns Instant Replay off.
     pub capture_hidden: bool,
     /// one tray icon per controller that reports its battery
     pub battery_tray: bool,
@@ -98,7 +99,7 @@ impl Default for PadSettings {
             mode: "controller".into(),
             keys: DEFAULT_KEYS.iter().map(|s| s.to_string()).collect(),
             mouse: true,
-            capture_hidden: true,
+            capture_hidden: false,
             battery_tray: true,
             battery_warn: true,
         }
@@ -193,6 +194,13 @@ mod tests {
         assert!(s.fade);
         assert_eq!(s.mode, "kbm");
         assert!(s.on);
+    }
+
+    #[test]
+    fn shows_in_recordings_by_default() {
+        // a window hidden from capture is "protected content" to NVIDIA, which turns Instant Replay off
+        assert!(!PadSettings::default().capture_hidden);
+        assert!(!PadSettings::from_value(&json!({})).capture_hidden);
     }
 
     #[test]

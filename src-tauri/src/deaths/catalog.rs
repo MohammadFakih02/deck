@@ -19,6 +19,10 @@ pub struct Entry {
     pub kind: String,
     /// words on the game's own death screen, upper case ("YOU DIED")
     pub words: Vec<String>,
+    /// words on its banner when a boss is beaten, upper case ("ENEMY FELLED")
+    pub win: Vec<String>,
+    /// where its boss bar is when that isn't centred at the top or the bottom (Sekiro: top left)
+    pub bar: Option<super::screen::bar::Spot>,
     /// a save reader Deck has for it ("eldenring", …), "" for none
     pub save: String,
     /// the words or reader were checked in the real game

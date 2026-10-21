@@ -152,7 +152,7 @@ fn valve_relays() -> Result<Vec<(String, String, Vec<String>)>, String> {
             return Ok(v.clone());
         }
     }
-    let agent = ureq::AgentBuilder::new().timeout(Duration::from_secs(8)).build();
+    let agent = crate::log::http(ureq::AgentBuilder::new()).timeout(Duration::from_secs(8)).build();
     let v: Value = agent
         .get("https://api.steampowered.com/ISteamApps/GetSDRConfig/v1/?appid=730")
         .call()

@@ -6,6 +6,19 @@ All notable changes to Deck. Setups for each version are on the [Releases](https
 
 ### Changed
 - The design notes moved to `docs/design/`.
+- **The overlay key shows the overlay at once**, also in busy games (Helldivers 2): RivaTuner's own "show" switch is now flipped the moment the key is pressed, for 64-bit games first, instead of after Deck's next sensor read.
+- **Deck's log says much more**, so a problem can be found from the log alone: failed web requests and programs, failed buttons and page errors, profile switches, updates, the phone remote's connections and refusals, share links, Game boost, Clean up, display and startup-app changes, the hardware engine starting and handing the fans back, controllers coming and going, and the death counter's watching. Passwords, keys and tokens are masked, your user name is taken out of paths and the PC's name out of every line, and a line that keeps repeating is counted instead of filling the log. The support report now includes the last 80 lines. For even more detail, put an empty file named `debug` in `%LOCALAPPDATA%\Deck\logs`.
+
+### Fixed
+- Transfer's own log (`log.txt`) grew without limit; it now keeps two files of 2 MB.
+- The death counter could keep Windows' text reader busy for minutes at a time, reading bars that aren't a boss's (a flickering HUD bar, an enemy's bar that moves with it) over and over. After a bar with no name, the next one is read only after a short wait, and a real boss's fight still starts from when its bar showed up.
+- The death counter no longer takes a game's own messages for a boss ("Bot Drop Detected" in Helldivers 2), drops names made of reader noise ("Ei.atL1"), and takes a stray accent out of a name ("Mutatéd" becomes "Mutated").
+- Deaths → Now: the big numbers sat in black boxes. The page is laid out again: the game, its fight and both counters in one card, the session's numbers in a card like Records, and the session's deadliest boss no longer looks like the all-time one.
+- Every overlay key press logged "the 32-bit helper couldn't set RivaTuner's switch" although it had: the helper's "changed it" answer was read as a failure.
+
+### Changed (performance)
+- The controller overlay checks for a controller 4 times a second instead of 20 while it is hidden and none is connected.
+- The in-game overlay's loop sleeps until it is woken, instead of checking 40 times a second whether something changed.
 
 ## 2.7.5 — 2026-10-20
 

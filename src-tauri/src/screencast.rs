@@ -309,7 +309,16 @@ impl Capturer {
             gdi_shot(&self.mon, w, h)
         } else {
             if self.dup.is_none() && Instant::now() >= self.dup_retry {
-                self.dup = Dup::new(&self.mon, self.p.max_w).ok();
+                self.dup = match Dup::new(&self.mon, self.p.max_w) {
+                    Ok(d) => Some(d),
+                    Err(e) => {
+                        // tried every 3 s (a locked PC, an admin prompt): said once in a while
+                        if crate::log::every("screencast dup", Duration::from_secs(600)) {
+                            crate::log::info(format!("screen view: desktop duplication unavailable ({e}); using the slower GDI copy"));
+                        }
+                        None
+                    }
+                };
                 if self.dup.is_none() {
                     self.dup_retry = Instant::now() + Duration::from_secs(3);
                 }
@@ -1279,12 +1288,22 @@ fn spawn_h264(video: Video, out: &tokio::sync::mpsc::Sender<Out>, fb: &Arc<parki
                             announced = false;
                             while enc.is_none() {
                                 let Some(c) = cands.get(ci) else {
+                                    crate::log::warn(format!("screen view: no H.264 encoder worked; last: {last_err}"));
                                     done(1);
                                     let _ = fail.send(format!("no H.264 encoder worked ({last_err})"));
                                     return;
                                 };
                                 match h264::Encoder::open_as(c, w, h, f.fps, f.kbps, video == Video::Sw) {
-                                    Ok(e) => enc = Some((e, w, h, f.fps)),
+                                    Ok(e) => {
+                                        // opened again on every size change: detail, unless an encoder had failed
+                                        let msg = format!("screen view: H.264 with {} at {w}x{h}, {} fps, {} kb/s{}", c.name, f.fps, f.kbps, if last_err.is_empty() { String::new() } else { format!(" (after: {last_err})") });
+                                        if last_err.is_empty() {
+                                            crate::log::debug(msg);
+                                        } else {
+                                            crate::log::info(msg);
+                                        }
+                                        enc = Some((e, w, h, f.fps))
+                                    }
                                     Err(er) => {
                                         last_err = format!("{}: {er} at {w}x{h} {}k", c.name, f.kbps);
                                         ci += 1

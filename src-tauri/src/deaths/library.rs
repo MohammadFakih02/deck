@@ -102,6 +102,8 @@ pub fn parse(text: &str) -> Option<Library> {
 
 static ACTIVE: RwLock<Option<Arc<Library>>> = RwLock::new(None);
 static ENABLED: AtomicBool = AtomicBool::new(true);
+/// games whose library death screens aren't used ("Don't use these for this game")
+static OFF: RwLock<Vec<String>> = RwLock::new(Vec::new());
 static STATE: Mutex<Refresh> = Mutex::new(Refresh { next: None, busy: false });
 
 struct Refresh {
@@ -139,7 +141,7 @@ fn current() -> Arc<Library> {
 
 /// The library's death screens for `game` (empty when the library is off).
 pub fn prints(game: &str) -> Vec<Print> {
-    if !ENABLED.load(Ordering::Relaxed) {
+    if !ENABLED.load(Ordering::Relaxed) || is_off(game) {
         return Vec::new();
     }
     current().games.get(game).map(|g| g.prints.clone()).unwrap_or_default()
@@ -158,6 +160,20 @@ pub fn count(game: &str) -> usize {
 /// The setting changed; true when that changes what the watchers should match.
 pub fn set_enabled(on: bool) -> bool {
     ENABLED.swap(on, Ordering::Relaxed) != on
+}
+
+/// The games that don't use the library; true when that changed.
+pub fn set_off(games: &[String]) -> bool {
+    let mut off = OFF.write();
+    if off.as_slice() == games {
+        return false;
+    }
+    *off = games.to_vec();
+    true
+}
+
+pub fn is_off(game: &str) -> bool {
+    OFF.read().iter().any(|g| g == game)
 }
 
 /// Adopts a downloaded copy when it is valid and newer; true when it was. "Newer" includes the same
@@ -218,7 +234,7 @@ fn fetch() -> Result<bool, String> {
     if now.saturating_sub(last) < REFRESH_EVERY_SECS {
         return Ok(false);
     }
-    let agent = ureq::AgentBuilder::new().timeout_connect(Duration::from_secs(10)).timeout(Duration::from_secs(30)).build();
+    let agent = crate::log::http(ureq::AgentBuilder::new()).timeout_connect(Duration::from_secs(10)).timeout(Duration::from_secs(30)).build();
     let mut req = agent.get(URL).set("User-Agent", "Deck");
     if let Some(tag) = meta["etag"].as_str() {
         req = req.set("If-None-Match", tag);
@@ -263,6 +279,16 @@ mod tests {
         let hex = |b: &[u8]| b.iter().map(|v| format!("{v:02x}")).collect::<String>();
         let values: Vec<u8> = (0..40).map(|i| (100 + i * 3) as u8).collect();
         Print { mask: hex(&bits), values: hex(&values), made: 1, aspect: 0 }
+    }
+
+    #[test]
+    fn a_game_can_stop_using_the_library() {
+        assert!(set_off(&["exe:test-off".to_string()]));
+        assert!(!set_off(&["exe:test-off".to_string()]), "no change");
+        assert!(is_off("exe:test-off"));
+        assert!(prints("exe:test-off").is_empty());
+        assert!(set_off(&[]));
+        assert!(!is_off("exe:test-off"));
     }
 
     #[test]

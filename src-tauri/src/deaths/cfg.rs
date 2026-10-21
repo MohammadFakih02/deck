@@ -20,6 +20,8 @@ pub struct CardLines {
     pub try_len: bool,
     /// time spent on this boss
     pub boss_time: bool,
+    /// the boss's health left (where Deck saw its bar)
+    pub boss_hp: bool,
     /// deaths this session
     pub session: bool,
     /// the last 10 tries as bars
@@ -32,7 +34,7 @@ pub struct CardLines {
 
 impl Default for CardLines {
     fn default() -> Self {
-        CardLines { try_no: true, try_len: true, boss_time: true, session: true, bars: true, note: true, my_note: false }
+        CardLines { try_no: true, try_len: true, boss_time: true, boss_hp: true, session: true, bars: true, note: true, my_note: false }
     }
 }
 
@@ -75,10 +77,20 @@ pub struct DeathSettings {
     pub auto_save: bool,
     /// watch the screen for death screens
     pub auto_screen: bool,
+    /// while watching the screen, open and time boss fights from the boss's health bar
+    pub auto_boss: bool,
+    /// names the screen found that aren't bosses ("Not a boss"): "game key\tname"
+    pub not_bosses: Vec<String>,
+    /// where a game's boss bar is, shown by picking it (game key -> spot)
+    pub bar_spots: std::collections::BTreeMap<String, super::screen::bar::Spot>,
+    /// where a game shows the boss's name, shown by drawing a box (game key -> spot)
+    pub name_spots: std::collections::BTreeMap<String, super::screen::bar::Spot>,
     /// use the shared death-screen library (the repo's, refreshed from GitHub at most once a day)
     pub community_library: bool,
     /// games turned off ("Don't count this game"): game keys
     pub off_games: Vec<String>,
+    /// games that don't use the shared library's death screens (one was wrong): game keys
+    pub library_off: Vec<String>,
 }
 
 impl Default for DeathSettings {
@@ -90,7 +102,7 @@ impl Default for DeathSettings {
             pill_corner: "top".into(),
             pill_scale: 1.0,
             pill_opacity: 0.9,
-            pill_in_recordings: false,
+            pill_in_recordings: true,
             pill_style: "skull".into(),
             pill_counts: "both".into(),
             pill_outside: "game".into(),
@@ -103,8 +115,13 @@ impl Default for DeathSettings {
             pad_combo: false,
             auto_save: true,
             auto_screen: true,
+            auto_boss: true,
+            not_bosses: Vec::new(),
+            bar_spots: Default::default(),
+            name_spots: Default::default(),
             community_library: true,
             off_games: Vec::new(),
+            library_off: Vec::new(),
         }
     }
 }
@@ -140,6 +157,7 @@ mod tests {
         let s: DeathSettings = serde_json::from_str(r#"{"pill":true}"#).unwrap();
         assert_eq!((s.pill_style.as_str(), s.pill_counts.as_str(), s.pill_outside.as_str(), s.card, s.card_secs, s.red_edge), ("skull", "both", "game", true, 5, false));
         assert!(s.card_lines.bars && !s.card_lines.my_note);
+        assert!(s.pill_in_recordings, "hiding from capture makes NVIDIA turn Instant Replay off");
         let s: DeathSettings = serde_json::from_str(r#"{"pill_style":"neon","pill_counts":"x","pill_outside":"y","card_secs":60,"card_lines":{"bars":false}}"#).unwrap();
         let s = s.clamped();
         assert_eq!((s.pill_style.as_str(), s.pill_counts.as_str(), s.pill_outside.as_str(), s.card_secs), ("skull", "both", "game", 10));

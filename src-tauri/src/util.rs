@@ -209,7 +209,12 @@ fn retry_as_user(mut attempt: impl FnMut() -> Result<(), String>, tries: u32, wa
             std::thread::sleep(wait);
         }
         match attempt() {
-            Ok(()) => return Ok(()),
+            Ok(()) => {
+                if i > 0 {
+                    crate::log::info(format!("open as the user: Explorer answered on try {} (before: {last})", i + 1));
+                }
+                return Ok(());
+            }
             Err(e) => last = e,
         }
     }
@@ -272,7 +277,9 @@ unsafe fn via_explorer(file: &str, args: &str, dir: &str) -> windows::core::Resu
 
 /// Opens a folder in Explorer with `path` selected.
 pub fn reveal(path: &str) {
-    let _ = Command::new("explorer").arg(format!("/select,{path}")).spawn();
+    if let Err(e) = Command::new("explorer").arg(format!("/select,{path}")).spawn() {
+        crate::log::warn(format!("reveal: Explorer couldn't be started: {e}"));
+    }
 }
 
 /// Runs a console program without flashing a window.
@@ -289,7 +296,16 @@ pub fn run_for(secs: u64, exe: &str, args: &[&str]) -> std::io::Result<std::proc
     use std::os::windows::process::CommandExt;
     use std::process::Stdio;
     use std::time::{Duration, Instant};
-    let mut child = Command::new(exe).args(args).creation_flags(CREATE_NO_WINDOW).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
+    let started = Instant::now();
+    // the program by name only: arguments can hold paths and keys
+    let name = std::path::Path::new(exe).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| exe.to_string());
+    let mut child = match Command::new(exe).args(args).creation_flags(CREATE_NO_WINDOW).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn() {
+        Ok(c) => c,
+        Err(e) => {
+            crate::log::warn(format!("process: {name} couldn't be started: {e}"));
+            return Err(e);
+        }
+    };
     let (mut so, mut se) = (child.stdout.take().unwrap(), child.stderr.take().unwrap());
     let ro = std::thread::spawn(move || {
         let mut b = Vec::new();
@@ -309,12 +325,29 @@ pub fn run_for(secs: u64, exe: &str, args: &[&str]) -> std::io::Result<std::proc
         if Instant::now() >= end {
             let _ = child.kill();
             let _ = child.wait();
-            crate::log::warn(format!("{exe} took over {secs} s and was ended"));
+            crate::log::warn(format!("process: {name} took over {secs} s and was ended"));
             return Err(std::io::Error::new(std::io::ErrorKind::TimedOut, format!("{exe} didn't finish in {secs} s")));
         }
         std::thread::sleep(Duration::from_millis(50));
     };
-    Ok(std::process::Output { status, stdout: ro.join().unwrap_or_default(), stderr: re.join().unwrap_or_default() })
+    let out = std::process::Output { status, stdout: ro.join().unwrap_or_default(), stderr: re.join().unwrap_or_default() };
+    // a failing exit is often expected (a query that finds nothing), so it is info; the first line
+    // of what it said tells the rest
+    if !out.status.success() {
+        let said = String::from_utf8_lossy(&out.stderr);
+        let said = said.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("").chars().take(200).collect::<String>();
+        let code = out.status.code().map(|c| if c.unsigned_abs() < 1000 { c.to_string() } else { format!("{:#X}", c as u32) }).unwrap_or_else(|| "no code".into());
+        let msg = format!("process: {name} exited with {code} after {}{}{said}", crate::log::took(started.elapsed()), if said.is_empty() { "" } else { ": " });
+        // one that keeps failing the same way (a status query run often): once per 10 minutes
+        if crate::log::every(&format!("exit {name} {code}"), Duration::from_secs(600)) {
+            crate::log::info(msg);
+        } else {
+            crate::log::debug(msg);
+        }
+    } else {
+        crate::log::debug_with(|| format!("process: {name} finished in {}", crate::log::took(started.elapsed())));
+    }
+    Ok(out)
 }
 
 pub fn hwnd_from(v: i64) -> HWND {
