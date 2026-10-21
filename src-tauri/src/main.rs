@@ -54,6 +54,7 @@ mod profiles;
 mod rdesk;
 mod h264;
 mod screencast;
+mod vpad;
 mod remote;
 mod osd;
 mod pad;

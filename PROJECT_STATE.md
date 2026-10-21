@@ -6,6 +6,12 @@ The dated history of the work. Last updated: 2026-10-21.
 
 > **RULE: before every commit, update the docs.** Add today's dated entry here, add user-visible changes to `CHANGELOG.md`, update `DECK.md` / `README.md` when facts change, and stage them in the same commit. The pre-commit hook enforces it; never bypass it. No personal data in these files (that goes in the git-ignored `PRIVATE_NOTES.md`).
 
+## 2026-10-21: Phone remote controls (unreleased)
+
+- `vpad.rs`: Xbox 360 target through `vigem-client` (default features off), plugged in on the first `gp` message of a /screen connection and unplugged on drop; `wait_ready` errors are ignored with a 300 ms pause (seen with ViGEmBus 1.21 although the pad works). Test `plugs_in_here` (ignored) got XInput slot 0 on the dev PC.
+- `remote.rs`: `gp` (control mode only, not paused by a game in front), `games` (per connection: taps/keys reach a game in front).
+- Phone: controller layout (`#gpad`, CSS `zoom` for size, opacity variable, both in localStorage), Hold click, F1-F24 (`vk` accepts up to F24), `var` for `GP`/`gamesOk` so an early `setMode` can't hit them before they exist.
+
 ## 2026-10-21: Workspace Sync — project files, programs, MCP servers, per-project sessions (unreleased)
 
 - "Claude Code sync" is now **Workspace Sync for Claude Code** in the UI (internal ids, ports, data folder and hook names unchanged, so existing setups keep working).

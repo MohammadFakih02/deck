@@ -127,6 +127,19 @@
   .skeys::-webkit-scrollbar { display: none; }
   .skeys button { height: 38px; min-width: 42px; padding: 0 11px; border-radius: 10px; border: 1px solid var(--line); background: var(--tile2); color: var(--text); font-weight: 600; font-size: 13px; flex: none; white-space: nowrap; }
   /* full screen: no bars, just small floating buttons on the right edge */
+  /* the on-screen controller (PS5 layout; the PC sees an Xbox pad) */
+  .gpad { --gpo: .75; --gps: 1; position: absolute; inset: 0; z-index: 2; display: none; pointer-events: none; user-select: none; -webkit-user-select: none; touch-action: none; }
+  .gpad.on { display: block; }
+  .gpad > * { position: absolute; pointer-events: auto; touch-action: none; zoom: var(--gps); opacity: var(--gpo); }
+  .gb { width: 52px; height: 52px; border-radius: 50%; border: 2px solid #ffffff55; background: #0007; color: #fff; display: grid; place-items: center; font: 600 20px system-ui; }
+  .gb.on { background: #ffffff55; }
+  .gb.sm { width: 46px; height: 30px; border-radius: 14px; font-size: 11px; }
+  .gb.sh { width: 64px; height: 34px; border-radius: 10px; font-size: 13px; }
+  .gx { color: #7fb2ff; } .go { color: #ff7f86; } .gs { color: #f19ad8; } .gt { color: #47d6b6; }
+  .gstick { width: 132px; height: 132px; border-radius: 50%; border: 2px solid #ffffff40; background: #0005; }
+  .gstick i { position: absolute; left: 50%; top: 50%; width: 56px; height: 56px; margin: -28px 0 0 -28px; border-radius: 50%; background: #ffffff70; border: 2px solid #fff9; }
+  .gdpad { width: 132px; height: 132px; }
+  .gdpad .gb { position: absolute; width: 44px; height: 44px; border-radius: 10px; font-size: 16px; }
   .sfloat { position: absolute; right: calc(env(safe-area-inset-right) + 6px); top: 50%; transform: translateY(-50%); display: none; flex-direction: column; gap: 8px; z-index: 2; }
   .scr.imm .sfloat { display: flex; }
   .scr.imm .sbar, .scr.imm .skeys { display: none; }
@@ -159,12 +172,17 @@
       <button id="sKb" aria-label="Keyboard" title="Keyboard"></button>
       <button id="sKeys" aria-label="Keys and shortcuts" title="Keys and shortcuts">Keys</button>
       <button id="sRight" aria-label="Next tap is a right-click" title="Next tap is a right-click">Right-click</button>
+      <button id="sPad" aria-pressed="false" title="An on-screen controller: the PC sees a game controller">Controller</button>
+      <button id="sHold" aria-pressed="false" title="Touching holds the left button down until you lift your finger (to walk or drag in games)">Hold click</button>
       <button id="sFit" aria-label="Fit to screen" title="Fit to screen">Fit</button>
       <select id="sMon" aria-label="Monitor"></select>
       <button id="sSet" aria-label="Picture and sound settings" aria-expanded="false" title="Settings"></button>
       <span class="si" id="sInfo"></span>
     </div>
     <div class="spanel" id="spanel" role="group" aria-label="Picture and sound settings">
+      <label class="srow"><span><b>Controller size</b><small>The on-screen controller's buttons and sticks</small></span><select id="sGpS"><option value="0.6">Tiny</option><option value="0.75">Small</option><option value="0.9">Medium</option><option value="1">Normal</option><option value="1.15">Large</option><option value="1.3">Huge</option></select></label>
+      <label class="srow"><span><b>Controller opacity</b><small>How see-through it is</small></span><input type="range" id="sGpO" min="0.15" max="1" step="0.05" style="width:120px"></label>
+      <label class="srow"><span><b>Control in games</b><small>Taps and keys reach a game too. Some online games' anti-cheat may not like it.</small></span><input type="checkbox" id="sGames"></label>
       <label class="srow"><span><b>Bitrate</b><small>Auto follows your connection</small></span><select id="sB"><option value="0">Auto</option><option value="30000">30 Mb/s</option><option value="15000">15 Mb/s</option><option value="8000">8 Mb/s</option><option value="4000">4 Mb/s</option><option value="2000">2 Mb/s</option><option value="1000">1 Mb/s</option><option value="500">0.5 Mb/s</option><option value="custom">Type…</option></select></label>
       <label class="srow"><span><b>Frame rate</b><small>Pictures a second</small></span><select id="sF"><option value="15">15 fps</option><option value="24">24 fps</option><option value="30">30 fps</option><option value="60">60 fps</option></select></label>
       <label class="srow"><span><b>On a slow connection</b><small>What to keep when the bitrate is tight</small></span><select id="sP"><option value="smooth">Smooth motion</option><option value="sharp">Sharp picture</option></select></label>
@@ -173,7 +191,27 @@
       <label class="srow"><span><b>Sound quality</b><small>Low uses the least data</small></span><select id="sSQ"><option value="auto">Auto</option><option value="best">Best</option><option value="good">Good</option><option value="medium">Medium</option><option value="low">Low</option></select></label>
     </div>
     <div class="sview" id="sview"><div class="sinner" id="sinner"><canvas id="simg" role="img" aria-label="PC screen"></canvas><div class="scur" id="scur"></div></div><div class="smsg" id="smsg"></div>
-      <div class="sfloat"><button id="fKb" aria-label="Keyboard"></button><button id="fCtl" aria-label="Control on or off"></button><button id="fExit" aria-label="Show the bars"></button></div></div>
+      <div class="gpad" id="gpad" aria-label="Controller">
+        <div class="gb sh" data-gt="lt" style="left:calc(env(safe-area-inset-left) + 14px);top:10px">L2</div>
+        <div class="gb sh" data-gb="256" style="left:calc(env(safe-area-inset-left) + 86px);top:10px">L1</div>
+        <div class="gb sh" data-gt="rt" style="right:calc(env(safe-area-inset-right) + 60px);top:10px">R2</div>
+        <div class="gb sh" data-gb="512" style="right:calc(env(safe-area-inset-right) + 132px);top:10px">R1</div>
+        <div class="gstick" data-stick="l" style="left:calc(env(safe-area-inset-left) + 26px);top:58px"><i></i></div>
+        <div class="gdpad" style="left:calc(env(safe-area-inset-left) + 120px);bottom:12px">
+          <div class="gb" data-gb="1" style="left:44px;top:0">▲</div><div class="gb" data-gb="2" style="left:44px;top:88px">▼</div>
+          <div class="gb" data-gb="4" style="left:0;top:44px">◀</div><div class="gb" data-gb="8" style="left:88px;top:44px">▶</div></div>
+        <div class="gb gt" data-gb="32768" style="right:calc(env(safe-area-inset-right) + 106px);top:56px">△</div>
+        <div class="gb gs" data-gb="16384" style="right:calc(env(safe-area-inset-right) + 162px);top:108px">□</div>
+        <div class="gb go" data-gb="8192" style="right:calc(env(safe-area-inset-right) + 50px);top:108px">○</div>
+        <div class="gb gx" data-gb="4096" style="right:calc(env(safe-area-inset-right) + 106px);top:160px">✕</div>
+        <div class="gstick" data-stick="r" style="right:calc(env(safe-area-inset-right) + 180px);bottom:12px"><i></i></div>
+        <div class="gb sm" data-gb="32" style="left:calc(50% - 92px);top:10px">Share</div>
+        <div class="gb sm" data-gb="1024" style="left:calc(50% - 23px);top:10px">PS</div>
+        <div class="gb sm" data-gb="16" style="left:calc(50% + 46px);top:10px">Options</div>
+        <div class="gb sm" data-gb="64" style="left:calc(env(safe-area-inset-left) + 58px);top:196px">L3</div>
+        <div class="gb sm" data-gb="128" style="right:calc(env(safe-area-inset-right) + 222px);bottom:150px">R3</div>
+      </div>
+      <div class="sfloat"><button id="fPad" aria-pressed="false" aria-label="Controller">Pad</button><button id="fKb" aria-label="Keyboard"></button><button id="fHold" aria-pressed="false" aria-label="Hold click">Hold</button><button id="fCtl" aria-label="Control on or off"></button><button id="fExit" aria-label="Show the bars"></button></div></div>
     <div class="skeys" id="skeys"></div>
     <input id="skb" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" aria-label="Type on the PC">
   </div>
@@ -617,7 +655,7 @@ $("file").addEventListener("change", async (e) => {
 const SC = { ws: null, open: false, mode: "off", z: 1, tx: 0, ty: 0, bw: 0, bh: 0, iw: 16, ih: 9, frames: 0, bytes: 0, t0: 0, right: false };
 const KEYS = [["Esc", "esc"], ["Tab", "tab"], ["Win", "win"], ["←", "left"], ["↑", "up"], ["↓", "down"], ["→", "right"], ["Del", "delete"], ["⌫", "backspace"], ["Enter", "enter"],
   ["Copy", "c", ["ctrl"]], ["Paste", "v", ["ctrl"]], ["Undo", "z", ["ctrl"]], ["Select all", "a", ["ctrl"]], ["Alt+Tab", "tab", ["alt"]], ["Desktop", "d", ["win"]],
-  ["Task Manager", "esc", ["ctrl", "shift"]], ["F5", "f5"], ["Home", "home"], ["End", "end"], ["PgUp", "pageup"], ["PgDn", "pagedown"], ["Close app", "f4", ["alt"], "Close the app in front on the PC?"]];
+  ["Task Manager", "esc", ["ctrl", "shift"]], ...Array.from({ length: 24 }, (_, i) => [`F${i + 1}`, `f${i + 1}`]), ["Home", "home"], ["End", "end"], ["PgUp", "pageup"], ["PgDn", "pagedown"], ["Close app", "f4", ["alt"], "Close the app in front on the PC?"]];
 P.kb = '<rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/>';
 P.full = '<path d="M4 9V4h5"/><path d="M20 9V4h-5"/><path d="M4 15v5h5"/><path d="M20 15v5h-5"/>';
 P.shrink = '<path d="M9 4v5H4"/><path d="M15 4v5h5"/><path d="M9 20v-5H4"/><path d="M15 20v-5h5"/>';
@@ -681,6 +719,7 @@ function screenConnect(hosts) {
   w.binaryType = "arraybuffer";
   SC.ws = w; SC.t0 = Date.now(); SC.frames = 0; SC.bytes = 0; SC.lastDrawn = 0;
   SC.via = /^100\./.test(host) ? "Tailscale" : "home Wi-Fi";
+  w.addEventListener("open", () => { if (gamesOk) w.send(JSON.stringify({ t: "games", on: true })); });
   smsg("Connecting to the screen…");
   // not answering soon (not home): the next address
   if (hosts.length > 1) setTimeout(() => { if (SC.ws === w && w.readyState === 0) { w.onclose = null; w.close(); screenConnect(hosts.slice(1)); } }, 1500);
@@ -1159,7 +1198,8 @@ function setMode(m) {
   $("sCtl").textContent = c ? "Control on" : "Control off";
   $("sCtl").classList.toggle("on", c); $("sCtl").setAttribute("aria-pressed", String(c));
   $("fCtl").classList.toggle("on", c);
-  for (const id of ["sKb", "sKeys", "sRight", "fKb"]) $(id).style.display = c ? "" : "none";
+  for (const id of ["sKb", "sKeys", "sRight", "sHold", "sPad", "fKb", "fHold", "fPad"]) $(id).style.display = c ? "" : "none";
+  if (!c && window.GP && GP.on) setPad(false);
   if (!c) { $("skeys").classList.remove("on"); $("sKeys").classList.remove("on"); if (document.activeElement === skb) skb.blur(); }
 }
 function toggleControl() {
@@ -1529,6 +1569,8 @@ $("sview").addEventListener("pointerdown", (e) => {
     const hold = !!lastTap && performance.now() - lastTap.t < 350 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 40;
     lastTap = null;
     g = { kind: "one", x0: e.clientX, y0: e.clientY, tx0: SC.tx, ty0: SC.ty, moved: false, dragging: false, done: false, hold };
+    // Hold click: the left button goes down right away and stays down until the finger lifts
+    if (ctl() && SC.hold) { g.dragging = true; g.hold = true; ssend({ t: "md", b: 0, ...spot(e.clientX, e.clientY) }); return; }
     // (no right-click on a long press that is the second half of tap-then-drag)
     if (ctl() && !hold) g.timer = setTimeout(() => {
       if (g && g.kind === "one" && !g.moved) { click(spot(g.x0, g.y0), 1); g.done = true; if (navigator.vibrate) navigator.vibrate(15); }
@@ -1658,6 +1700,89 @@ $("sSnd").onclick = () => {
 $("sKb").innerHTML = ic("kb"); $("sKb").onclick = () => { skb.value = SENT; skb.focus(); };
 $("sKeys").onclick = () => { $("skeys").classList.toggle("on"); $("sKeys").classList.toggle("on"); setTimeout(layoutScreen, 50); };
 $("sRight").onclick = () => { SC.right = !SC.right; $("sRight").classList.toggle("on", SC.right); };
+// the controller: each button and stick follows its own finger; the state goes to the PC at most
+// once a frame, and again every 0.5 s while something is held (a lost message can't leave it stuck)
+var GP = { on: false, b: 0, lx: 0, ly: 0, rx: 0, ry: 0, lt: 0, rt: 0, raf: 0, last: "" };
+function gpSend(force) {
+  if (GP.raf) return;
+  GP.raf = requestAnimationFrame(() => {
+    GP.raf = 0;
+    const m = { t: "gp", b: GP.b, lx: GP.lx, ly: GP.ly, rx: GP.rx, ry: GP.ry, lt: GP.lt, rt: GP.rt };
+    const k = JSON.stringify(m);
+    if (k !== GP.last || force) { GP.last = k; ssend(m); }
+  });
+}
+setInterval(() => { if (GP.on && (GP.b || GP.lx || GP.ly || GP.rx || GP.ry || GP.lt || GP.rt)) gpSend(true); }, 500);
+function gpReset() { Object.assign(GP, { b: 0, lx: 0, ly: 0, rx: 0, ry: 0, lt: 0, rt: 0 }); document.querySelectorAll("#gpad .on").forEach((e) => e.classList.remove("on")); document.querySelectorAll("#gpad .gstick i").forEach((k) => (k.style.transform = "")); gpSend(true); }
+function setPad(on) {
+  GP.on = on;
+  $("gpad").classList.toggle("on", on);
+  for (const id of ["sPad", "fPad"]) { $(id).classList.toggle("on", on); $(id).setAttribute("aria-pressed", String(on)); }
+  if (!on) gpReset();
+  else if (screen.orientation && screen.orientation.lock) screen.orientation.lock("landscape").catch(() => {});
+}
+$("sPad").onclick = () => setPad(!GP.on);
+// its size and opacity, remembered on this phone
+function gpLook() {
+  let size = "1", op = "0.75";
+  try { size = localStorage.getItem("deckGpS") || size; op = localStorage.getItem("deckGpO") || op; } catch {}
+  $("gpad").style.setProperty("--gps", size); $("gpad").style.setProperty("--gpo", op);
+  $("sGpS").value = size; $("sGpO").value = op;
+}
+gpLook();
+$("sGpS").onchange = () => { try { localStorage.setItem("deckGpS", $("sGpS").value); } catch {} gpLook(); };
+$("sGpO").oninput = () => { try { localStorage.setItem("deckGpO", $("sGpO").value); } catch {} gpLook(); };
+$("fPad").onclick = () => setPad(!GP.on);
+for (const el of document.querySelectorAll("#gpad [data-gb], #gpad [data-gt]")) {
+  const down = (e) => {
+    e.preventDefault(); e.stopPropagation(); el.setPointerCapture(e.pointerId); el.classList.add("on");
+    if (el.dataset.gb) GP.b |= +el.dataset.gb; else GP[el.dataset.gt] = 1;
+    if (navigator.vibrate) navigator.vibrate(8);
+    gpSend();
+  };
+  const up = (e) => {
+    e.stopPropagation(); el.classList.remove("on");
+    if (el.dataset.gb) GP.b &= ~+el.dataset.gb; else GP[el.dataset.gt] = 0;
+    gpSend();
+  };
+  el.addEventListener("pointerdown", down);
+  el.addEventListener("pointerup", up);
+  el.addEventListener("pointercancel", up);
+  el.addEventListener("pointermove", (e) => e.stopPropagation());
+}
+for (const el of document.querySelectorAll("#gpad [data-stick]")) {
+  const knob = el.querySelector("i"), side = el.dataset.stick;
+  let id = null;
+  const at = (e) => {
+    const r = el.getBoundingClientRect(), rad = r.width / 2;
+    let dx = (e.clientX - r.left - rad) / rad, dy = (e.clientY - r.top - rad) / rad;
+    const len = Math.hypot(dx, dy); if (len > 1) { dx /= len; dy /= len; }
+    knob.style.transform = `translate(${dx * rad * 0.6}px, ${dy * rad * 0.6}px)`;
+    // a small dead zone; up on the screen is up on the stick
+    const dz = (v) => (Math.abs(v) < 0.08 ? 0 : Math.round(v * 1000) / 1000);
+    GP[side + "x"] = dz(dx); GP[side + "y"] = dz(-dy);
+    gpSend();
+  };
+  el.addEventListener("pointerdown", (e) => { e.preventDefault(); e.stopPropagation(); if (id !== null) return; id = e.pointerId; el.setPointerCapture(id); at(e); });
+  el.addEventListener("pointermove", (e) => { e.stopPropagation(); if (e.pointerId === id) at(e); });
+  const end = (e) => { e.stopPropagation(); if (e.pointerId !== id) return; id = null; knob.style.transform = ""; GP[side + "x"] = 0; GP[side + "y"] = 0; gpSend(); };
+  el.addEventListener("pointerup", end);
+  el.addEventListener("pointercancel", end);
+}
+$("gpad").addEventListener("pointerdown", (e) => { if (e.target === $("gpad")) return; e.stopPropagation(); });
+$("gpad").addEventListener("contextmenu", (e) => e.preventDefault());
+
+function setHold(on) {
+  SC.hold = on;
+  for (const id of ["sHold", "fHold"]) { $(id).classList.toggle("on", on); $(id).setAttribute("aria-pressed", String(on)); }
+}
+$("sHold").onclick = () => setHold(!SC.hold);
+$("fHold").onclick = () => setHold(!SC.hold);
+// Control in games: remembered on this phone, told to the PC on every connection
+var gamesOk = false;
+try { gamesOk = localStorage.getItem("deckGames") === "1"; } catch {}
+$("sGames").checked = gamesOk;
+$("sGames").onchange = () => { gamesOk = $("sGames").checked; try { localStorage.setItem("deckGames", gamesOk ? "1" : "0"); } catch {} ssend({ t: "games", on: gamesOk }); };
 $("sFit").onclick = () => { SC.z = 1; applyZoom(); };
 $("sMon").onchange = () => ssend({ t: "mon", i: +$("sMon").value });
 $("sQ").onchange = () => ssend({ t: "q", q: $("sQ").value });

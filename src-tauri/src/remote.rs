@@ -1041,6 +1041,11 @@ async fn screen_client(mut socket: WebSocket, app: Arc<App>, video: crate::scree
     let mut check = tokio::time::interval(Duration::from_millis(700));
     // checked at most every second: taps come many times a second
     let mut game: (std::time::Instant, Option<String>) = (std::time::Instant::now() - Duration::from_secs(5), None);
+    // the phone's user allowed control while a game is in front (for this connection only)
+    let mut games_ok = false;
+    // the phone's on-screen controller, plugged in on its first press (unplugged when this ends)
+    let mut pad: Option<crate::vpad::VPad> = None;
+    let mut pad_failed = false;
     loop {
         tokio::select! {
             msg = socket.recv() => {
@@ -1071,6 +1076,29 @@ async fn screen_client(mut socket: WebSocket, app: Arc<App>, video: crate::scree
                         app.save_settings();
                         sess.kbps(k);
                     }
+                    "gp" => {
+                        if app.settings.lock().remote_screen != "control" || pad_failed {
+                            continue;
+                        }
+                        if pad.is_none() {
+                            match crate::vpad::VPad::new() {
+                                Ok(p) => pad = Some(p),
+                                Err(e) => {
+                                    pad_failed = true;
+                                    if socket.send(Message::Text(json!({ "t": "note", "text": e }).to_string().into())).await.is_err() { break; }
+                                    continue;
+                                }
+                            }
+                        }
+                        if let Some(p) = pad.as_mut() {
+                            p.update(&v);
+                        }
+                    }
+                    "games" => {
+                        games_ok = v["on"].as_bool().unwrap_or(false);
+                        game.0 = std::time::Instant::now() - Duration::from_secs(5);
+                        game.1 = None;
+                    }
                     "fps" => {
                         let f = match v["fps"].as_u64() { Some(f @ (15 | 24 | 60)) => f as u32, _ => 30 };
                         app.settings.lock().remote_screen_fps = f;
@@ -1089,15 +1117,15 @@ async fn screen_client(mut socket: WebSocket, app: Arc<App>, video: crate::scree
                         let control = app.settings.lock().remote_screen == "control";
                         let mon = *sess.mon.lock();
                         let (true, Some(m)) = (control, mon) else { continue };
-                        if game.0.elapsed() >= Duration::from_secs(1) {
+                        if !games_ok && game.0.elapsed() >= Duration::from_secs(1) {
                             let was = game.1.is_some();
                             game = (std::time::Instant::now(), crate::boost::game_in_front(&app));
                             if game.1.is_some() != was {
-                                let text = game.1.as_ref().map(|g| format!("Control is paused while {g} is in front: Deck never sends input into games (anti-cheat). Watching still works.")).unwrap_or_default();
+                                let text = game.1.as_ref().map(|g| format!("Control is paused while {g} is in front (anti-cheat). To control it anyway, turn on \"Control in games\" in Settings.")).unwrap_or_default();
                                 if socket.send(Message::Text(json!({ "t": "note", "text": text }).to_string().into())).await.is_err() { break; }
                             }
                         }
-                        if game.1.is_none() {
+                        if games_ok || game.1.is_none() {
                             crate::screencast::input(&m, &v);
                         }
                     }

@@ -78,6 +78,7 @@ rcgen = { version = "0.13", default-features = false, features = ["ring", "pem"]
 roxmltree = "0.21"
 sha1 = "0.10"
 webpki-roots = "1"
+vigem-client = { version = "0.1.4", default-features = false }
 
 # `cargo test` / `cargo clippy` use the dev profile: incremental, with the dependencies
 # optimised once (a test run then rebuilds only Deck itself, in seconds)
