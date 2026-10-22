@@ -476,6 +476,17 @@ pub fn drop_unfinished() {
 /// Runs the program's own uninstaller and waits for it and everything it started. `Ok(true)` when
 /// the program is gone afterwards.
 pub fn uninstall(app: &crate::app::App, id: &str, advanced: bool) -> Result<Outcome, String> {
+    let r = uninstall_run(app, id, advanced);
+    // an uninstall that failed or was refused removed nothing: no leftovers to look for, and no
+    // "Deck was closed in the middle of it" warning to show later
+    // (only this program's own record: a refusal before it started must not drop an older one)
+    if r.is_err() && BEFORE.lock().as_ref().is_some_and(|b| b.id == id) {
+        set_before(None);
+    }
+    r
+}
+
+fn uninstall_run(app: &crate::app::App, id: &str, advanced: bool) -> Result<Outcome, String> {
     let p = find(app, id)?;
     if let Some(g) = crate::boost::game_in_front(app) {
         return Err(format!("{g} is in front: Deck uninstalls programs only outside games"));
@@ -523,7 +534,8 @@ pub struct Outcome {
 /// The product code of an "MsiExec ... /X{GUID}" command.
 fn msi_code(cmd: &str) -> Option<String> {
     let l = cmd.to_lowercase();
-    if !l.contains("msiexec") {
+    // positions in `l` are positions in `cmd` only while lowercasing kept every length
+    if !l.contains("msiexec") || l.len() != cmd.len() {
         return None;
     }
     let i = l.find("/x")?;
@@ -640,6 +652,10 @@ fn explain(name: &str, rc: Option<u32>, log: &str, log_path: &Path) -> String {
 /// removes the stand-in and any folders it created.
 fn stand_in<T>(exe: &Path, f: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
     let me = std::env::current_exe().map_err(|e| e.to_string())?;
+    // the path comes from the package's own log: never put a program inside Windows' own folders
+    if crate::disk::protected(&exe.display().to_string()).is_some() {
+        return Err("that place belongs to Windows, so Deck won't write there".into());
+    }
     let mut made = Vec::new();
     let mut d = exe.parent().ok_or("bad path")?.to_path_buf();
     while !d.exists() {
@@ -799,18 +815,50 @@ const SHARED: &[&str] = &[
     "settings", "users", "default", "public", "system", "system32", "drivers", "fonts", "installer", "setup", "update", "updates", "uninstall", "tools",
 ];
 
+/// An installed program (normalised name, shown name) whose name is longer than `n` and contains
+/// it: what is called `n` may be that program's ("Foo" for "Foo Pro").
+fn longer_sibling<'a>(n: &str, others: &[(String, &'a str)]) -> Option<&'a str> {
+    if n.chars().count() < 4 {
+        return None;
+    }
+    others.iter().find(|(o, _)| o.len() > n.len() && o.contains(n)).map(|(_, shown)| *shown)
+}
+
 fn reg_name(view: View, sub: &str) -> String {
     let (root, _) = view.reg_exe();
     let wow = if view == View::M32 && sub.to_lowercase().starts_with("software\\") { format!("SOFTWARE\\WOW6432Node\\{}", &sub[9..]) } else { sub.to_string() };
     format!("{root}\\{wow}")
 }
 
-fn folder_size(p: &Path, deadline: Instant) -> Option<u64> {
-    let mut total = 0u64;
+/// What a folder holds: its size (None if the search ran out of time) and how many files and
+/// programs (.exe) are in it.
+struct Contents {
+    size: Option<u64>,
+    files: u32,
+    exes: u32,
+}
+
+/// From this many files on, a folder found only by its name is probably more than one program's
+/// leftover (a browser profile, a game library, the user's own data): offered, not ticked. The
+/// same for this many programs (.exe) in a data folder; in Program Files they are expected.
+const MANY_EXES: u32 = 5;
+const MANY_FILES: u32 = 3000;
+
+/// How much of what is in a folder counts when deciding whether to tick it.
+#[derive(Clone, Copy)]
+enum Look {
+    No,
+    Files,
+    FilesAndPrograms,
+}
+
+fn folder_contents(p: &Path, deadline: Instant) -> Contents {
+    let mut c = Contents { size: Some(0), files: 0, exes: 0 };
     let mut stack = vec![p.to_path_buf()];
     while let Some(d) = stack.pop() {
         if Instant::now() > deadline {
-            return None;
+            c.size = None;
+            return c;
         }
         let Ok(rd) = std::fs::read_dir(&d) else { continue };
         for e in rd.flatten() {
@@ -818,11 +866,15 @@ fn folder_size(p: &Path, deadline: Instant) -> Option<u64> {
             if ft.is_dir() && !ft.is_symlink() {
                 stack.push(e.path());
             } else if let Ok(m) = e.metadata() {
-                total += m.len();
+                c.size = c.size.map(|s| s + m.len());
+                c.files += 1;
+                if e.path().extension().is_some_and(|x| x.eq_ignore_ascii_case("exe")) {
+                    c.exes += 1;
+                }
             }
         }
     }
-    Some(total)
+    c
 }
 
 /// The user's own places and the folders the search looks in: never a leftover themselves, and
@@ -910,12 +962,32 @@ fn scan_for(p: &Program, others: &[Program]) -> Vec<Leftover> {
         let s = path.display().to_string();
         crate::disk::protected(&s).is_none() && !personal(&s, &places) && !other_dirs.iter().any(|d| under(d, &s) || under(&s, d))
     };
-    let add_dir = |out: &mut Vec<Leftover>, path: PathBuf, why: String, sure: bool| {
+    // an installed program with a longer name that contains this name ("Foo" for "Foo Pro"): the
+    // folder or key may be that one's, so it is offered but not ticked
+    let longer: Vec<(String, &str)> = others.iter().map(|o| (norm(&o.name), o.name.as_str())).collect();
+    let vet_name = |name: &str, why: String, sure: bool| -> (String, bool) {
+        match longer_sibling(&norm(name), &longer) {
+            Some(other) if sure => (format!("{why}. {other} is still installed and its name contains this one, so it may be {other}'s (left unticked)"), false),
+            _ => (why, sure),
+        }
+    };
+    // `look`: a folder found only by its name is judged by what is in it too
+    let add_dir = |out: &mut Vec<Leftover>, path: PathBuf, why: String, sure: bool, look: Look| {
         if !path.is_dir() || !safe_dir(&path) || out.iter().any(|l| under(&path.display().to_string(), &l.path)) {
             return;
         }
-        let size = folder_size(&path, deadline);
-        out.push(Leftover { id: 0, kind: "folder", path: path.display().to_string(), size, why, sure, view: None, sub: String::new() });
+        let c = folder_contents(&path, deadline);
+        let many = match look {
+            Look::No => false,
+            Look::Files => c.files >= MANY_FILES,
+            Look::FilesAndPrograms => c.files >= MANY_FILES || c.exes >= MANY_EXES,
+        };
+        let (why, sure) = if many && sure {
+            (format!("{why}. It holds {} files, {} of them programs: a lot for one leftover, and it may hold your own data or another program, so check it first (left unticked)", c.files, c.exes), false)
+        } else {
+            (why, sure)
+        };
+        out.push(Leftover { id: 0, kind: "folder", path: path.display().to_string(), size: c.size, why, sure, view: None, sub: String::new() });
     };
 
     // its install folder, if the uninstaller left it
@@ -926,9 +998,9 @@ fn scan_for(p: &Program, others: &[Program]) -> Vec<Leftover> {
             // only the parts of the publisher's folder named after it (found below) are its own
         } else if loc_is_named_after_it || uninstaller_inside {
             let sure = !on_drive_root(&l);
-            add_dir(&mut out, l, "Its install folder".into(), sure);
+            add_dir(&mut out, l, "Its install folder".into(), sure, Look::No);
         } else {
-            add_dir(&mut out, l, "Recorded as its install folder, but not named after it and its uninstaller isn't in it: it may belong to something else (left unticked)".into(), false);
+            add_dir(&mut out, l, "Recorded as its install folder, but not named after it and its uninstaller isn't in it: it may belong to something else (left unticked)".into(), false, Look::No);
         }
     }
     // folders named after it in the usual places, also inside its publisher's folder
@@ -943,7 +1015,10 @@ fn scan_for(p: &Program, others: &[Program]) -> Vec<Leftover> {
         crate::util::home().join("AppData").join("LocalLow"),
         docs.clone(),
     ];
+    // programs are expected in the program folders, not in the data ones
+    let program_roots = [crate::util::program_files(), crate::util::program_files_x86(), crate::util::local_appdata().join("Programs")];
     for root in roots.iter() {
+        let look = if program_roots.contains(root) { Look::Files } else { Look::FilesAndPrograms };
         let Ok(rd) = std::fs::read_dir(root) else { continue };
         for e in rd.flatten() {
             if !e.file_type().map(|t| t.is_dir()).unwrap_or(false) {
@@ -952,7 +1027,8 @@ fn scan_for(p: &Program, others: &[Program]) -> Vec<Leftover> {
             let name = e.file_name().to_string_lossy().to_string();
             if matches(&name) {
                 // a folder in Documents is often the user's own work (a notes vault, saves): unticked
-                add_dir(&mut out, e.path(), format!("Named after it, in {}", root.display()), *root != docs);
+                let (why, sure) = vet_name(&name, format!("Named after it, in {}", root.display()), *root != docs);
+                add_dir(&mut out, e.path(), why, sure, look);
             } else if publisher_ok && is_publisher(&norm(&name)) {
                 // the publisher's folder: only the part named after this program
                 let Ok(inner) = std::fs::read_dir(e.path()) else { continue };
@@ -960,12 +1036,12 @@ fn scan_for(p: &Program, others: &[Program]) -> Vec<Leftover> {
                 for k in &kids {
                     if k.file_type().map(|t| t.is_dir()).unwrap_or(false) && matches(&k.file_name().to_string_lossy()) {
                         // in Documents it's often the user's own files (saves, settings): unticked
-                        add_dir(&mut out, k.path(), format!("Named after it, in {}'s folder", p.publisher), *root != docs);
+                        add_dir(&mut out, k.path(), format!("Named after it, in {}'s folder", p.publisher), *root != docs, look);
                     }
                 }
                 // nothing else in it: the publisher's folder itself, unticked
                 if !kids.is_empty() && kids.iter().all(|k| out.iter().any(|l| l.path.eq_ignore_ascii_case(&k.path().display().to_string()))) {
-                    add_dir(&mut out, e.path(), format!("{}'s folder, empty without it", p.publisher), false);
+                    add_dir(&mut out, e.path(), format!("{}'s folder, empty without it", p.publisher), false, Look::No);
                 }
             }
         }
@@ -984,7 +1060,8 @@ fn scan_for(p: &Program, others: &[Program]) -> Vec<Leftover> {
             let is_dir = e.file_type().map(|t| t.is_dir()).unwrap_or(false);
             let stem = path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
             if is_dir && matches(&e.file_name().to_string_lossy()) {
-                add_dir(&mut out, path, "Its Start menu folder".into(), true);
+                let (why, sure) = vet_name(&e.file_name().to_string_lossy(), "Its Start menu folder".into(), true);
+                add_dir(&mut out, path, why, sure, Look::No);
             } else if !is_dir && path.extension().is_some_and(|x| x.eq_ignore_ascii_case("lnk")) && matches(&stem) && crate::disk::protected(&path.display().to_string()).is_none() {
                 out.push(Leftover { id: 0, kind: "file", size: e.metadata().ok().map(|m| m.len()), path: path.display().to_string(), why: "A shortcut to it".into(), sure: true, view: None, sub: String::new() });
             }
@@ -1007,7 +1084,8 @@ fn scan_for(p: &Program, others: &[Program]) -> Vec<Leftover> {
             }
             if matches(&name) {
                 let sub = format!(r"Software\{name}");
-                out.push(Leftover { id: 0, kind: "key", path: reg_name(view, &sub), size: None, why: "Its settings".into(), sure: true, view: Some(view), sub });
+                let (why, sure) = vet_name(&name, "Its settings".into(), true);
+                out.push(Leftover { id: 0, kind: "key", path: reg_name(view, &sub), size: None, why, sure, view: Some(view), sub });
             } else if publisher_ok && is_publisher(&n) {
                 let inner = subkeys(view, &format!(r"Software\{name}"));
                 let mine: Vec<&String> = inner.iter().filter(|k| matches(k)).collect();
@@ -1259,11 +1337,39 @@ mod tests {
     }
 
     #[test]
+    fn a_name_inside_another_installed_programs_name_is_not_surely_ours() {
+        let others = vec![(norm("Tool Pro 2.1 (x64)"), "Tool Pro 2.1 (x64)"), (norm("Barn"), "Barn")];
+        assert_eq!(longer_sibling("tool", &others), Some("Tool Pro 2.1 (x64)"));
+        assert_eq!(longer_sibling("toolpro", &others), None, "the same name is not a longer one");
+        assert_eq!(longer_sibling("pro", &others), None, "too short to judge");
+        assert_eq!(longer_sibling("other", &others), None);
+    }
+
+    #[test]
+    fn folders_are_counted_by_files_and_programs() {
+        let base = std::env::temp_dir().join(format!("deck-contents-{}", std::process::id()));
+        std::fs::create_dir_all(base.join("sub")).unwrap();
+        std::fs::write(base.join("a.exe"), b"12345").unwrap();
+        std::fs::write(base.join("sub").join("B.EXE"), b"123").unwrap();
+        std::fs::write(base.join("sub").join("c.txt"), b"12").unwrap();
+        let c = folder_contents(&base, Instant::now() + Duration::from_secs(5));
+        let _ = std::fs::remove_dir_all(&base);
+        assert_eq!((c.size, c.files, c.exes), (Some(10), 3, 2));
+    }
+
+    #[test]
     fn publishers_are_named_without_the_company_form() {
         assert_eq!(company("Autodesk, Inc."), "autodesk");
         assert_eq!(company("Apple Inc."), "apple");
         assert_eq!(company("Notepad++ Team"), "notepadteam");
         assert_eq!(company("Mozilla Corporation"), "mozilla");
+    }
+
+    #[test]
+    fn a_stand_in_is_never_put_inside_windows() {
+        let exe = crate::util::windows_dir().join("System32").join("deck-stand-in-test.exe");
+        let r = stand_in(&exe, || Ok(()));
+        assert!(r.is_err() && !exe.exists());
     }
 
     #[test]

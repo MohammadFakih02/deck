@@ -45,6 +45,30 @@ pub fn filecheck_stop() {
     crate::filecheck::stop()
 }
 
+/// Checks one file once, privately: the checks in `what` ("sig" | "engines" | "defender" | "vt").
+/// Nothing about the file is kept on disk.
+#[tauri::command]
+pub fn filecheck_once_start(app: A, path: String, what: Vec<String>) -> R<()> {
+    crate::filecheck::once_start(app.inner().clone(), path, what)
+}
+
+/// The one-time check's progress and results (once: null when there is none).
+#[tauri::command]
+pub fn filecheck_once_state() -> Value {
+    crate::filecheck::once_state()
+}
+
+#[tauri::command]
+pub fn filecheck_once_stop() {
+    crate::filecheck::once_stop()
+}
+
+/// Forgets the one-time check's file and results.
+#[tauri::command]
+pub fn filecheck_once_forget() {
+    crate::filecheck::once_forget()
+}
+
 /// Saves the VirusTotal API key ("" forgets it).
 #[tauri::command]
 pub fn filecheck_key(key: String) -> R<()> {

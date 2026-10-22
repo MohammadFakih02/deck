@@ -195,6 +195,8 @@ impl Sys {
             mem: u64,
             title: Option<String>,
             hung: bool,
+            /// each process of the program: (pid, cpu %, memory, its window's title)
+            kids: Vec<(u32, f32, u64, Option<String>)>,
         }
         let mut groups: HashMap<String, Group> = HashMap::new();
         for (pid, p) in g.sys.processes() {
@@ -214,6 +216,7 @@ impl Sys {
             e.pids.push(pid.as_u32());
             e.cpu += p.cpu_usage() / cores;
             e.mem += p.memory();
+            e.kids.push((pid.as_u32(), p.cpu_usage() / cores, p.memory(), windowed.get(&pid.as_u32()).map(|(t, _)| t.clone())));
             if let Some((t, hung)) = windowed.get(&pid.as_u32()) {
                 if e.title.is_none() {
                     e.title = Some(t.clone());
@@ -224,11 +227,14 @@ impl Sys {
         let mut out: Vec<Group> = groups.into_values().collect();
         out.sort_by_key(|b| std::cmp::Reverse(b.mem));
         out.into_iter()
-            .map(|g| {
+            .map(|mut g| {
+                g.kids.sort_by_key(|k| std::cmp::Reverse(k.2));
+                let procs: Vec<Value> = g.kids.iter().map(|(pid, cpu, mem, title)| json!({ "pid": pid, "cpu": cpu, "mem": mem, "title": title })).collect();
                 json!({
                     "name": g.name,
                     "exe": g.exe,
                     "pids": g.pids,
+                    "procs": procs,
                     "count": g.pids.len(),
                     "cpu": g.cpu,
                     "mem": g.mem,

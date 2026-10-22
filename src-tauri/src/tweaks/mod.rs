@@ -658,7 +658,8 @@ fn set_inner(id: &str, opt: &str) -> Result<(), String> {
         let b = steps::before(s);
         if let Err(e) = steps::apply(s) {
             // undone step by step; one that can't be undone is said, since the PC is then half-changed
-            let undo_failed: Vec<String> = befores.iter().rev().filter_map(|x| steps::restore(x).err()).collect();
+            // (the failing step too: it may have changed part of what it touches before it stopped)
+            let undo_failed: Vec<String> = b.iter().rev().chain(befores.iter().rev()).filter_map(|x| steps::restore(x).err()).collect();
             if undo_failed.is_empty() {
                 crate::log::warn(format!("tweaks: {id} → {opt} failed and was rolled back: {e}"));
             } else {

@@ -260,6 +260,18 @@
     set_awake: (a) => { const w = window.__power.awake; if (a.mode !== undefined) w.mode = a.mode; if (a.minutes) w.until = Math.floor(Date.now() / 1000) + a.minutes * 60; if (a.target) w.app = a.target; if (a.display !== undefined) w.display = a.display; window.__power.awake_active = w.mode !== "off"; return null; },
     set_plan: (a) => { window.__power.plan = { ...a.plan, state: "waiting", created: Math.floor(Date.now() / 1000), progress: a.plan.cond === "downloads" ? "Waiting for a download to start" : "" }; return null; },
     cancel_plan: () => { window.__power.plan = null; return null; },
+    // the safety checks, and a file checked once (it is "found" a moment after it starts)
+    filecheck_state: () => ({ reps: {}, job: null, vt_key: true }),
+    pick: () => "C:\\Users\\me\\Downloads\\setup-demo.exe",
+    filecheck_once_start: (a) => {
+      const sha256 = "ab12".repeat(16);
+      const o = window.__once = { name: "setup-demo.exe", path: a.path, size: 1234567, sha256, sha1: "", what: a.what, done: 0, current: "Asking Windows who signed each program", running: true, said: [], rep: {} };
+      setTimeout(() => { o.running = false; o.done = o.what.length; o.current = ""; o.rep = { sha256, sig: "unsigned", engines: 0, defender: "clean", vt: [0, 0, 0] }; }, 800);
+      return null;
+    },
+    filecheck_once_state: () => ({ once: window.__once || null, vt_key: true }),
+    filecheck_once_stop: () => null,
+    filecheck_once_forget: () => { window.__once = null; return null; },
   };
   function hwState0() { return R.hw_state0(); }
   window.__power = { awake: { mode: "off", until: 0, app: "", display: true }, awake_active: false, plan: null, timers: [], stopwatch: { running: false, acc_ms: 0, laps: [] }, now: Date.now(), idle: 3, win_timeouts: { sleep: 1800, screen: 600 } };

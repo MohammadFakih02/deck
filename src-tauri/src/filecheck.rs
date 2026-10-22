@@ -8,9 +8,14 @@
 //!
 //! Only fingerprints leave the PC, never a file. Results are kept per fingerprint
 //! (`%APPDATA%\Deck\filecheck.json`), so a file is checked again only when it changes.
+//!
+//! A single file the user picks can also be checked once, privately (`once_start`): the same four
+//! checks, but neither its path nor its fingerprints nor its results are written anywhere, and
+//! the page forgets them when its window closes.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -72,9 +77,43 @@ pub struct Job {
     pub running: bool,
 }
 
+/// The file checked once and what is known of it so far. Lives in memory only.
+#[derive(Serialize, Clone, Default)]
+pub struct Once {
+    pub name: String,
+    pub path: String,
+    pub size: u64,
+    pub sha256: String,
+    pub sha1: String,
+    /// the checks asked for, in the order they run
+    pub what: Vec<String>,
+    /// checks finished
+    pub done: usize,
+    pub current: String,
+    pub running: bool,
+    /// what each check said when it ended, in words: (check, text)
+    pub said: Vec<(String, String)>,
+    pub rep: Rep,
+}
+
 static STORE: parking_lot::Mutex<Option<Store>> = parking_lot::const_mutex(None);
 static JOB: parking_lot::Mutex<Option<Job>> = parking_lot::const_mutex(None);
 static STOP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static ONCE: parking_lot::Mutex<Option<Once>> = parking_lot::const_mutex(None);
+static ONCE_STOP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// A one-time check's thread is alive (also after its file was forgotten, until it has ended).
+static ONCE_BUSY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+thread_local! {
+    /// Set on the thread of a one-time check: where its results go instead of the store, so the
+    /// four checks (which write with `rep_mut`) leave nothing behind.
+    static SCRATCH: RefCell<Option<HashMap<String, Rep>>> = const { RefCell::new(None) };
+}
+
+/// This thread is running a one-time check.
+fn private() -> bool {
+    SCRATCH.with(|s| s.borrow().is_some())
+}
 
 fn file() -> PathBuf {
     crate::util::appdata().join("Deck").join("filecheck.json")
@@ -87,6 +126,9 @@ fn with_store<T>(f: impl FnOnce(&mut Store) -> T) -> T {
 }
 
 fn save() {
+    if private() {
+        return;
+    }
     let bytes = with_store(|s| serde_json::to_vec(s).unwrap_or_default());
     let p = file();
     let _ = std::fs::create_dir_all(p.parent().unwrap());
@@ -98,7 +140,6 @@ fn save() {
 
 /// The file's fingerprints, worked out once per size and change time.
 fn id_of(path: &str) -> Option<FileId> {
-    use sha1::Digest as _;
     let meta = std::fs::metadata(path).ok()?;
     let modified = meta.modified().ok().and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map_or(0, |d| d.as_secs());
     if let Some(f) = with_store(|s| s.files.get(&path.to_lowercase()).cloned()) {
@@ -106,6 +147,16 @@ fn id_of(path: &str) -> Option<FileId> {
             return Some(f);
         }
     }
+    let id = fingerprint(path)?;
+    with_store(|s| s.files.insert(path.to_lowercase(), id.clone()));
+    Some(id)
+}
+
+/// Reads the file and works out its fingerprints. Keeps nothing.
+fn fingerprint(path: &str) -> Option<FileId> {
+    use sha1::Digest as _;
+    let meta = std::fs::metadata(path).ok()?;
+    let modified = meta.modified().ok().and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map_or(0, |d| d.as_secs());
     let mut r = std::io::BufReader::with_capacity(1 << 20, std::fs::File::open(path).ok()?);
     let (mut a, mut b) = (sha2::Sha256::new(), sha1::Sha1::new());
     let mut buf = vec![0u8; 1 << 20];
@@ -118,17 +169,28 @@ fn id_of(path: &str) -> Option<FileId> {
         b.update(&buf[..n]);
     }
     let hex = |d: &[u8]| d.iter().map(|x| format!("{x:02x}")).collect::<String>();
-    let id = FileId { len: meta.len(), modified, sha256: hex(&sha2::Digest::finalize(a)), sha1: hex(&b.finalize()) };
-    with_store(|s| s.files.insert(path.to_lowercase(), id.clone()));
-    Some(id)
+    Some(FileId { len: meta.len(), modified, sha256: hex(&sha2::Digest::finalize(a)), sha1: hex(&b.finalize()) })
 }
 
 fn rep_mut<T>(sha256: &str, f: impl FnOnce(&mut Rep) -> T) -> T {
-    with_store(|s| {
-        let r = s.reps.entry(sha256.to_string()).or_default();
+    let mut f = Some(f);
+    let mut write = |r: &mut Rep| {
         r.sha256 = sha256.to_string();
-        f(r)
-    })
+        (f.take().expect("used once"))(r)
+    };
+    // a one-time check keeps its results in memory, on its own thread
+    if let Some(out) = SCRATCH.with(|s| s.borrow_mut().as_mut().map(|m| write(m.entry(sha256.to_string()).or_default()))) {
+        return out;
+    }
+    with_store(|s| write(s.reps.entry(sha256.to_string()).or_default()))
+}
+
+/// What is known of a file by its SHA-256 (the one-time check's own results while one runs).
+fn rep_get(sha256: &str) -> Option<Rep> {
+    if private() {
+        return SCRATCH.with(|s| s.borrow().as_ref().and_then(|m| m.get(sha256).cloned()));
+    }
+    with_store(|s| s.reps.get(sha256).cloned())
 }
 
 /// What's known about these programs (no checking), by path, plus the job and whether a
@@ -162,6 +224,103 @@ pub fn stop() {
     STOP.store(true, std::sync::atomic::Ordering::Relaxed);
 }
 
+const CHECKS: [&str; 4] = ["sig", "engines", "defender", "vt"];
+
+/// Checks one file the user picked, once and privately, with the checks in `what`. Its path,
+/// fingerprints and results live in memory until `once_forget`; nothing is written to disk.
+pub fn once_start(app: std::sync::Arc<crate::app::App>, path: String, what: Vec<String>) -> Result<(), String> {
+    if let Some(bad) = what.iter().find(|w| !CHECKS.contains(&w.as_str())) {
+        return Err(format!("unknown check {bad}"));
+    }
+    // always in the same order, each once
+    let what: Vec<String> = CHECKS.iter().filter(|c| what.iter().any(|w| w == *c)).map(|c| c.to_string()).collect();
+    if what.is_empty() {
+        return Err("Tick at least one check.".into());
+    }
+    if what.iter().any(|w| w == "vt") && with_store(|s| s.vt_key.is_empty()) {
+        return Err("Add your VirusTotal API key first (the key button next to VirusTotal).".into());
+    }
+    let meta = std::fs::metadata(&path).map_err(|_| "Deck can't open that file: it is gone, or Windows keeps it away from programs.".to_string())?;
+    if !meta.is_file() {
+        return Err("That is a folder: pick a file.".into());
+    }
+    {
+        use std::sync::atomic::Ordering::SeqCst;
+        let mut o = ONCE.lock();
+        if JOB.lock().as_ref().is_some_and(|j| j.running) || ONCE_BUSY.compare_exchange(false, true, SeqCst, SeqCst).is_err() {
+            return Err("Another check is still running: wait for it or stop it.".into());
+        }
+        *o = Some(Once { name: name(&path), path: path.clone(), size: meta.len(), what: what.clone(), running: true, ..Default::default() });
+    }
+    ONCE_STOP.store(false, std::sync::atomic::Ordering::Relaxed);
+    let spawned = std::thread::Builder::new().name("filecheck-once".into()).spawn(move || {
+        SCRATCH.with(|s| *s.borrow_mut() = Some(HashMap::new()));
+        let (said, rep, hashes) = run_once(&app, &path, &what);
+        if let Some(o) = ONCE.lock().as_mut() {
+            o.running = false;
+            o.current.clear();
+            o.done = what.len();
+            o.said = said;
+            o.rep = rep;
+            if let Some(h) = hashes {
+                (o.sha256, o.sha1) = h;
+            }
+        }
+        SCRATCH.with(|s| *s.borrow_mut() = None);
+        ONCE_BUSY.store(false, std::sync::atomic::Ordering::SeqCst);
+        // no path, no name, no fingerprint in the log
+        crate::log::info("filecheck: one-time check done");
+    });
+    if let Err(e) = spawned {
+        *ONCE.lock() = None;
+        ONCE_BUSY.store(false, std::sync::atomic::Ordering::SeqCst);
+        return Err(e.to_string());
+    }
+    Ok(())
+}
+
+/// The checks in `what` over the one file: what each said, the results, the fingerprints.
+fn run_once(app: &crate::app::App, path: &str, what: &[String]) -> (Vec<(String, String)>, Rep, Option<(String, String)>) {
+    progress(app, 0, "Reading the file to work out its fingerprint");
+    let Some(id) = fingerprint(path) else {
+        return (vec![("file".into(), "Deck couldn't read the file: Windows protects it, or it is in use by something that doesn't share it.".into())], Rep::default(), None);
+    };
+    let ids = vec![(path.to_string(), id.clone())];
+    let mut said = Vec::new();
+    for (i, c) in what.iter().enumerate() {
+        if stopped() {
+            said.push((c.clone(), "Stopped.".into()));
+            continue;
+        }
+        if let Some(o) = ONCE.lock().as_mut() {
+            o.done = i;
+        }
+        let text = match c.as_str() {
+            "sig" => signatures(app, &ids),
+            "engines" => engines(app, &ids),
+            "defender" => defender(app, &ids),
+            _ => virustotal(app, &ids),
+        };
+        said.push((c.clone(), text));
+    }
+    (said, rep_get(&id.sha256).unwrap_or_default(), Some((id.sha256, id.sha1)))
+}
+
+/// The file being checked now, or last checked, and how far it got (null when there is none).
+pub fn once_state() -> Value {
+    json!({ "once": ONCE.lock().clone(), "vt_key": with_store(|s| !s.vt_key.is_empty()) })
+}
+
+pub fn once_stop() {
+    ONCE_STOP.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Forgets the file and its results (and stops the check if it is running).
+pub fn once_forget() {
+    once_stop();
+    *ONCE.lock() = None;
+}
+
 /// Starts one check ("sig" | "engines" | "defender" | "vt") for these programs in the background.
 pub fn start(app: std::sync::Arc<crate::app::App>, what: &str, paths: Vec<String>) -> Result<(), String> {
     if !["sig", "engines", "defender", "vt"].contains(&what) {
@@ -172,7 +331,7 @@ pub fn start(app: std::sync::Arc<crate::app::App>, what: &str, paths: Vec<String
     }
     {
         let mut j = JOB.lock();
-        if j.as_ref().is_some_and(|j| j.running) {
+        if j.as_ref().is_some_and(|j| j.running) || ONCE_BUSY.load(std::sync::atomic::Ordering::SeqCst) {
             return Err("Another check is still running: wait for it or stop it.".into());
         }
         let mut seen = std::collections::HashSet::new();
@@ -199,6 +358,13 @@ pub fn start(app: std::sync::Arc<crate::app::App>, what: &str, paths: Vec<String
 }
 
 fn progress(app: &crate::app::App, done: usize, current: &str) {
+    // a one-time check counts its checks itself; its window polls, the page behind needs no redraw
+    if private() {
+        if let Some(o) = ONCE.lock().as_mut() {
+            o.current = current.to_string();
+        }
+        return;
+    }
     if let Some(j) = JOB.lock().as_mut() {
         j.done = done;
         j.current = current.to_string();
@@ -207,7 +373,8 @@ fn progress(app: &crate::app::App, done: usize, current: &str) {
 }
 
 fn stopped() -> bool {
-    STOP.load(std::sync::atomic::Ordering::Relaxed)
+    let flag = if private() { &ONCE_STOP } else { &STOP };
+    flag.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 fn name(p: &str) -> String {
@@ -229,6 +396,9 @@ fn run(app: &crate::app::App, what: &str, paths: &[String]) -> String {
         }
     }
     let unread_note = if unread > 0 { format!(" {unread} couldn't be read (Windows protects them, or they're gone).") } else { String::new() };
+    if ids.is_empty() {
+        return format!("Nothing to check: no program's file could be read.{unread_note}");
+    }
     let out = match what {
         "sig" => signatures(app, &ids),
         "engines" => engines(app, &ids),
@@ -483,13 +653,13 @@ fn virustotal(app: &crate::app::App, ids: &[(String, FileId)]) -> String {
     let agent = crate::log::http(ureq::AgentBuilder::new()).timeout(Duration::from_secs(30)).build();
     // already looked up: not again (the free key allows 500 a day). The likeliest trouble first:
     // a signature that doesn't hold, then unsigned, then not checked, then signed.
-    let mut todo: Vec<&(String, FileId)> = ids.iter().filter(|(_, id)| with_store(|s| s.reps.get(&id.sha256).is_none_or(|r| r.vt.is_none()))).collect();
-    let rank = |id: &FileId| with_store(|s| match s.reps.get(&id.sha256).and_then(|r| r.sig.as_deref()) {
+    let mut todo: Vec<&(String, FileId)> = ids.iter().filter(|(_, id)| rep_get(&id.sha256).is_none_or(|r| r.vt.is_none())).collect();
+    let rank = |id: &FileId| match rep_get(&id.sha256).and_then(|r| r.sig).as_deref() {
         Some("bad") => 0,
         Some("unsigned") => 1,
         None => 2,
         _ => 3,
-    });
+    };
     todo.sort_by_key(|(_, id)| rank(id));
     let (mut flagged, mut unknown, mut looked) = (Vec::new(), 0, 0);
     let mut v2 = true;
@@ -597,5 +767,75 @@ mod tests {
     #[test]
     fn a_vt_key_is_checked_before_it_is_kept() {
         assert!(set_vt_key("not a key").is_err());
+    }
+
+    #[test]
+    fn fingerprints_are_worked_out_without_keeping_the_file() {
+        let f = std::env::temp_dir().join(format!("deck-fp-{}.txt", std::process::id()));
+        std::fs::write(&f, b"abc").unwrap();
+        let path = f.to_string_lossy().to_string();
+        let id = fingerprint(&path).unwrap();
+        let known = with_store(|s| s.files.contains_key(&path.to_lowercase()));
+        let _ = std::fs::remove_file(&f);
+        assert_eq!(id.sha256, "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+        assert_eq!(id.sha1, "a9993e364706816aba3e25717850c26c9cd0d89d");
+        assert!(!known, "the path cache is for the programs list, not for a file checked once");
+        assert!(fingerprint(&format!("{path}.gone")).is_none());
+    }
+
+    #[test]
+    fn a_one_time_check_writes_its_results_nowhere_but_memory() {
+        let hash = "0".repeat(60) + "once";
+        // on another thread, like the check itself: the flag belongs to that thread
+        std::thread::spawn({
+            let hash = hash.clone();
+            move || {
+                SCRATCH.with(|s| *s.borrow_mut() = Some(HashMap::new()));
+                assert!(private());
+                rep_mut(&hash, |r| r.sig = Some("unsigned".into()));
+                assert_eq!(rep_get(&hash).and_then(|r| r.sig).as_deref(), Some("unsigned"));
+                assert_eq!(rep_get(&hash).map(|r| r.sha256), Some(hash.clone()));
+                save();
+                SCRATCH.with(|s| *s.borrow_mut() = None);
+                assert!(!private());
+                assert!(rep_get(&hash).is_none(), "gone with the check");
+            }
+        })
+        .join()
+        .unwrap();
+        assert!(with_store(|s| !s.reps.contains_key(&hash)), "the store never saw it");
+    }
+
+    #[test]
+    fn a_one_time_check_needs_a_real_file_and_a_check() {
+        let app = crate::app::App::new();
+        assert!(once_start(app.clone(), "C:\\no\\such\\file.exe".into(), vec!["sig".into()]).is_err());
+        assert!(once_start(app.clone(), std::env::temp_dir().to_string_lossy().to_string(), vec!["sig".into()]).unwrap_err().contains("folder"));
+        let me = std::env::current_exe().unwrap().to_string_lossy().to_string();
+        assert!(once_start(app.clone(), me.clone(), vec![]).is_err());
+        assert!(once_start(app, me, vec!["nope".into()]).unwrap_err().contains("unknown"));
+        assert!(once_state()["once"].is_null(), "refused starts leave nothing behind");
+    }
+
+    /// Runs the real checks on this test program, privately. `cargo test -- --ignored --nocapture one_time`
+    #[test]
+    #[ignore = "runs PowerShell, Defender and asks Team Cymru over the internet"]
+    fn one_time_check_on_a_real_file_leaves_nothing_in_the_store() {
+        let app = crate::app::App::new();
+        let me = std::env::current_exe().unwrap().to_string_lossy().to_string();
+        let known_before = with_store(|s| s.files.len() + s.reps.len());
+        once_start(app, me.clone(), vec!["sig".into(), "engines".into(), "defender".into()]).unwrap();
+        while ONCE.lock().as_ref().is_some_and(|o| o.running) {
+            std::thread::sleep(Duration::from_millis(200));
+        }
+        let o = ONCE.lock().clone().unwrap();
+        println!("{} | sha256 {} | rep {:?} | said {:?}", o.name, o.sha256, o.rep, o.said);
+        assert_eq!(o.sha256.len(), 64);
+        assert!(o.rep.sig.is_some(), "signature answered: {:?}", o.said);
+        assert!(!o.rep.sha256.is_empty());
+        assert_eq!(with_store(|s| s.files.len() + s.reps.len()), known_before, "nothing added to the store");
+        assert!(!with_store(|s| s.reps.contains_key(&o.sha256)));
+        once_forget();
+        assert!(once_state()["once"].is_null());
     }
 }

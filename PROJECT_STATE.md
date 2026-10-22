@@ -6,6 +6,14 @@ The dated history of the work. Last updated: 2026-10-22.
 
 > **RULE: before every commit, update the docs.** Add today's dated entry here, add user-visible changes to `CHANGELOG.md`, update `DECK.md` / `README.md` when facts change, and stage them in the same commit. The pre-commit hook enforces it; never bypass it. No personal data in these files (that goes in the git-ignored `PRIVATE_NOTES.md`).
 
+## 2026-10-22: Processes grouping, one-time file check, leftover scan safeguards (unreleased)
+
+- **Processes page** (`pages2.js` `procView`): sections "Apps (N)" / "Background processes (N)", `S.cache.procOpen` (set of lowercase names) holds the opened programs; `sys.rs` `processes()` adds `procs` (pid, cpu, mem, window title) to each group; per-process End uses `kill_pid` (guarded by `may_end`) and reports the real outcome. The "windows only" switch is gone (no setting). CSS: `tr.sect`, `tr.kid`, `.chev`, and a `max-width: 1050px` block that narrows the columns (the fixed table layout used to leave the Program column empty).
+- **One-time private file check** (`filecheck.rs` `once_start/once_state/once_stop/once_forget`, commands `filecheck_once_*`; UI `checkOneFile` in `pages2.js`): runs `signatures/engines/defender/virustotal` on one file with a thread-local `SCRATCH` map instead of the store (`rep_mut`/`rep_get`/`save`/`progress`/`stopped` check `private()`), `fingerprint()` is `id_of` without the path cache. `ONCE_BUSY` keeps a forgotten check's thread from overlapping a new one; the bulk `start` refuses while one runs. Nothing is written to disk or the log. `chipsOf(rep)` is shared with the table's `safetyCell`. Live test: `cargo test one_time_check -- --ignored --nocapture`.
+- **Leftover scan** (`programs.rs` `scan_for`): `folder_contents` counts files and .exe; `Look` says what counts per root (files everywhere, programs only in data roots); `longer_sibling` unticks a name contained in another installed program's name (not inside a publisher's folder). Dry run (`dry_run_leftovers_here`) on this PC: 283 → 276 ticked, only profiles/caches/game data.
+- **Fixes:** `uninstall` clears its own pending record when it fails; `msi_code` length guard; `stand_in` refuses `disk::protected` paths; `boost.rs` uses `not_a_game()` (registered browsers) in `game_in_front` and `find_game`; `tweaks::set_inner` rolls back the failing step too; bulk file check with no readable file.
+- Preview mock (`mock.js`, `mock-data.js`) has the new commands and per-process rows. ES-module syntax check: copy a UI file to `.mjs` first (plain `node --check` on `.js` can miss errors in files with imports).
+
 ## 2026-10-22: v2.8.1 — process safety checks, uninstall reports, safer leftovers, death counter scope
 
 Released at the user's request as **2.8.1**.

@@ -235,7 +235,11 @@
     ["Google Chrome", "chrome.exe", 4.2, 2.1e9, 18, "YouTube - Google Chrome", true], ["Visual Studio Code", "Code.exe", 1.8, 1.1e9, 9, "deck — VS Code", true], ["Counter-Strike 2", "cs2.exe", 38.5, 4.7e9, 1, "Counter-Strike 2", true],
     ["Discord", "Discord.exe", 0.9, 640e6, 6, "Discord", true], ["Spotify", "Spotify.exe", 0.6, 410e6, 5, "Spotify Premium", true], ["Windows Explorer", "explorer.exe", 0.4, 210e6, 1, "", false],
     ["NVIDIA Overlay", "nvcontainer.exe", 0.2, 180e6, 3, "", false], ["Steam", "steam.exe", 0.5, 330e6, 4, "Steam", true], ["svchost", "svchost.exe", 0.3, 95e6, 42, "", false], ["Deck", "Deck.exe", 0.4, 110e6, 3, "", false],
-  ].map(([name, exe, cpu, mem, count, title, app]) => ({ name, exe: "C:\\" + exe, cpu, mem, count, title, app, hung: false, protected: /explorer|svchost/.test(exe) }));
+  ].map(([name, exe, cpu, mem, count, title, app], n) => ({
+    name, exe: "C:\\" + exe, cpu, mem, count, title, app, hung: false, protected: /explorer|svchost/.test(exe),
+    // its processes: the window's own first, then the helpers sharing the rest
+    procs: Array.from({ length: count }, (_, i) => ({ pid: 1000 + n * 100 + i, cpu: i === 0 ? cpu * 0.6 : (cpu * 0.4) / Math.max(1, count - 1), mem: i === 0 ? mem * 0.4 : (mem * 0.6) / Math.max(1, count - 1), title: i === 0 && app ? title : null })),
+  }));
   R.startup_list = () => [
     { id: "s1", name: "Discord", exe: "C:\\Discord\\Discord.exe", command: "C:\\Users\\you\\AppData\\Local\\Discord\\Update.exe --processStart Discord.exe", source: "Registry (you)", enabled: true, can_change: true },
     { id: "s2", name: "Steam", exe: "C:\\Steam\\steam.exe", command: "\"C:\\Steam\\steam.exe\" -silent", source: "Registry (you)", enabled: true, can_change: true },

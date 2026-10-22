@@ -792,6 +792,97 @@ function vtKeyBox() {
   setTimeout(() => input.focus(), 50);
 }
 
+// A file the user picks, checked once and privately with the same four checks as the table.
+// Deck keeps nothing about it: the file and its results live in memory while this window is open.
+async function checkOneFile(path) {
+  path = path || await invoke("pick", { folder: false, title: "A file to check (nothing about it is saved)" });
+  if (!path) return;
+  const name = path.split(/[\\/]/).pop();
+  const fc = S.cache.fc || {};
+  const want = new Set(CHECKS.map((c) => c[0]).filter((k) => k !== "vt" || fc.vt_key));
+  let st = null, phase = "setup", timer = 0, prog = null, close = () => {};
+  const body = h("div", { class: "col", style: { gap: "12px", minWidth: 0 } });
+  const forget = () => { clearInterval(timer); invoke("filecheck_once_forget").catch(() => {}); };
+  const paint = () => { if (prog && st) prog.textContent = `${st.done} of ${st.what.length} checks done${st.current ? ": " + st.current : ""}`; };
+  const poll = async () => {
+    if (!body.isConnected) return forget();
+    const r = await invoke("filecheck_once_state").catch(() => null);
+    if (!r?.once) return;
+    st = r.once;
+    const now = st.running ? "running" : "done";
+    if (now !== phase) { phase = now; draw(); } else paint();
+    if (!st.running) clearInterval(timer);
+  };
+  const start = async () => {
+    try { await invoke("filecheck_once_start", { path, what: [...want] }); } catch (e) { note(String(e), true); return; }
+    phase = "running"; st = { what: [...want], done: 0, current: "Starting" };
+    draw();
+    timer = setInterval(poll, 400);
+  };
+
+  const setup = () => h("div", { class: "col", style: { gap: "10px" } },
+    h("div", { class: "col", style: { gap: "6px" } }, CHECKS.map(([k, label, tip]) => {
+      const off = k === "vt" && !fc.vt_key;
+      return h("label", { class: "row", title: tip, style: { gap: "8px" } },
+        h("input", { type: "checkbox", checked: want.has(k), disabled: off, onchange: (e) => { e.target.checked ? want.add(k) : want.delete(k); } }),
+        h("span", null, label),
+        h("span", { class: "faint small" }, off ? "add your VirusTotal key first" : k === "sig" || k === "defender" ? "on this PC" : "sends only the fingerprint"));
+    })),
+    h("p", { class: "dim small", style: { margin: 0 } }, "Private: the file itself never leaves this PC and Deck writes nothing about it down; closing this window forgets the file and its results. AV engines and VirusTotal are asked by the file's fingerprint (a short code worked out from its contents), not by its name or place. Windows and Defender may still note the scan in their own logs."),
+    h("div", { class: "row" }, h("span", { class: "grow" }), h("button", { class: "btn primary", onclick: start }, I("shield"), "Check")));
+
+  const running = () => {
+    prog = h("div", { class: "dim", style: { userSelect: "text" } });
+    paint();
+    return h("div", { class: "row", style: { gap: "10px" } }, prog, h("span", { class: "grow" }), h("button", { class: "btn sm ghost", onclick: () => invoke("filecheck_once_stop") }, "Stop"));
+  };
+
+  const results = () => {
+    const r = st.rep || {};
+    const said = Object.fromEntries(st.said || []);
+    const part = (keys) => Object.fromEntries(["sha256", ...keys].map((k) => [k, r[k]]));
+    const [vm, vs, vt] = r.vt || [0, 0, 0];
+    const detail = {
+      sig: [chipsOf(part(["sig", "signer", "sig_note"])),
+        r.sig === "valid" ? `Signed by ${r.signer || "a trusted publisher"}.`
+          : r.sig === "unsigned" ? "Nobody signed this file. Common for small or self-made tools; weigh it with the other results."
+          : r.sig === "bad" ? "Signed, but the signature doesn't hold: " + (r.sig_note || "the file changed after signing, or the certificate isn't trusted.")
+          : said.sig],
+      engines: [chipsOf(part(["engines"])),
+        r.engines == null ? said.engines : r.engines > 0 ? `${r.engines}% of antivirus engines flag this file (Team Cymru).` : "Not known as malware: Team Cymru's registry has no record of it."],
+      defender: [chipsOf(part(["defender", "defender_note"])),
+        r.defender === "clean" ? "Microsoft Defender found nothing. Nothing was changed."
+          : r.defender === "threat" ? `Microsoft Defender flags this file: ${r.defender_note || "threat"}. Nothing was removed.`
+          : r.defender === "error" ? "Defender couldn't scan it: " + (r.defender_note || "no reason given")
+          : said.defender],
+      vt: [chipsOf(part(["vt"])),
+        !r.vt ? said.vt : !vt ? "VirusTotal has never seen this file (nobody uploaded it)." : `${vm} of ${vt} engines on VirusTotal call it malicious${vs ? `, ${vs} suspicious` : ""}.`],
+    };
+    const all = chipsOf(r);
+    return h("div", { class: "col", style: { gap: "12px" } },
+      said.file ? h("div", { class: "dim", style: { userSelect: "text" } }, said.file) : null,
+      all.length ? h("div", { class: "safety" }, all) : null,
+      st.what.filter((k) => detail[k]).map((k) => h("div", { class: "col", style: { gap: "3px" } },
+        h("b", null, CHECKS.find((c) => c[0] === k)[1]),
+        h("div", { class: "dim small", style: { userSelect: "text", overflowWrap: "anywhere" } }, detail[k][1] || "No answer."))),
+      st.sha256 ? h("div", { class: "row", style: { gap: "8px" } },
+        h("span", { class: "faint small grow", style: { userSelect: "text", overflowWrap: "anywhere", minWidth: 0 }, title: st.sha256 }, "SHA-256 " + st.sha256),
+        h("button", { class: "icon-btn sm", title: "Copy the fingerprint", "aria-label": "Copy the fingerprint", onclick: () => navigator.clipboard.writeText(st.sha256).then(() => note("Fingerprint copied")) }, I("copy", "sm"))) : null,
+      h("div", { class: "row" }, h("span", { class: "grow" }), h("button", { class: "btn ghost", onclick: () => { forget(); close(); checkOneFile(); } }, "Check another file")));
+  };
+
+  const draw = () => {
+    prog = null;
+    body.replaceChildren(
+      h("div", { style: { minWidth: 0 } },
+        h("div", { class: "ell", style: { fontWeight: 600 }, title: name }, name),
+        h("div", { class: "faint small", style: { userSelect: "text", wordBreak: "break-all" } }, path)),
+      phase === "setup" ? setup() : phase === "running" ? running() : results());
+  };
+  draw();
+  close = modal("Check a file", body, (c) => [h("button", { class: "btn", onclick: () => { forget(); c(); } }, "Close")], { keep: true, onDismiss: forget });
+}
+
 function checksBar() {
   const fc = S.cache.fc || {};
   const job = fc.job;
@@ -804,7 +895,9 @@ function checksBar() {
         class: "btn sm ghost", title: tip, disabled: running || (k === "vt" && !fc.vt_key),
         onclick: () => startCheck(k),
       }, I(k === "defender" ? "shield" : k === "vt" ? "search" : k === "sig" ? "check" : "activity", "sm"), label)),
-      h("button", { class: "btn sm ghost", title: "Your VirusTotal API key (optional)", onclick: vtKeyBox }, I("lock", "sm"), fc.vt_key ? "VirusTotal key ✓" : "Add VirusTotal key")),
+      h("button", { class: "btn sm ghost", title: "Your VirusTotal API key (optional)", onclick: vtKeyBox }, I("lock", "sm"), fc.vt_key ? "VirusTotal key ✓" : "Add VirusTotal key"),
+      h("span", { class: "grow" }),
+      h("button", { class: "btn sm", title: "Check any file on this PC with the same checks, once. Nothing about it is saved or shown again.", disabled: running, onclick: () => checkOneFile() }, I("file", "sm"), "Check a file…")),
     running ? h("div", { class: "row", style: { gap: "10px" } },
       h("span", { class: "dim" }, `${CHECKS.find((c) => c[0] === job.what)?.[1]}: ${job.done} of ${job.total}`),
       h("span", { class: "faint ell grow" }, job.current || ""),
@@ -831,6 +924,12 @@ function safetyCell(p) {
   const r = p.exe && S.cache.fc?.reps?.[p.exe];
   if (!p.exe) return h("span", { class: "faint small", title: "Windows doesn't show this program's file to Deck (a protected or system process)." }, "—");
   if (!r) return h("span", { class: "faint small" }, "not checked");
+  const out = chipsOf(r);
+  return out.length ? h("div", { class: "safety" }, out) : h("span", { class: "faint small" }, "not checked");
+}
+
+// a file's results as small chips (the table and the one-time check show the same ones)
+function chipsOf(r) {
   const chip = (cls, text, title, onclick) => h(onclick ? "button" : "span", { class: "sc " + cls, title, onclick }, text);
   const out = [];
   if (r.sig === "valid") out.push(chip("good signer", "✓ " + (r.signer || "Signed"), `Signed by ${r.signer || "a trusted publisher"}`));
@@ -846,15 +945,16 @@ function safetyCell(p) {
     if (!t) out.push(chip("", "VT ?", "VirusTotal has never seen this file (no one uploaded it). Click to open VirusTotal.", open));
     else out.push(chip(m > 0 ? "bad" : s > 0 ? "warn" : "good", `VT ${m}/${t}`, `${m} of ${t} engines on VirusTotal call it malicious${s ? `, ${s} suspicious` : ""}. Click for the full report.`, open));
   }
-  return out.length ? h("div", { class: "safety" }, out) : h("span", { class: "faint small" }, "not checked");
+  return out;
 }
 
 export function procView() {
   const all = S.cache.procs || [];
   const sort = S.cache.procSort || "mem";
-  const appsOnly = S.cache.procApps !== false;
   const q = (S.cache.procQ || "").toLowerCase();
-  let list = all.filter((p) => (!appsOnly || p.app) && (!q || p.name.toLowerCase().includes(q) || (p.title || "").toLowerCase().includes(q)));
+  // the programs opened up to show their own processes (by name), kept while Deck is open
+  const opened = (S.cache.procOpen ||= new Set());
+  let list = all.filter((p) => !q || p.name.toLowerCase().includes(q) || (p.title || "").toLowerCase().includes(q));
   list = [...list].sort((a, b) => sort === "risk" ? (risk(b) - risk(a)) || (b.mem - a.mem) : sort === "cpu" ? b.cpu - a.cpu : sort === "name" ? a.name.localeCompare(b.name) : b.mem - a.mem);
   const box = h("input", { type: "search", placeholder: "Filter…", value: S.cache.procQ || "", style: { width: "200px" } });
   box.addEventListener("input", debounce(() => { S.cache.procQ = box.value; render(); const b = document.querySelector('input[type=search]'); b && (b.focus(), b.setSelectionRange(b.value.length, b.value.length)); }, 200));
@@ -862,22 +962,52 @@ export function procView() {
   const topCpu = Math.max(1, ...list.map((p) => p.cpu));
   const ramTotal = S.live?.sys?.ram_total || Math.max(1, ...list.map((p) => p.mem));
   const use = (txt, frac, cls) => h("div", { class: "use " + cls }, h("span", { class: "num" }, txt), h("i", { class: "use-bar" }, h("b", { style: { width: Math.max(2, Math.min(100, frac * 100)) + "%" } })));
+  // like Task Manager: the programs with a window first, everything else under "Background processes"
+  const apps = list.filter((p) => p.app), bg = list.filter((p) => !p.app);
+  const section = (title, n) => h("tr", { class: "sect" }, h("td", { colspan: 5 }, `${title} (${n})`));
+  const refresh = async () => { S.cache.procs = await invoke("processes"); render(); };
+  // one program's row, and under it (when opened) each of its processes
+  const rows = (p) => {
+    const key = p.name.toLowerCase(), kids = p.procs || [];
+    const open = opened.has(key) && kids.length > 1;
+    const toggleOpen = () => { opened.has(key) ? opened.delete(key) : opened.add(key); render(); };
+    const head = h("tr", null,
+      h("td", null, h("div", { class: "row", style: { gap: "8px", minWidth: 0 } },
+        kids.length > 1 ? h("button", { class: "icon-btn chev", "aria-expanded": String(open), "aria-label": `${open ? "Hide" : "Show"} the ${kids.length} processes of ${p.name}`, onclick: toggleOpen }, open ? "▾" : "▸") : h("span", { class: "chev-gap" }),
+        appIcon("file", p.exe, p.name, ""),
+        h("div", { style: { minWidth: 0, overflow: "hidden" } },
+          h("div", { class: "ell", style: { fontWeight: 600 }, title: p.title || p.name }, p.title || p.name, p.count > 1 ? h("span", { class: "faint", style: { fontWeight: 400 } }, ` (${p.count})`) : null),
+          h("div", { class: "faint", style: { fontSize: "11.5px" } }, [p.name, p.count > 1 ? `${p.count} processes` : null, p.hung ? "NOT RESPONDING" : null].filter(Boolean).join(" · "))))),
+      h("td", null, safetyCell(p)),
+      h("td", { class: "r" }, use(p.cpu.toFixed(1) + "%", p.cpu / topCpu, "cpu")),
+      h("td", { class: "r" }, use(fmtBytes(p.mem), p.mem / ramTotal, "mem")),
+      h("td", { class: "r" }, p.protected ? h("span", { class: "faint", title: "Part of Windows" }, I("lock", "sm")) :
+        h("button", { class: "btn sm" + (p.hung ? " danger" : " ghost"), onclick: async () => { if (await confirmBox(`End ${p.name}?`, `${p.count} process${p.count > 1 ? "es" : ""}. Unsaved work in it will be lost.`, "End it", true)) { await run("kill", { name: p.name }, `Ended ${p.name}`); await refresh(); } } }, "End")));
+    if (!open) return [head];
+    return [head, ...kids.map((k) => h("tr", { class: "kid" },
+      h("td", null, h("div", { class: "kid-name" }, h("span", { class: "ell", title: k.title || p.name }, k.title || p.name), h("span", { class: "faint" }, `PID ${k.pid}`))),
+      h("td", null),
+      h("td", { class: "r" }, use(k.cpu.toFixed(1) + "%", k.cpu / topCpu, "cpu")),
+      h("td", { class: "r" }, use(fmtBytes(k.mem), k.mem / ramTotal, "mem")),
+      h("td", { class: "r" }, p.protected ? null :
+        h("button", { class: "btn sm ghost", title: `End only this process (PID ${k.pid})`, onclick: async () => {
+          if (!await confirmBox(`End process ${k.pid}?`, `Only this one of ${p.name}'s ${kids.length} processes. Unsaved work in it will be lost, and ${p.name} may stop working properly.`, "End it", true)) return;
+          const ok = await invoke("kill_pid", { pid: k.pid }).catch(() => false);
+          note(ok ? `Ended process ${k.pid} of ${p.name}` : `Couldn't end process ${k.pid}: Windows refused, or it had already ended`, !ok);
+          await refresh();
+        } }, "End"))))];
+  };
   return h("div", null,
-    h("div", { class: "row", style: { marginBottom: "10px" } }, box, h("label", { class: "row" }, toggle(appsOnly, (v) => { S.cache.procApps = v; render(); }), h("span", null, "Apps with windows only")), h("span", { class: "grow" }),
+    h("div", { class: "row", style: { marginBottom: "10px" } }, box, h("span", { class: "grow" }),
       h("span", { class: "dim" }, list.length === all.length ? `${all.length} programs` : `${list.length} of ${all.length} programs`), h("button", { class: "btn ghost", onclick: () => invoke("open_system", { what: "taskmgr" }) }, I("external"), "Task Manager")),
     checksBar(),
     h("table", { class: "grid procs" },
       h("colgroup", null, h("col"), h("col", { style: { width: "300px" } }), h("col", { style: { width: "118px" } }), h("col", { style: { width: "128px" } }), h("col", { style: { width: "66px" } })),
       h("thead", null, h("tr", null, th("name", "Program"), th("risk", "Safety"), th("cpu", "CPU", "r"), th("mem", "Memory", "r"), h("th", { class: "r" }, ""))),
-      h("tbody", null, list.slice(0, 150).map((p) => h("tr", null,
-        h("td", null, h("div", { class: "row", style: { gap: "10px", minWidth: 0 } }, appIcon("file", p.exe, p.name, "", ), h("div", { style: { minWidth: 0, overflow: "hidden" } },
-          h("div", { class: "ell", style: { fontWeight: 600 }, title: p.title || p.name }, p.title || p.name),
-          h("div", { class: "faint", style: { fontSize: "11.5px" } }, [p.name, p.count > 1 ? `${p.count} processes` : null, p.hung ? "NOT RESPONDING" : null].filter(Boolean).join(" · "))))),
-        h("td", null, safetyCell(p)),
-        h("td", { class: "r" }, use(p.cpu.toFixed(1) + "%", p.cpu / topCpu, "cpu")),
-        h("td", { class: "r" }, use(fmtBytes(p.mem), p.mem / ramTotal, "mem")),
-        h("td", { class: "r" }, p.protected ? h("span", { class: "faint", title: "Part of Windows" }, I("lock", "sm")) :
-          h("button", { class: "btn sm" + (p.hung ? " danger" : " ghost"), onclick: async () => { if (await confirmBox(`End ${p.name}?`, `${p.count} process${p.count > 1 ? "es" : ""}. Unsaved work in it will be lost.`, "End it", true)) { await run("kill", { name: p.name }, `Ended ${p.name}`); S.cache.procs = await invoke("processes"); render(); } } }, "End")))))));
+      h("tbody", null,
+        apps.length ? section("Apps", apps.length) : null, apps.flatMap(rows),
+        bg.length ? section("Background processes", bg.length) : null, bg.slice(0, 150).flatMap(rows),
+        bg.length > 150 ? h("tr", null, h("td", { colspan: 5, class: "faint small" }, `${bg.length - 150} more background processes: type in the filter to find them`)) : null)));
 }
 
 export function startupView() {

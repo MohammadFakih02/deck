@@ -1042,8 +1042,7 @@ pub fn game_in_front(app: &App) -> Option<String> {
     let path = process_path(pid)?;
     let lower = path.to_lowercase();
     let stem = stem_of(&lower);
-    let windir = std::env::var("WINDIR").unwrap_or_default().to_lowercase();
-    if NOT_GAMES.contains(&stem.as_str()) || (!windir.is_empty() && lower.starts_with(&windir)) {
+    if not_a_game(&path) {
         return None;
     }
     let from_games = in_game_dir(&lower, &app.boost.game_dirs()) && !stem.contains("launcher");
@@ -1081,9 +1080,7 @@ fn find_game(app: &App, sys: &mut System) -> Option<(u32, String)> {
             GetWindowThreadProcessId(GetForegroundWindow(), Some(&mut pid));
         }
         if let Some(path) = process_path(pid) {
-            let stem = stem_of(&path);
-            let windir = std::env::var("WINDIR").unwrap_or_default().to_lowercase();
-            if pid != std::process::id() && !NOT_GAMES.contains(&stem.as_str()) && !(!windir.is_empty() && path.to_lowercase().starts_with(&windir)) {
+            if pid != std::process::id() && !not_a_game(&path) {
                 fs.insert(pid, friendly_name(&path));
             }
         }

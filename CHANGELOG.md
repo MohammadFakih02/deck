@@ -2,6 +2,23 @@
 
 All notable changes to Deck. Setups for each version are on the [Releases](https://github.com/MohammadFakih02/deck/releases) page.
 
+## Unreleased
+
+### New
+- **Check a file** (System → Processes → *Check a file…*): pick any file and run the same four checks as the Safety column (signature, AV engines, Defender, VirusTotal with your key) once, privately. The file's path, fingerprints and results are kept in memory only and forgotten when the window closes; the file itself never leaves the PC, and the online checks ask by fingerprint.
+- **Processes are grouped like Task Manager**: *Apps* (programs with a window) and *Background processes*, with counts. A program with several processes has a chevron that opens each one (PID, CPU, memory) with its own **End**, which says whether Windows ended it. This replaces the "Apps with windows only" switch.
+
+### Changed
+- **Leftover search is more careful.** A folder found only by its name is offered but not ticked when it holds 3000 or more files (browser profiles, caches, game data), or, in data folders like AppData and ProgramData, 5 or more programs. A name that sits inside another installed program's longer name ("Foo" for "Foo Pro") is not ticked either, and the row says which program.
+- The Processes table keeps the program name readable in a narrow window.
+
+### Fixed
+- A cancelled or refused uninstall no longer leaves the "Deck was closed during the advanced uninstall" warning on the Apps page.
+- The do-nothing stand-in used to repair a broken Windows Installer uninstall is never put inside Windows' own folders.
+- Game Boost no longer picks a browser Windows has registered (a portable one missing from Deck's list) as the running game.
+- A tweak that failed partway puts back the part of the failing step that had already changed, not only the earlier steps.
+- The all-programs file check says "Nothing to check" when no file can be read.
+
 ## 2.8.1 — 2026-10-22
 
 ### New

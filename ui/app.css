@@ -1687,6 +1687,23 @@ html.low-spec .tl-tool:hover, html.low-spec .tl-colors .swatch:hover { transform
 table.grid.procs { table-layout: fixed; }
 table.grid.procs .use-bar { width: 44px; }
 table.grid.procs .use .num { min-width: 48px; }
+/* "Apps (3)" / "Background processes (67)" like Task Manager, and a program's own processes under it */
+table.grid.procs tr.sect td { padding: 16px 10px 6px; font-size: 13px; font-weight: 700; color: var(--text); border-bottom: 1px solid var(--line); }
+table.grid.procs tr.sect:hover td { background: none; }
+table.grid.procs tr.kid td { padding-top: 4px; padding-bottom: 4px; background: #ffffff04; }
+table.grid.procs tr.kid .kid-name { display: flex; gap: 8px; align-items: baseline; min-width: 0; padding-left: 62px; font-size: 12.5px; }
+table.grid.procs .chev { width: 30px; height: 30px; margin: -4px -2px -4px -6px; font-size: 15px; line-height: 1; }
+table.grid.procs .chev-gap { width: 22px; flex: none; }
+table.grid.procs .kid-name .faint { white-space: nowrap; }
+/* a narrow window: the program's name keeps room, the safety column and the bars give way */
+@media (max-width: 1050px) {
+  table.grid.procs col:nth-child(2) { width: 170px !important; }
+  table.grid.procs col:nth-child(3) { width: 78px !important; }
+  table.grid.procs col:nth-child(4) { width: 92px !important; }
+  table.grid.procs col:nth-child(5) { width: 56px !important; }
+  table.grid.procs .use-bar { display: none; }
+  table.grid.procs tr.kid .kid-name { padding-left: 44px; }
+}
 .safety { display: flex; gap: 4px; flex-wrap: nowrap; overflow: hidden; align-items: center; }
 .sc { display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border-radius: 10px; font-size: 11px; font-weight: 600; white-space: nowrap; flex: none;
   border: 1px solid var(--line2); background: #ffffff0a; color: var(--dim); }
