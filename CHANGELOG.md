@@ -2,7 +2,7 @@
 
 All notable changes to Deck. Setups for each version are on the [Releases](https://github.com/MohammadFakih02/deck/releases) page.
 
-## Unreleased
+## 2.8.2 — 2026-10-22
 
 ### New
 - **Check a file** (System → Processes → *Check a file…*): pick any file and run the same four checks as the Safety column (signature, AV engines, Defender, VirusTotal with your key) once, privately. The file's path, fingerprints and results are kept in memory only and forgotten when the window closes; the file itself never leaves the PC, and the online checks ask by fingerprint.

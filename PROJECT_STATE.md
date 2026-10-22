@@ -6,7 +6,9 @@ The dated history of the work. Last updated: 2026-10-22.
 
 > **RULE: before every commit, update the docs.** Add today's dated entry here, add user-visible changes to `CHANGELOG.md`, update `DECK.md` / `README.md` when facts change, and stage them in the same commit. The pre-commit hook enforces it; never bypass it. No personal data in these files (that goes in the git-ignored `PRIVATE_NOTES.md`).
 
-## 2026-10-22: Processes grouping, one-time file check, leftover scan safeguards (unreleased)
+## 2026-10-22: v2.8.2 — Processes grouping, one-time file check, protected programs and kernel parts checked, leftover scan safeguards
+
+Released at the user's request as **2.8.2** (tag `v2.8.2`, built and published by `release.yml`).
 
 - **Processes page** (`pages2.js` `procView`): sections "Apps (N)" / "Background processes (N)", `S.cache.procOpen` (set of lowercase names) holds the opened programs; `sys.rs` `processes()` adds `procs` (pid, cpu, mem, window title) to each group; per-process End uses `kill_pid` (guarded by `may_end`) and reports the real outcome. The "windows only" switch is gone (no setting). CSS: `tr.sect`, `tr.kid`, `.chev`, and a `max-width: 1050px` block that narrows the columns (the fixed table layout used to leave the Program column empty).
 - **One-time private file check** (`filecheck.rs` `once_start/once_state/once_stop/once_forget`, commands `filecheck_once_*`; UI `checkOneFile` in `pages2.js`): runs `signatures/engines/defender/virustotal` on one file with a thread-local `SCRATCH` map instead of the store (`rep_mut`/`rep_get`/`save`/`progress`/`stopped` check `private()`), `fingerprint()` is `id_of` without the path cache. `ONCE_BUSY` keeps a forgotten check's thread from overlapping a new one; the bulk `start` refuses while one runs. Nothing is written to disk or the log. `chipsOf(rep)` is shared with the table's `safetyCell`. Live test: `cargo test one_time_check -- --ignored --nocapture`.
