@@ -211,7 +211,13 @@ impl Sys {
             let e = groups.entry(key).or_default();
             e.name = name;
             if e.exe.is_none() {
-                e.exe = p.exe().map(|x| x.to_string_lossy().to_string());
+                // protected processes refuse the library's richer access; the limited-information
+                // right Task Manager uses still gives their file. The "System" process is the kernel's file.
+                e.exe = p
+                    .exe()
+                    .map(|x| x.to_string_lossy().to_string())
+                    .or_else(|| crate::util::process_path(pid.as_u32()))
+                    .or_else(|| (pid.as_u32() == 4).then(|| crate::util::windows_dir().join(r"System32\ntoskrnl.exe").display().to_string()).filter(|p| std::path::Path::new(p).is_file()));
             }
             e.pids.push(pid.as_u32());
             e.cpu += p.cpu_usage() / cores;
@@ -327,6 +333,17 @@ impl Sys {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Which running programs still have no file Deck can scan on this PC (prints them).
+    #[test]
+    #[ignore = "reads this PC's processes"]
+    fn programs_without_a_file_here() {
+        let list = Sys::new().processes(&HashMap::new());
+        let none: Vec<&str> = list.iter().filter(|p| p["exe"].is_null()).map(|p| p["name"].as_str().unwrap_or("?")).collect();
+        println!("{} programs, {} without a file: {none:?}", list.len(), none.len());
+        // the kernel's own "System" process is the one most often missed; it has a file
+        assert!(!none.contains(&"System"), "System should map to ntoskrnl.exe");
+    }
 
     #[test]
     fn readings_stay_fresh_while_deck_is_hidden() {

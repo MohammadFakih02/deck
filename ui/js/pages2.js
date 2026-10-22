@@ -888,9 +888,12 @@ function checksBar() {
   const job = fc.job;
   const running = job?.running;
   const n = procPaths().length;
+  // programs whose file Windows doesn't show to Deck: in the table, not in the count to check
+  const noPath = (S.cache.procs || []).filter((p) => !p.exe).length;
   return h("div", { class: "col", style: { gap: "8px", marginBottom: "12px" } },
     h("div", { class: "row", style: { gap: "8px", flexWrap: "wrap" } },
       h("span", { class: "dim" }, "Check all " + n + " programs:"),
+      noPath ? h("span", { class: "faint small", title: "These have no program file Deck can read, so there is nothing to scan: the System Idle Process is only a counter and has no file, and Windows keeps the files of some protected services from a Deck that isn't running as administrator. They show \"—\" in the Safety column." }, `(${noPath} can't be checked: no file to scan)`) : null,
       CHECKS.map(([k, label, tip]) => h("button", {
         class: "btn sm ghost", title: tip, disabled: running || (k === "vt" && !fc.vt_key),
         onclick: () => startCheck(k),
@@ -922,7 +925,7 @@ function risk(p) {
 // one program's results as small chips: signer, AV engines, Defender, VirusTotal
 function safetyCell(p) {
   const r = p.exe && S.cache.fc?.reps?.[p.exe];
-  if (!p.exe) return h("span", { class: "faint small", title: "Windows doesn't show this program's file to Deck (a protected or system process)." }, "—");
+  if (!p.exe) return h("span", { class: "faint small", title: "No program file to scan: the System Idle Process is only a counter, and a Deck that isn't running as administrator can't read the files of some protected services." }, "—");
   if (!r) return h("span", { class: "faint small" }, "not checked");
   const out = chipsOf(r);
   return out.length ? h("div", { class: "safety" }, out) : h("span", { class: "faint small" }, "not checked");
