@@ -181,6 +181,64 @@ pub fn process_path(pid: u32) -> Option<String> {
     }
 }
 
+#[repr(C)]
+struct NtUnicode {
+    length: u16,
+    maximum: u16,
+    buffer: *mut u16,
+}
+
+#[repr(C)]
+struct NtProcessId {
+    process_id: usize,
+    image_name: NtUnicode,
+}
+
+#[link(name = "ntdll")]
+extern "system" {
+    fn NtQuerySystemInformation(class: u32, info: *mut std::ffi::c_void, len: u32, ret: *mut u32) -> i32;
+}
+
+#[link(name = "kernel32")]
+extern "system" {
+    fn QueryDosDeviceW(name: *const u16, target: *mut u16, max: u32) -> u32;
+}
+
+/// Full path of a process's executable, asked of the system by process id: no handle to the
+/// process is needed, so it also works for the protected ones (csrss, dwm, services of other
+/// accounts) that refuse `process_path`.
+pub fn process_path_by_id(pid: u32) -> Option<String> {
+    if pid == 0 {
+        return None;
+    }
+    // SystemProcessIdInformation: the image's NT path, e.g. \Device\HarddiskVolume3\Windows\System32\csrss.exe
+    let mut name = vec![0u16; 32767];
+    let mut info = NtProcessId { process_id: pid as usize, image_name: NtUnicode { length: 0, maximum: (name.len() * 2) as u16, buffer: name.as_mut_ptr() } };
+    let mut ret = 0u32;
+    let status = unsafe { NtQuerySystemInformation(88, &mut info as *mut _ as *mut _, std::mem::size_of::<NtProcessId>() as u32, &mut ret) };
+    if status != 0 || info.image_name.length == 0 {
+        return None;
+    }
+    let nt = String::from_utf16_lossy(&name[..info.image_name.length as usize / 2]);
+    if !nt.starts_with(r"\Device\") {
+        return None;
+    }
+    // \Device\HarddiskVolume3 -> C:
+    for letter in 'A'..='Z' {
+        let drive: Vec<u16> = format!("{letter}:").encode_utf16().chain([0]).collect();
+        let mut target = [0u16; 520];
+        let n = unsafe { QueryDosDeviceW(drive.as_ptr(), target.as_mut_ptr(), target.len() as u32) } as usize;
+        if n == 0 {
+            continue;
+        }
+        let device = String::from_utf16_lossy(&target[..target.iter().position(|c| *c == 0).unwrap_or(0)]);
+        if !device.is_empty() && nt.len() > device.len() && nt[..device.len()].eq_ignore_ascii_case(&device) && nt.as_bytes()[device.len()] == b'\\' {
+            return Some(format!("{letter}:{}", &nt[device.len()..]));
+        }
+    }
+    None
+}
+
 /// "C:\...\Discord.exe" -> "Discord".
 pub fn exe_stem(path: &str) -> String {
     Path::new(path).file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| path.to_string())

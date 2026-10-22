@@ -219,6 +219,7 @@ impl Sys {
                     // some protected processes give an empty path rather than none
                     .filter(|x| !x.is_empty())
                     .or_else(|| crate::util::process_path(pid.as_u32()))
+                    .or_else(|| crate::util::process_path_by_id(pid.as_u32()))
                     .or_else(|| (pid.as_u32() == 4).then(|| crate::util::windows_dir().join(r"System32\ntoskrnl.exe").display().to_string()).filter(|p| std::path::Path::new(p).is_file()));
             }
             e.pids.push(pid.as_u32());
@@ -233,6 +234,17 @@ impl Sys {
             }
         }
         let mut out: Vec<Group> = groups.into_values().collect();
+        // programs with no file to scan, said in the log when the set changes (so "why can't it
+        // check these" can be answered from what the PC really said)
+        static NO_FILE: Mutex<Vec<String>> = parking_lot::const_mutex(Vec::new());
+        let mut none: Vec<String> = out.iter().filter(|g| g.exe.is_none()).map(|g| format!("{} (pid {})", g.name, g.pids.first().copied().unwrap_or(0))).collect();
+        none.sort();
+        let mut last = NO_FILE.lock();
+        if *last != none {
+            crate::log::info(format!("processes: {} programs have no file to scan: {}", none.len(), none.join(", ")));
+            *last = none;
+        }
+        drop(last);
         out.sort_by_key(|b| std::cmp::Reverse(b.mem));
         out.into_iter()
             .map(|mut g| {
@@ -335,6 +347,15 @@ impl Sys {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_process_path_can_be_asked_of_the_system_by_id() {
+        let me = std::env::current_exe().unwrap().display().to_string();
+        let asked = crate::util::process_path_by_id(std::process::id()).expect("own path");
+        assert!(asked.eq_ignore_ascii_case(me.trim_start_matches(r"\\?\")), "{asked} vs {me}");
+        assert_eq!(crate::util::process_path_by_id(0), None);
+        assert_eq!(crate::util::process_path_by_id(u32::MAX - 3), None);
+    }
 
     /// Which running programs still have no file Deck can scan on this PC (prints them).
     #[test]
