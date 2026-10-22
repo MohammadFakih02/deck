@@ -431,6 +431,7 @@ fn signatures(app: &crate::app::App, ids: &[(String, FileId)]) -> String {
         _ => return format!("Windows' signature check gave no answer: {}", String::from_utf8_lossy(&o.stderr).lines().next().unwrap_or("").trim()),
     };
     let (mut ok, mut none, mut bad) = (0, 0, 0);
+    let (mut unsigned_names, mut bad_names) = (Vec::new(), Vec::new());
     for r in rows {
         let p = r["p"].as_str().unwrap_or("");
         let Some((_, id)) = ids.iter().find(|(x, _)| x.eq_ignore_ascii_case(p)) else { continue };
@@ -443,10 +444,12 @@ fn signatures(app: &crate::app::App, ids: &[(String, FileId)]) -> String {
             }
             "NotSigned" => {
                 none += 1;
+                unsigned_names.push(name(p));
                 ("unsigned", None)
             }
             _ => {
                 bad += 1;
+                bad_names.push(name(p));
                 ("bad", r["m"].as_str().map(str::to_string))
             }
         };
@@ -456,7 +459,9 @@ fn signatures(app: &crate::app::App, ids: &[(String, FileId)]) -> String {
             r.sig_note = note;
         });
     }
-    format!("Signatures: {ok} signed, {none} unsigned{}.", if bad > 0 { format!(", {bad} with a signature that doesn't hold (look at those first)") } else { String::new() })
+    // the files themselves are named, so nobody has to go looking for which ones they are
+    let named = |v: &[String]| if v.is_empty() { String::new() } else { format!(" ({})", v.join(", ")) };
+    format!("Signatures: {ok} signed, {none} unsigned{}{}.", named(&unsigned_names), if bad > 0 { format!(", {bad} with a signature that doesn't hold{} (look at those first)", named(&bad_names)) } else { String::new() })
 }
 
 // ------------------------------------------------------------------------------------- AV engines

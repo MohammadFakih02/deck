@@ -391,6 +391,13 @@ mod tests {
         assert!(none.is_empty(), "everything should have a file: {none:?}");
         let kernel: Vec<_> = list.iter().filter(|p| p["kernel"] == true).map(|p| (p["name"].as_str().unwrap_or("?"), p["exe"].as_str().unwrap_or(""))).collect();
         println!("kernel: {kernel:?}");
+        // rows that share one file count once in "Check all N programs"
+        let mut by_file: HashMap<String, Vec<&str>> = HashMap::new();
+        for p in &list {
+            by_file.entry(p["exe"].as_str().unwrap_or("").to_lowercase()).or_default().push(p["name"].as_str().unwrap_or("?"));
+        }
+        let shared: Vec<_> = by_file.iter().filter(|(_, v)| v.len() > 1).collect();
+        println!("{} rows, {} files; rows sharing a file: {shared:?}", list.len(), by_file.len());
         assert!(kernel.iter().all(|(_, f)| f.to_lowercase().ends_with("ntoskrnl.exe") || f.to_lowercase().ends_with("securekernel.exe")));
     }
 

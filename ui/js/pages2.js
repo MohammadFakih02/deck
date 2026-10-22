@@ -891,9 +891,20 @@ function checksBar() {
   // programs whose file Windows doesn't show to Deck: in the table, not in the count to check
   const noFile = (S.cache.procs || []).filter((p) => !p.exe);
   const noPath = noFile.length;
+  // why the number of files differs from the number of programs listed: rows that run from one file
+  const rows = (S.cache.procs || []).length;
+  const kernelRows = (S.cache.procs || []).filter((p) => p.kernel && p.exe);
+  const kernelFiles = new Set(kernelRows.map((p) => p.exe.toLowerCase())).size;
+  const kernelShared = kernelRows.length - kernelFiles;
+  const otherShared = Math.max(0, rows - noPath - n - kernelShared);
+  const whyFewer = [
+    kernelShared > 0 ? `${kernelRows.length} kernel parts (${kernelRows.map((p) => p.name).join(", ")}) have no file of their own and run from ${kernelFiles} Windows kernel file${kernelFiles > 1 ? "s" : ""}, so they count as ${kernelFiles}` : null,
+    otherShared > 0 ? `${otherShared} program${otherShared > 1 ? "s" : ""} run from a file another row already uses` : null,
+  ].filter(Boolean);
   return h("div", { class: "col", style: { gap: "8px", marginBottom: "12px" } },
     h("div", { class: "row", style: { gap: "8px", flexWrap: "wrap" } },
-      h("span", { class: "dim" }, "Check all " + n + " programs:"),
+      h("span", { class: "dim" }, "Check all " + n + " files:"),
+      whyFewer.length ? h("span", { class: "faint small", title: whyFewer.join(". ") + ". Each file is checked once and its result shows on every row that uses it." }, `(${rows} programs listed: ${[kernelShared > 0 ? `${kernelRows.length} kernel parts share ${kernelFiles} kernel file${kernelFiles > 1 ? "s" : ""}` : null, otherShared > 0 ? `${otherShared} share a file` : null].filter(Boolean).join(", ")})`) : null,
       noPath ? h("span", { class: "faint small", title: "No program file Deck can read, so there is nothing to scan: " + noFile.map((p) => p.name).join(", ") + ". Registry, Memory Compression, Secure System and the System Idle Process are part of Windows' kernel and have no file; Windows also keeps the files of some protected services from a Deck that isn't running as administrator. They show \"—\" in the Safety column." }, `(${noPath} can't be checked: no file to scan)`) : null,
       CHECKS.map(([k, label, tip]) => h("button", {
         class: "btn sm ghost", title: tip, disabled: running || (k === "vt" && !fc.vt_key),
