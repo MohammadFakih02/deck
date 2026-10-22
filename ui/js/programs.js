@@ -22,14 +22,31 @@ function setBusy(id, text) {
 // ------------------------------------------------------------------------------------- uninstalling
 
 async function plain(p) {
-  if (!(await confirmBox(`Uninstall ${p.name}?`, p.store ? "It's removed for your account." : `${p.name}'s own uninstaller opens. Answer its questions to finish.`, "Uninstall", true))) return;
+  if (!(await confirmBox(`Uninstall ${p.name}?`, p.store ? "It's removed for your account." : `${p.name}'s own uninstaller opens. Answer its questions to finish. Afterwards Deck looks for what it left behind and lists it, so you choose what to keep and what to delete.`, "Uninstall", true))) return;
   setBusy(p.id, "Uninstalling…");
   try {
     const r = await invoke("programs_do", { what: "uninstall", id: p.id });
-    note(r.gone ? `${p.name} uninstalled` : `${p.name}'s uninstaller closed, but ${p.name} is still installed`, !r.gone);
-  } catch (e) { note(String(e), true); }
+    if (r.gone && !p.store) {
+      // every uninstall ends with what it left behind, for the user to pick from (nothing goes unasked)
+      setBusy(p.id, "Looking for leftovers…");
+      const s = await invoke("programs_do", { what: "scan" });
+      setBusy(p.id, null);
+      await leftovers(p, s.leftovers, r.detail || `${p.name}'s uninstaller finished and ${p.name} is gone from the list.`);
+    } else if (r.detail) explain(r.gone ? `${p.name} uninstalled` : `${p.name} is still installed`, r.detail);
+    // Windows Installer's own window just closes when it's done, so the outcome always gets a box
+    else if (r.gone) explain(`${p.name} uninstalled`, `${p.name} was removed for your account.`);
+    else explain(`${p.name} is still installed`, `${p.name}'s uninstaller closed without removing it (maybe it was cancelled). Try again, or use Advanced to remove what's left.`);
+  } catch (e) { explain(`${p.name} wasn't uninstalled`, String(e)); }
   setBusy(p.id, null);
   reload(true);
+}
+
+// a result too long or important for a toast: what happened and why, in full
+function explain(title, text) {
+  return new Promise((done) => modal(title, h("p", { class: "dim", style: { margin: 0, userSelect: "text", wordBreak: "break-word" } }, text),
+    (close) => [h("button", { class: "btn", onclick: () => navigator.clipboard?.writeText(text) }, "Copy"), h("button", { class: "btn", onclick: () => { close(); done(); } }, "OK")],
+    // kept when Deck hides: the result must still be there when the user comes back
+    { keep: true, onDismiss: done }));
 }
 
 async function advanced(p) {
@@ -40,11 +57,14 @@ async function advanced(p) {
     h("p", { class: "faint small", style: { margin: 0 } }, "You pick what goes. Folders and files go to the Recycle Bin, and registry entries are saved to a backup file first.")),
   (close) => [h("button", { class: "btn", onclick: () => { close(); res(false); } }, "Cancel"), h("button", { class: "btn danger", onclick: () => { close(); res(true); } }, p.can_uninstall ? "Uninstall" : "Continue")]));
   if (!ok) return;
+  let said = "";
   try {
     if (p.can_uninstall) {
       setBusy(p.id, "Uninstalling…");
-      const r = await invoke("programs_do", { what: "uninstall_advanced", id: p.id });
-      if (!r.gone && !(await confirmBox(`${p.name} is still installed`, "Its uninstaller closed without removing it (maybe it was cancelled). Look for leftovers anyway?", "Look anyway"))) {
+      let r;
+      try { r = await invoke("programs_do", { what: "uninstall_advanced", id: p.id }); } catch (e) { r = { gone: false, detail: String(e) }; }
+      said = r.gone ? (r.detail || `${p.name}'s uninstaller finished and ${p.name} is gone from the list.`) : "";
+      if (!r.gone &&!(await confirmBox(`${p.name} is still installed`, `${r.detail || "Its uninstaller closed without removing it (maybe it was cancelled)."} Look for leftovers anyway?`, "Look anyway"))) {
         setBusy(p.id, null);
         return reload(true);
       }
@@ -54,23 +74,27 @@ async function advanced(p) {
     setBusy(p.id, "Looking for leftovers…");
     const r = await invoke("programs_do", { what: "scan" });
     setBusy(p.id, null);
-    await leftovers(p, r.leftovers);
-  } catch (e) { note(String(e), true); setBusy(p.id, null); }
+    await leftovers(p, r.leftovers, said);
+  } catch (e) { explain(`Advanced uninstall of ${p.name} stopped`, String(e)); setBusy(p.id, null); }
   reload(true);
 }
 
-function leftovers(p, items) {
-  if (!items.length) { invoke("programs_do", { what: "drop_unfinished" }); note(`Nothing of ${p.name} was left behind`); return Promise.resolve(); }
+function leftovers(p, items, said) {
+  if (!items.length) {
+    invoke("programs_do", { what: "drop_unfinished" });
+    return explain(`${p.name} is uninstalled`, `${said ? said + " " : ""}Deck then looked for what it left behind (folders named after it, Start menu entries and shortcuts, registry settings, services) and found nothing, so there's nothing more to remove.`);
+  }
   const picked = new Set(items.filter((x) => x.sure).map((x) => x.id));
   return new Promise((done) => {
     const groups = [["folder", "Folders"], ["file", "Shortcuts"], ["key", "Registry"], ["service", "Windows services (stopped and removed; a backup is saved)"]];
     const body = h("div", { class: "col prog-left" },
+      said ? h("p", { class: "dim", style: { margin: 0 } }, said) : null,
       h("p", { class: "dim", style: { margin: 0 } }, `Found ${items.length} thing${items.length > 1 ? "s" : ""} ${p.name} left behind. Untick anything you want to keep.`),
       groups.map(([k, title]) => {
         const part = items.filter((x) => x.kind === k);
         return part.length ? [h("div", { class: "prog-left-h" }, title), part.map((x) => h("label", { class: "prog-left-i" },
           h("input", { type: "checkbox", checked: picked.has(x.id), onchange: (e) => e.target.checked ? picked.add(x.id) : picked.delete(x.id) }),
-          h("div", { class: "grow", style: { minWidth: 0 } }, h("div", { class: "ell", title: x.path }, x.path), h("div", { class: "faint small" }, x.why + (x.size != null ? ` · ${fmtBytes(x.size)}` : "")))))] : null;
+          h("div", { class: "grow", style: { minWidth: 0 } }, h("div", { class: "prog-left-p" }, x.path), h("div", { class: "faint small" }, x.why + (x.size != null ? ` · ${fmtBytes(x.size)}` : "")))))] : null;
       }));
     modal(`What ${p.name} left behind`, body, (close) => [
       h("button", { class: "btn", onclick: () => { close(); invoke("programs_do", { what: "drop_unfinished" }); done(); } }, "Keep all"),
@@ -83,7 +107,7 @@ function leftovers(p, items) {
         } catch (err) { note(String(err), true); }
         close(); done();
       } }, "Remove selected"),
-    ], { onDismiss: done });
+    ], { onDismiss: done, wide: true, keep: true });
   });
 }
 

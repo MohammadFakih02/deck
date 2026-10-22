@@ -1,5 +1,5 @@
 // Pages: Files (disk space, cleanup, search index), Power, System.
-import { I, Pages, S, ago, appIcon, confirmBox, fmtBytes, fmtDur, fmtRate, fmtWords, h, helpTip, invoke, mbpsParts, netBytes, note, parseDuration, run, seg, setSetting, slider, toggle, withLocalWrites } from "./core.js";
+import { I, Pages, S, ago, appIcon, confirmBox, modal, fmtBytes, fmtDur, fmtRate, fmtWords, h, helpTip, invoke, mbpsParts, netBytes, note, parseDuration, run, seg, setSetting, slider, toggle, withLocalWrites } from "./core.js";
 import { debounce, planCond, planLabel, timerRow } from "./home.js";
 import { hover } from "./search.js";
 import { pageHead } from "./pages1.js";
@@ -727,7 +727,7 @@ export function breaksCard() {
 Pages.system = {
   async load() {
     const sub = S.sub || "processes";
-    if (sub === "processes") S.cache.procs = await invoke("processes");
+    if (sub === "processes") { S.cache.procs = await invoke("processes"); await this.loadChecks(); }
     if (sub === "startup") S.cache.startup = await invoke("startup_list");
     if (sub === "network") {
       S.cache.net = await invoke("net_info");
@@ -748,13 +748,106 @@ Pages.system = {
     else el.append(procView());
     return el;
   },
+  // the safety checks' results for the programs running now
+  async loadChecks() {
+    S.cache.fc = await invoke("filecheck_state", { paths: procPaths() }).catch(() => S.cache.fc);
+  },
   live: true,
   async tick() {
-    if ((S.sub || "processes") === "processes" && !S.interacting) { S.cache.procs = await invoke("processes"); return true; }
+    if ((S.sub || "processes") === "processes" && !S.interacting) { S.cache.procs = await invoke("processes"); await this.loadChecks(); return true; }
     if (S.sub === "network") { S.cache.net = await invoke("net_info"); netTick(); return true; }
     return false;
   },
 };
+
+// ----------------------------------------------------------------- safety checks (backend: filecheck.rs)
+
+const procPaths = () => [...new Set((S.cache.procs || []).map((p) => p.exe).filter(Boolean))];
+
+const CHECKS = [
+  ["sig", "Signatures", "Who signed each program (Windows' own check, on this PC). Unsigned isn't bad by itself, but malware rarely carries a real signature."],
+  ["engines", "AV engines", "Asks Team Cymru's Malware Hash Registry by each file's fingerprint: the share of antivirus engines that flag it. Free, no key; only the fingerprint is sent, never the file. \"0%\" means not known as malware."],
+  ["defender", "Defender", "Microsoft Defender scans each program file. Nothing is removed or changed: Defender's own app quarantines if you want."],
+  ["vt", "VirusTotal", "Looks up each file's fingerprint on VirusTotal with your own free API key (4 lookups a minute, 500 a day). Files looked up before are skipped. Nothing is uploaded."],
+];
+
+function startCheck(what) {
+  const paths = procPaths();
+  invoke("filecheck_start", { what, paths }).then(() => Pages.system.loadChecks()).then(render).catch((e) => note(String(e), true));
+}
+
+function vtKeyBox() {
+  const has = !!S.cache.fc?.vt_key;
+  const input = h("input", { type: "password", placeholder: has ? "A key is saved (paste a new one to replace it)" : "Paste your VirusTotal API key", style: { width: "100%" }, autocomplete: "off" });
+  modal("VirusTotal API key", h("div", { class: "col", style: { gap: "10px" } },
+    h("p", { class: "dim", style: { margin: 0 } }, "Optional. Get a free key at virustotal.com: sign up, open your profile, then API key. It's kept on this PC, sealed for your Windows account."),
+    input),
+  (close) => [
+    has ? h("button", { class: "btn ghost", onclick: async () => { await invoke("filecheck_key", { key: "" }); close(); note("VirusTotal key removed"); await Pages.system.loadChecks(); render(); } }, "Remove key") : null,
+    h("button", { class: "btn", onclick: close }, "Cancel"),
+    h("button", { class: "btn on", onclick: async () => {
+      try { await invoke("filecheck_key", { key: input.value }); close(); note("VirusTotal key saved"); await Pages.system.loadChecks(); render(); } catch (e) { note(String(e), true); }
+    } }, "Save"),
+  ]);
+  setTimeout(() => input.focus(), 50);
+}
+
+function checksBar() {
+  const fc = S.cache.fc || {};
+  const job = fc.job;
+  const running = job?.running;
+  const n = procPaths().length;
+  return h("div", { class: "col", style: { gap: "8px", marginBottom: "12px" } },
+    h("div", { class: "row", style: { gap: "8px", flexWrap: "wrap" } },
+      h("span", { class: "dim" }, "Check all " + n + " programs:"),
+      CHECKS.map(([k, label, tip]) => h("button", {
+        class: "btn sm ghost", title: tip, disabled: running || (k === "vt" && !fc.vt_key),
+        onclick: () => startCheck(k),
+      }, I(k === "defender" ? "shield" : k === "vt" ? "search" : k === "sig" ? "check" : "activity", "sm"), label)),
+      h("button", { class: "btn sm ghost", title: "Your VirusTotal API key (optional)", onclick: vtKeyBox }, I("lock", "sm"), fc.vt_key ? "VirusTotal key ✓" : "Add VirusTotal key")),
+    running ? h("div", { class: "row", style: { gap: "10px" } },
+      h("span", { class: "dim" }, `${CHECKS.find((c) => c[0] === job.what)?.[1]}: ${job.done} of ${job.total}`),
+      h("span", { class: "faint ell grow" }, job.current || ""),
+      h("button", { class: "btn sm ghost", onclick: () => invoke("filecheck_stop") }, "Stop"))
+      : job?.result ? h("div", { class: "faint small", style: { userSelect: "text" } }, job.result) : null);
+}
+
+// How worrying a program's results are, for sorting (riskiest first): a scanner's verdict counts
+// most, then detections, then a signature that doesn't hold, then no signature or no record at all.
+function risk(p) {
+  const r = p.exe && S.cache.fc?.reps?.[p.exe];
+  if (!r) return 0;
+  let s = 0;
+  if (r.defender === "threat") s += 1000;
+  if (r.vt) s += r.vt[0] * 40 + r.vt[1] * 10 + (r.vt[2] === 0 ? 15 : 0);
+  if (r.engines) s += r.engines * 5;
+  if (r.sig === "bad") s += 200;
+  else if (r.sig === "unsigned") s += 30;
+  return s;
+}
+
+// one program's results as small chips: signer, AV engines, Defender, VirusTotal
+function safetyCell(p) {
+  const r = p.exe && S.cache.fc?.reps?.[p.exe];
+  if (!p.exe) return h("span", { class: "faint small", title: "Windows doesn't show this program's file to Deck (a protected or system process)." }, "—");
+  if (!r) return h("span", { class: "faint small" }, "not checked");
+  const chip = (cls, text, title, onclick) => h(onclick ? "button" : "span", { class: "sc " + cls, title, onclick }, text);
+  const out = [];
+  if (r.sig === "valid") out.push(chip("good signer", "✓ " + (r.signer || "Signed"), `Signed by ${r.signer || "a trusted publisher"}`));
+  else if (r.sig === "unsigned") out.push(chip("warn", "Unsigned", "Nobody signed this program. Common for small or self-made tools; check it with the other scans."));
+  else if (r.sig === "bad") out.push(chip("bad", "Bad sig", "Signed, but the signature doesn't hold: " + (r.sig_note || "the file changed after signing, or the certificate isn't trusted.")));
+  if (r.engines != null) out.push(r.engines > 0 ? chip("bad", `AV ${r.engines}%`, `${r.engines}% of antivirus engines flag this file (Team Cymru)`) : chip("good", "AV 0%", "Not known as malware (Team Cymru)"));
+  if (r.defender === "clean") out.push(chip("good", "Def ✓", "Microsoft Defender found nothing"));
+  else if (r.defender === "threat") out.push(chip("bad", "Def: " + (r.defender_note || "threat"), "Microsoft Defender flags this file. Nothing was removed."));
+  else if (r.defender === "error") out.push(chip("", "Def ?", "Defender couldn't scan it: " + (r.defender_note || "")));
+  if (r.vt) {
+    const [m, s, t] = r.vt;
+    const open = () => invoke("open_url", { url: "https://www.virustotal.com/gui/file/" + r.sha256 });
+    if (!t) out.push(chip("", "VT ?", "VirusTotal has never seen this file (no one uploaded it). Click to open VirusTotal.", open));
+    else out.push(chip(m > 0 ? "bad" : s > 0 ? "warn" : "good", `VT ${m}/${t}`, `${m} of ${t} engines on VirusTotal call it malicious${s ? `, ${s} suspicious` : ""}. Click for the full report.`, open));
+  }
+  return out.length ? h("div", { class: "safety" }, out) : h("span", { class: "faint small" }, "not checked");
+}
 
 export function procView() {
   const all = S.cache.procs || [];
@@ -762,7 +855,7 @@ export function procView() {
   const appsOnly = S.cache.procApps !== false;
   const q = (S.cache.procQ || "").toLowerCase();
   let list = all.filter((p) => (!appsOnly || p.app) && (!q || p.name.toLowerCase().includes(q) || (p.title || "").toLowerCase().includes(q)));
-  list = [...list].sort((a, b) => sort === "cpu" ? b.cpu - a.cpu : sort === "name" ? a.name.localeCompare(b.name) : b.mem - a.mem);
+  list = [...list].sort((a, b) => sort === "risk" ? (risk(b) - risk(a)) || (b.mem - a.mem) : sort === "cpu" ? b.cpu - a.cpu : sort === "name" ? a.name.localeCompare(b.name) : b.mem - a.mem);
   const box = h("input", { type: "search", placeholder: "Filter…", value: S.cache.procQ || "", style: { width: "200px" } });
   box.addEventListener("input", debounce(() => { S.cache.procQ = box.value; render(); const b = document.querySelector('input[type=search]'); b && (b.focus(), b.setSelectionRange(b.value.length, b.value.length)); }, 200));
   const th = (key, label, cls) => h("th", { class: (cls || "") + " sortable" + (sort === key ? " on" : ""), title: "Sort by " + label.toLowerCase(), onclick: () => { S.cache.procSort = key; render(); } }, label, sort === key ? " ↓" : "");
@@ -772,12 +865,15 @@ export function procView() {
   return h("div", null,
     h("div", { class: "row", style: { marginBottom: "10px" } }, box, h("label", { class: "row" }, toggle(appsOnly, (v) => { S.cache.procApps = v; render(); }), h("span", null, "Apps with windows only")), h("span", { class: "grow" }),
       h("span", { class: "dim" }, list.length === all.length ? `${all.length} programs` : `${list.length} of ${all.length} programs`), h("button", { class: "btn ghost", onclick: () => invoke("open_system", { what: "taskmgr" }) }, I("external"), "Task Manager")),
-    h("table", { class: "grid" },
-      h("thead", null, h("tr", null, th("name", "Program"), th("cpu", "CPU", "r"), th("mem", "Memory", "r"), h("th", { class: "r" }, ""))),
+    checksBar(),
+    h("table", { class: "grid procs" },
+      h("colgroup", null, h("col"), h("col", { style: { width: "300px" } }), h("col", { style: { width: "118px" } }), h("col", { style: { width: "128px" } }), h("col", { style: { width: "66px" } })),
+      h("thead", null, h("tr", null, th("name", "Program"), th("risk", "Safety"), th("cpu", "CPU", "r"), th("mem", "Memory", "r"), h("th", { class: "r" }, ""))),
       h("tbody", null, list.slice(0, 150).map((p) => h("tr", null,
-        h("td", null, h("div", { class: "row", style: { gap: "10px" } }, appIcon("file", p.exe, p.name, "", ), h("div", { style: { minWidth: 0 } },
-          h("div", { class: "ell", style: { fontWeight: 600, maxWidth: "420px" } }, p.title || p.name),
+        h("td", null, h("div", { class: "row", style: { gap: "10px", minWidth: 0 } }, appIcon("file", p.exe, p.name, "", ), h("div", { style: { minWidth: 0, overflow: "hidden" } },
+          h("div", { class: "ell", style: { fontWeight: 600 }, title: p.title || p.name }, p.title || p.name),
           h("div", { class: "faint", style: { fontSize: "11.5px" } }, [p.name, p.count > 1 ? `${p.count} processes` : null, p.hung ? "NOT RESPONDING" : null].filter(Boolean).join(" · "))))),
+        h("td", null, safetyCell(p)),
         h("td", { class: "r" }, use(p.cpu.toFixed(1) + "%", p.cpu / topCpu, "cpu")),
         h("td", { class: "r" }, use(fmtBytes(p.mem), p.mem / ramTotal, "mem")),
         h("td", { class: "r" }, p.protected ? h("span", { class: "faint", title: "Part of Windows" }, I("lock", "sm")) :

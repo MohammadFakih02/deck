@@ -1206,7 +1206,12 @@ fn run(sh: Arc<Shared>, rx: Receiver<()>) {
             // reader not checked in the real game only takes over once it has counted a death: one
             // that reads the wrong place would otherwise silence a screen watcher that works.
             let save_ok = |k: &str| tracker.as_ref().is_some_and(|t| t.game == k && t.proven());
-            let looking = front.as_ref().filter(|f| counted && s.auto_screen && !save_ok(&f.game.key));
+            // by default only games Deck can read: listed in the catalogue, with death screens taught
+            // here or shared, or that the user counted deaths in (an unknown game isn't looked at)
+            let readable = |f: &ident::Front| {
+                s.watch_in == "all" || f.game.entry.is_some() || !store::load_taught(&f.game.key).is_empty() || !library::prints(&f.game.key).is_empty() || sh.st.lock().log(&f.game.key).book.total_deaths() > 0
+            };
+            let looking = front.as_ref().filter(|f| counted && s.auto_screen && !save_ok(&f.game.key) && readable(f));
             match looking {
                 Some(f) if watch.as_ref().is_none_or(|w| w.game != f.game.key || w.hwnd != f.hwnd) => {
                     let (weak, key) = (sh.app.clone(), f.game.key.clone());

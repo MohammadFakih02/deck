@@ -2,6 +2,27 @@
 
 All notable changes to Deck. Setups for each version are on the [Releases](https://github.com/MohammadFakih02/deck/releases) page.
 
+## 2.8.1 — 2026-10-22
+
+### New
+- **Safety checks for running programs** (System → Processes). Each check is optional and runs for every program at once; the results sit side by side in a new **Safety** column:
+  - **Signatures**: who signed each program (Windows' own check), or **Unsigned**, or **Bad signature** when the file changed after it was signed.
+  - **AV engines**: the share of antivirus engines that flag the file, from Team Cymru's Malware Hash Registry. Free, no key, about a second for everything.
+  - **Defender**: Microsoft Defender scans each program file. Nothing is removed or changed.
+  - **VirusTotal** (optional, with your own free API key): detections like "0/72", 4 files per request (16 a minute on a free key), the riskiest programs first; click a result for the full report. Dropped connections are retried; files looked up before are skipped.
+  - Only a file's fingerprint leaves the PC, never the file. Results are kept per file and checked again only when the file changes.
+  - **Sort by risk**: click the Safety header (Defender threats first, then detections, broken signatures, unsigned).
+- **Death counter: "Watch in"** (Death counter → settings). By default the screen is only watched in games Deck knows how to read: games on its list, games with death screens taught or shared, and games you've counted a death in yourself. "Every game" brings back the old behaviour.
+
+### Changed
+- **Every uninstall now looks for leftovers** (Maintenance → Apps), not only Advanced: afterwards you get the list of what's left and pick what to keep and what to delete, or a box saying nothing was left. Deck comes back to the front when the uninstaller finishes, and the result stays on screen until you close it.
+- **Windows Installer uninstalls say what really happened.** Deck keeps Windows' full log and explains failures in plain words (cancelled, already gone, another install running, needs admin, the installer package missing, the exact error from the log). When another install is still running it says so instead of starting.
+- **Broken Windows Installer uninstalls repair themselves where possible**: when a program's folder was deleted earlier and its uninstall needs a file that was in it (error 1721/1722), Deck puts a do-nothing stand-in there, lets Windows finish, and removes the stand-in. A stuck Windows Installer service (error 1601) is restarted once.
+
+### Fixed
+- **Leftover search could tick a publisher's whole folder** (for example a shared "Autodesk" folder holding other products) when an app recorded that folder as its install folder. A publisher's name never counts as one app's name now, and a recorded install folder is ticked only when it carries the app's name or holds its uninstaller (an add-on installed into a game's folder no longer offers the game). Folders in Documents are never ticked. The leftover list is wider and long paths wrap.
+- **The death counter showed up over fullscreen videos in browsers it didn't know** (Waterfox and others): every browser Windows has registered is now left alone, plus more browsers, players and apps (LibreWolf, Floorp, Zen, Thorium, Stremio, Kodi, Plex, Spotify, Discord and others). This also keeps Game boost from treating them as games.
+
 ## 2.8.0 — 2026-10-22
 
 Everything in 2.7.9 (below), plus:

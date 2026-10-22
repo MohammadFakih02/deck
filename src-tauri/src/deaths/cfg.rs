@@ -7,6 +7,8 @@ pub const CORNERS: [&str; 6] = ["top-left", "top", "top-right", "bottom-left", "
 pub const STYLES: [&str; 3] = ["skull", "ring", "huge"];
 /// what it counts: this boss, the whole game, or both
 pub const COUNTS: [&str; 3] = ["boss", "game", "both"];
+/// which games the screen is watched in: games Deck knows how to read, or every game
+pub const WATCH_IN: [&str; 2] = ["known", "all"];
 /// outside a fight: the game's total, or nothing
 pub const OUTSIDE: [&str; 2] = ["game", "hide"];
 
@@ -77,6 +79,9 @@ pub struct DeathSettings {
     pub auto_save: bool,
     /// watch the screen for death screens
     pub auto_screen: bool,
+    /// one of WATCH_IN: "known" = games in the catalogue, with taught or shared death screens, or
+    /// with deaths counted; "all" = any game in front
+    pub watch_in: String,
     /// while watching the screen, open and time boss fights from the boss's health bar
     pub auto_boss: bool,
     /// names the screen found that aren't bosses ("Not a boss"): "game key\tname"
@@ -115,6 +120,7 @@ impl Default for DeathSettings {
             pad_combo: false,
             auto_save: true,
             auto_screen: true,
+            watch_in: "known".into(),
             auto_boss: true,
             not_bosses: Vec::new(),
             bar_spots: Default::default(),
@@ -134,6 +140,9 @@ impl DeathSettings {
         }
         self.pill_scale = if self.pill_scale.is_finite() { self.pill_scale.clamp(0.5, 2.0) } else { 1.0 };
         self.pill_opacity = if self.pill_opacity.is_finite() { self.pill_opacity.clamp(0.2, 1.0) } else { 0.9 };
+        if !WATCH_IN.contains(&self.watch_in.as_str()) {
+            self.watch_in = "known".into();
+        }
         if !STYLES.contains(&self.pill_style.as_str()) {
             self.pill_style = "skull".into();
         }

@@ -30,6 +30,7 @@ mod mft;
 mod display;
 mod displaycmd;
 mod elevation;
+mod filecheck;
 mod files;
 mod gameping;
 mod games;
@@ -1558,6 +1559,10 @@ fn main() {
     unsafe {
         windows_sys::Win32::System::LibraryLoader::SetDllDirectoryW([0u16].as_ptr());
     }
+    // a stand-in Deck put where a broken uninstall expects a deleted program: do nothing, succeed
+    if programs::is_stand_in() {
+        std::process::exit(0);
+    }
     // Claude Code's hook (Claude Sync): answers in milliseconds, never starts Deck
     if std::env::args().any(|a| a == "--claude-sync-hook") {
         exit_logged(ccsync::hook_main());
@@ -2094,7 +2099,7 @@ fn main() {
             set_awake, set_plan, cancel_plan, run_power, timer_add, timer_cmd, stopwatch, toast_action, toast_resize,
             windows_list, window_action, snap_window, ws_capture, ws_recapture, ws_open,
             diskcmd::disk_scan, diskcmd::disk_status, diskcmd::disk_cancel, diskcmd::disk_treemap, diskcmd::disk_types, diskcmd::disk_path, syscmd::support_report, diskcmd::disk_children, diskcmd::disk_big, diskcmd::recycle, diskcmd::cleanup_scan, diskcmd::cleanup_state, diskcmd::cleanup_run,
-            syscmd::processes, syscmd::kill, syscmd::kill_pid, syscmd::startup_list, syscmd::startup_set, syscmd::who_uses, pick,
+            syscmd::processes, syscmd::filecheck_state, syscmd::filecheck_start, syscmd::filecheck_stop, syscmd::filecheck_key, syscmd::kill, syscmd::kill_pid, syscmd::startup_list, syscmd::startup_set, syscmd::who_uses, pick,
             displaycmd::display_state, displaycmd::set_refresh, displaycmd::set_brightness, displaycmd::set_hdr, displaycmd::set_dark, displaycmd::locate,
             netcmd::net_info, netcmd::net_public_ip, netcmd::net_ping, netcmd::net_speed, netcmd::net_speed_cancel, netcmd::game_ping_games, netcmd::game_ping, index_rebuild, index_info,
             boostcmd::boost_state, boostcmd::boost_apps, boostcmd::boost_run, boostcmd::boost_pick,

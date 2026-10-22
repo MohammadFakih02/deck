@@ -405,6 +405,11 @@ export async function boot() {
       S.state = withLocalWrites(await invoke("get_state"));
       applyAccent();
       if (S.page === "settings" || S.page === "phone" || topic === "remote") renderSide();
+    } else if (topic === "filecheck") {
+      // a safety check moved on: the processes table shows it (at most a few times a second)
+      if (S.page === "system" && (S.sub || "processes") === "processes" && !S.cache.fcTimer) {
+        S.cache.fcTimer = setTimeout(async () => { S.cache.fcTimer = null; await Pages.system.loadChecks?.(); if (!S.interacting) render(); }, 300);
+      }
     } else if (topic === "update") {
       const u = await invoke("update_state").catch(() => null);
       const was = S.cache.update?.state;

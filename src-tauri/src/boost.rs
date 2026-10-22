@@ -124,13 +124,53 @@ const NOT_GAMES: &[&str] = &[
     "msedge", "chrome", "brave", "firefox", "opera", "opera_gx", "vivaldi", "vlc", "mpc-hc64", "mpc-hc", "mpc-be64", "mpv",
     "potplayermini64", "potplayer", "microsoft.media.player", "video.ui", "netflix", "powerpnt", "applicationframehost",
     "explorer", "deck", "code", "photos", "microsoft.photos", "zoom", "ms-teams", "obs64",
+    // browsers Windows may not list (portable copies) and more video players
+    "waterfox", "librewolf", "floorp", "zen", "thorium", "browser", "arc", "iexplore", "palemoon", "basilisk", "seamonkey", "mullvadbrowser",
+    "yandex", "chromium", "ungoogled-chromium", "supermium", "mercury", "kmplayer", "kmplayer64x", "smplayer", "gom", "mpvnet", "stremio",
+    "kodi", "plex", "plexamp", "jellyfin", "jellyfinmediaplayer", "spotify", "discord",
 ];
+
+/// Every browser Windows knows (the ones it offers as the default browser), by exe stem. Read once.
+fn registered_browsers() -> &'static Vec<String> {
+    static SET: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+    SET.get_or_init(|| {
+        let mut out = Vec::new();
+        for (key, view) in [(r"HKLM\SOFTWARE\Clients\StartMenuInternet", "/reg:64"), (r"HKLM\SOFTWARE\Clients\StartMenuInternet", "/reg:32"), (r"HKCU\SOFTWARE\Clients\StartMenuInternet", "/reg:64")] {
+            let Ok(o) = crate::util::run_for(10, "reg.exe", &["query", key, "/s", view]) else { continue };
+            // only each browser's own program (its open command), not helpers like an uninstaller
+            let mut in_open = false;
+            for line in String::from_utf8_lossy(&o.stdout).lines() {
+                let l = line.to_lowercase();
+                if l.starts_with("hkey_") {
+                    in_open = l.ends_with(r"\shell\open\command");
+                    continue;
+                }
+                let Some(i) = l.find(".exe").filter(|_| in_open) else { continue };
+                let path = l[..i + 4].rsplit(['"', ' ']).next().unwrap_or("");
+                let stem = stem_of(path);
+                if !stem.is_empty() && !out.contains(&stem) {
+                    out.push(stem);
+                }
+            }
+        }
+        out
+    })
+}
+
+#[cfg(test)]
+#[test]
+#[ignore = "reads this PC's registry"]
+fn browsers_windows_knows_here() {
+    println!("{:?}", registered_browsers());
+    assert!(not_a_game(r"C:\Program Files\Waterfox\waterfox.exe"));
+}
 
 /// A browser, video player or other fullscreen program that isn't a game, or one of Windows' own.
 pub fn not_a_game(path: &str) -> bool {
     let lower = path.to_lowercase();
     let windir = std::env::var("WINDIR").unwrap_or_default().to_lowercase();
-    NOT_GAMES.contains(&stem_of(&lower).as_str()) || (!windir.is_empty() && lower.starts_with(&windir))
+    let stem = stem_of(&lower);
+    NOT_GAMES.contains(&stem.as_str()) || registered_browsers().contains(&stem) || (!windir.is_empty() && lower.starts_with(&windir))
 }
 
 fn stem_of(path_or_name: &str) -> String {

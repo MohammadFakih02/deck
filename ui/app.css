@@ -1664,7 +1664,8 @@ html.low-spec .tl-tool:hover, html.low-spec .tl-colors .swatch:hover { transform
 }
 
 /* Maintenance → Apps: an advanced uninstall's leftovers */
-.prog-left { gap: 6px; max-height: 60vh; overflow: auto; min-width: min(560px, 80vw); }
+.prog-left { gap: 6px; }
+.prog-left-p { overflow-wrap: anywhere; }
 .prog-left-h { font-weight: 600; margin-top: 8px; }
 .prog-left-i { display: flex; gap: 10px; align-items: flex-start; padding: 6px 8px; border-radius: 8px; cursor: pointer; }
 .prog-left-i:hover { background: var(--hover, rgba(127,127,127,.1)); }
@@ -1681,3 +1682,17 @@ html.low-spec .tl-tool:hover, html.low-spec .tl-colors .swatch:hover { transform
 .tw-good svg { color: var(--good, #34c759); }
 .tw-lose { opacity: .85; }
 .tw-lose svg { color: var(--warn, #ff9f0a); }
+
+/* System → Processes: fixed columns (the program name gets what's left), compact safety badges */
+table.grid.procs { table-layout: fixed; }
+table.grid.procs .use-bar { width: 44px; }
+table.grid.procs .use .num { min-width: 48px; }
+.safety { display: flex; gap: 4px; flex-wrap: nowrap; overflow: hidden; align-items: center; }
+.sc { display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border-radius: 10px; font-size: 11px; font-weight: 600; white-space: nowrap; flex: none;
+  border: 1px solid var(--line2); background: #ffffff0a; color: var(--dim); }
+button.sc { cursor: pointer; }
+button.sc:hover { filter: brightness(1.25); }
+.sc.good { color: var(--good); border-color: #3ddc9740; background: #3ddc9712; }
+.sc.warn { color: var(--warn); border-color: #ffb54750; background: #ffb54714; }
+.sc.bad { color: var(--bad); border-color: #ff5d6c60; background: #ff5d6c18; }
+.sc.signer { flex: 0 1 auto; min-width: 0; max-width: 130px; overflow: hidden; text-overflow: ellipsis; display: inline-block; line-height: 18px; }

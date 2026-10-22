@@ -27,6 +27,30 @@ pub fn kill_pid(app: A, pid: u32) -> bool {
     app.sys.kill_pid(pid)
 }
 
+/// What's known about these programs' safety (no checking), the running check, and whether a
+/// VirusTotal key is saved.
+#[tauri::command]
+pub fn filecheck_state(paths: Vec<String>) -> Value {
+    crate::filecheck::state(&paths)
+}
+
+/// Starts a check for every one of these programs: "sig" | "engines" | "defender" | "vt".
+#[tauri::command]
+pub fn filecheck_start(app: A, what: String, paths: Vec<String>) -> R<()> {
+    crate::filecheck::start(app.inner().clone(), &what, paths)
+}
+
+#[tauri::command]
+pub fn filecheck_stop() {
+    crate::filecheck::stop()
+}
+
+/// Saves the VirusTotal API key ("" forgets it).
+#[tauri::command]
+pub fn filecheck_key(key: String) -> R<()> {
+    crate::filecheck::set_vt_key(&key)
+}
+
 #[tauri::command]
 pub async fn startup_list() -> R<Vec<startup::Entry>> {
     Ok(startup::list())

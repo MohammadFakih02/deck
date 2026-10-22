@@ -475,17 +475,14 @@ pub fn drop_unfinished() {
 
 /// Runs the program's own uninstaller and waits for it and everything it started. `Ok(true)` when
 /// the program is gone afterwards.
-pub fn uninstall(app: &crate::app::App, id: &str, advanced: bool) -> Result<bool, String> {
+pub fn uninstall(app: &crate::app::App, id: &str, advanced: bool) -> Result<Outcome, String> {
     let p = find(app, id)?;
     if let Some(g) = crate::boost::game_in_front(app) {
         return Err(format!("{g} is in front: Deck uninstalls programs only outside games"));
     }
-    // only an advanced uninstall looks for leftovers afterwards; a plain one is done when it's done
-    if advanced {
-        set_before(Some(p.clone()));
-    } else {
-        *BEFORE.lock() = Some(p.clone());
-    }
+    // every uninstall looks for leftovers afterwards (saved, so a restart in between still offers them)
+    let _ = advanced;
+    set_before(Some(p.clone()));
     crate::log::info(format!("apps: uninstalling {} ({})", p.name, p.id));
     if p.store {
         if p.id.contains('\'') {
@@ -497,16 +494,179 @@ pub fn uninstall(app: &crate::app::App, id: &str, advanced: bool) -> Result<bool
         if !o.status.success() {
             return Err(format!("Windows didn't remove {}: {}", p.name, String::from_utf8_lossy(&o.stderr).lines().find(|l| !l.trim().is_empty()).unwrap_or("").trim()));
         }
-        return Ok(true);
+        return Ok(Outcome { gone: true, detail: None });
     }
     if !p.can_uninstall {
         return Err(format!("{}'s uninstaller is missing. Use Advanced to remove what's left.", p.name));
     }
-    run_and_wait(&msi_uninstall(&p.uninstall))?;
+    let cmd = msi_uninstall(&p.uninstall);
+    let detail = match msi_code(&cmd) {
+        Some(code) => Some(msi_remove(&p.name, &code)?),
+        None => {
+            run_and_wait(&cmd)?;
+            None
+        }
+    };
     *CACHE.lock() = None;
     let gone = !list(app, true).iter().any(|x| x.id == p.id);
-    crate::log::info(format!("apps: {}'s uninstaller finished; {}", p.name, if gone { "it's gone" } else { "it's still installed" }));
-    Ok(gone)
+    crate::log::info(format!("apps: {}'s uninstaller finished; {}{}", p.name, if gone { "it's gone" } else { "it's still installed" }, detail.as_deref().map(|d| format!(" ({d})")).unwrap_or_default()));
+    Ok(Outcome { gone, detail })
+}
+
+/// What an uninstall did: whether the program is gone, and for Windows Installer programs what
+/// Windows said (the reason it failed, or what Deck repaired on the way).
+pub struct Outcome {
+    pub gone: bool,
+    pub detail: Option<String>,
+}
+
+/// The product code of an "MsiExec ... /X{GUID}" command.
+fn msi_code(cmd: &str) -> Option<String> {
+    let l = cmd.to_lowercase();
+    if !l.contains("msiexec") {
+        return None;
+    }
+    let i = l.find("/x")?;
+    let rest = cmd[i + 2..].trim_start();
+    let end = rest.find('}')?;
+    let code = &rest[..=end];
+    (code.starts_with('{') && code.len() == 38 && code[1..37].chars().all(|c| c.is_ascii_hexdigit() || c == '-')).then(|| code.to_string())
+}
+
+/// Another Windows Installer job is running right now (Windows allows one at a time).
+fn installer_busy() -> Option<String> {
+    let k = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\InProgress";
+    key_exists(View::M64, k).then(|| get_str(View::M64, k, "").or_else(|| get_str(View::M64, k, "ProductName")).unwrap_or_default())
+}
+
+/// The Windows Installer service is stuck between states ("Install server not responding").
+fn restart_installer_service() {
+    let _ = crate::util::run_for(60, "net.exe", &["stop", "msiserver"]);
+    let _ = crate::util::run_for(60, "net.exe", &["start", "msiserver"]);
+}
+
+/// Uninstalls a Windows Installer product with a full log, so a failure can be explained
+/// instead of Windows' generic "There is a problem with this Windows Installer package". Repairs
+/// the commonest cause (the program's folder was deleted by hand or a cleaner, and its uninstall
+/// needs a program that was in it) and tries again. `Ok` = a plain-language report of what happened.
+fn msi_remove(name: &str, code: &str) -> Result<String, String> {
+    if let Some(other) = installer_busy() {
+        let what = if other.trim().is_empty() { "another program".to_string() } else { format!("\"{}\"", other.trim()) };
+        return Err(format!("Windows Installer is busy with {what}, and it runs one install or uninstall at a time. Let that finish (or restart the PC if nothing is installing), then try again."));
+    }
+    let log = crate::util::appdata().join("Deck").join("backups").join("uninstall").join(format!("{}-{}.log", safe_file(name), code.trim_matches(['{', '}'])));
+    let _ = std::fs::create_dir_all(log.parent().unwrap());
+    let run = |quiet: bool| -> Result<Option<u32>, String> {
+        let _ = std::fs::remove_file(&log);
+        run_and_wait(&format!("msiexec.exe /x{code}{} /norestart /L*v \"{}\"", if quiet { " /qn" } else { "" }, log.display()))
+    };
+    let mut rc = run(false)?;
+    if rc == Some(1601) {
+        restart_installer_service();
+        rc = run(false)?;
+    }
+    let text = read_log(&log);
+    let fail = msi_failure(&text);
+    if rc == Some(1603) {
+        if let Some((_, Some(exe))) = &fail {
+            if !exe.exists() {
+                let fixed = stand_in(exe, || run(true));
+                let text2 = read_log(&log);
+                return match fixed {
+                    Ok(Some(0 | 3010 | 1641)) => Ok(format!(
+                        "Windows' first try failed: its uninstall needs {}, which was deleted earlier (probably by hand or a cleanup tool). Deck put a stand-in there for a moment, Windows then finished the uninstall, and Deck removed the stand-in.{}",
+                        exe.display(),
+                        restart_note(fixed.ok().flatten())
+                    )),
+                    Ok(rc2) => Err(explain(name, rc2, &text2, &log)),
+                    Err(e) => Err(format!("{name}'s uninstall needs {}, which was deleted earlier, and Deck couldn't put a stand-in there: {e}", exe.display())),
+                };
+            }
+        }
+    }
+    match rc {
+        Some(0 | 3010 | 1641) => Ok(format!("Windows Installer finished and reported \"Removal completed successfully\" for {name}. Its window closes by itself when it's done.{}", restart_note(rc))),
+        _ => Err(explain(name, rc, &text, &log)),
+    }
+}
+
+fn restart_note(rc: Option<u32>) -> &'static str {
+    if matches!(rc, Some(3010 | 1641)) { " Restart the PC to finish removing files that were in use." } else { "" }
+}
+
+/// An MSI log (UTF-16 or ANSI) as text.
+fn read_log(p: &Path) -> String {
+    let b = std::fs::read(p).unwrap_or_default();
+    if b.starts_with(&[0xFF, 0xFE]) {
+        let w: Vec<u16> = b[2..].as_chunks::<2>().0.iter().map(|c| u16::from_le_bytes(*c)).collect();
+        String::from_utf16_lossy(&w)
+    } else {
+        String::from_utf8_lossy(&b).into_owned()
+    }
+}
+
+/// The first real error in an MSI log: its message, and the program a failed custom action
+/// tried to run ("... location: C:\x\y.exe, command: ...").
+fn msi_failure(log: &str) -> Option<(String, Option<PathBuf>)> {
+    let line = log.lines().find(|l| {
+        let t = l.trim_start();
+        t.starts_with("Error 1") || t.starts_with("Error 2") || t.contains("-- Error 1") || t.contains("-- Error 2")
+    })?;
+    let msg = line.split_once("-- ").map(|(_, m)| m).unwrap_or(line).trim().to_string();
+    let exe = msg.split_once("location: ").and_then(|(_, r)| r.split_once(", command:").map(|(p, _)| p.trim())).filter(|p| p.to_lowercase().ends_with(".exe")).map(PathBuf::from);
+    Some((msg, exe))
+}
+
+/// Explains a failed Windows Installer uninstall in plain words.
+fn explain(name: &str, rc: Option<u32>, log: &str, log_path: &Path) -> String {
+    let why = match rc {
+        None => "the uninstaller didn't report how it ended".to_string(),
+        Some(1602) => return format!("The uninstall of {name} was cancelled, so nothing was removed."),
+        Some(1605) => return format!("Windows Installer says {name} isn't installed any more (code 1605). Only its entry was left: use Advanced to clear what's left."),
+        Some(1618) => "another install or uninstall was running (code 1618). Windows runs one at a time: wait for it, or restart the PC, then try again".to_string(),
+        Some(1601) => "the Windows Installer service didn't answer, even after Deck restarted it (code 1601). Restart the PC and try again".to_string(),
+        Some(1612 | 1620) => format!("Windows' saved copy of {name}'s installer package is missing (code {}), so Windows can't uninstall it. Advanced can still remove what's left", rc.unwrap()),
+        Some(1625) => "a Group Policy on this PC forbids uninstalling it (code 1625)".to_string(),
+        Some(1730) => "it needs admin rights (code 1730). Start Deck as administrator and try again".to_string(),
+        Some(c) => match msi_failure(log) {
+            Some((m, _)) => format!("Windows Installer stopped with code {c}: {m}"),
+            None => format!("Windows Installer stopped with code {c} without naming an error"),
+        },
+    };
+    format!("{name} wasn't uninstalled: {why}. Windows' full log: {}", log_path.display())
+}
+
+/// Puts a do-nothing copy of Deck at `exe` (with a marker so it only exits), runs `f`, then
+/// removes the stand-in and any folders it created.
+fn stand_in<T>(exe: &Path, f: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
+    let me = std::env::current_exe().map_err(|e| e.to_string())?;
+    let mut made = Vec::new();
+    let mut d = exe.parent().ok_or("bad path")?.to_path_buf();
+    while !d.exists() {
+        made.push(d.clone());
+        d = d.parent().ok_or("bad path")?.to_path_buf();
+    }
+    std::fs::create_dir_all(exe.parent().unwrap()).map_err(|e| format!("can't create its folder ({e})"))?;
+    let marker = stand_in_marker(exe);
+    let r = std::fs::write(&marker, b"Deck stand-in: exits at once").and_then(|_| std::fs::copy(&me, exe).map(|_| ())).map_err(|e| format!("can't write there ({e})"));
+    let out = r.and_then(|_| f());
+    let _ = std::fs::remove_file(exe);
+    let _ = std::fs::remove_file(&marker);
+    for d in made.iter() {
+        let _ = std::fs::remove_dir(d);
+    }
+    out
+}
+
+fn stand_in_marker(exe: &Path) -> PathBuf {
+    let mut m = exe.as_os_str().to_owned();
+    m.push(".deck-stand-in");
+    PathBuf::from(m)
+}
+
+/// This process is a stand-in made by `stand_in`: it must do nothing and succeed.
+pub fn is_stand_in() -> bool {
+    std::env::current_exe().map(|e| stand_in_marker(&e).exists()).unwrap_or(false)
 }
 
 /// "MsiExec.exe /I{GUID}" (some programs list the repair command) uninstalls with /X.
@@ -525,7 +685,8 @@ fn msi_uninstall(cmd: &str) -> String {
 
 /// Starts a command line as written (its program elevated with Deck's rights, as Windows' own
 /// "Uninstall" button does it) inside a job, and waits until every process in the job is done.
-fn run_and_wait(cmd: &str) -> Result<(), String> {
+/// Returns the program's exit code (`None` when it didn't end within the limit).
+fn run_and_wait(cmd: &str) -> Result<Option<u32>, String> {
     use std::os::windows::io::AsRawHandle;
     use std::os::windows::process::CommandExt;
     use windows::Win32::Foundation::{CloseHandle, HANDLE};
@@ -551,9 +712,13 @@ fn run_and_wait(cmd: &str) -> Result<(), String> {
     let mut child = child;
     let start = Instant::now();
     let limit = Duration::from_secs(3 * 3600);
+    let mut code = None;
     loop {
         std::thread::sleep(Duration::from_millis(500));
-        let main_done = matches!(child.try_wait(), Ok(Some(_)));
+        if let Ok(Some(s)) = child.try_wait() {
+            code = code.or(s.code().map(|c| c as u32));
+        }
+        let main_done = code.is_some();
         let active = if in_job {
             let mut info = JOBOBJECT_BASIC_ACCOUNTING_INFORMATION::default();
             unsafe { QueryInformationJobObject(Some(job), JobObjectBasicAccountingInformation, &mut info as *mut _ as *mut _, std::mem::size_of_val(&info) as u32, None) }
@@ -569,7 +734,7 @@ fn run_and_wait(cmd: &str) -> Result<(), String> {
     unsafe {
         let _ = CloseHandle(job);
     }
-    Ok(())
+    Ok(code)
 }
 
 // ------------------------------------------------------------------------------------- leftovers
@@ -603,6 +768,8 @@ fn norm(s: &str) -> String {
         .map(|w| w.trim_matches(|c: char| "-_.".contains(c)))
         .filter(|w| !w.is_empty())
         .filter(|w| !["x64", "x86", "64-bit", "32-bit", "64bit", "32bit", "amd64", "arm64", "win64", "win32", "version", "v", "-"].contains(w))
+        // language tags ("en-US")
+        .filter(|w| !(w.len() == 5 && w.as_bytes()[2] == b'-' && w.chars().filter(|c| *c != '-').all(|c| c.is_ascii_lowercase())))
         // version numbers ("1.94.2", "24.08", "v8.6", "2024"), not names with digits ("7-Zip")
         .filter(|w| {
             let n = w.strip_prefix('v').filter(|r| !r.is_empty()).unwrap_or(w);
@@ -614,6 +781,13 @@ fn norm(s: &str) -> String {
         words.push(lower);
     }
     words.concat().chars().filter(|c| c.is_alphanumeric()).collect()
+}
+
+/// "Autodesk, Inc." → "autodesk": a publisher's name without the company form.
+fn company(s: &str) -> String {
+    let words: Vec<&str> = s.split(|c: char| c.is_whitespace() || c == ',').filter(|w| !w.is_empty()).collect();
+    let kept: Vec<&str> = words.iter().copied().filter(|w| !["inc", "inc.", "corp", "corp.", "corporation", "ltd", "ltd.", "llc", "gmbh", "co.", "limited", "s.a.", "ag", "plc", "b.v."].contains(&w.to_lowercase().as_str())).collect();
+    norm(&kept.join(" "))
 }
 
 /// Names that are never a single program's own folder or key.
@@ -686,21 +860,47 @@ fn under(p: &str, base: &str) -> bool {
 pub fn scan(app: &crate::app::App) -> Result<Vec<Leftover>, String> {
     let p = BEFORE.lock().clone().ok_or("Uninstall a program first")?;
     let others: Vec<Program> = list(app, true).into_iter().filter(|x| x.id != p.id).collect();
+    let out = scan_for(&p, &others);
+    *FOUND.lock() = out.clone();
+    crate::log::info(format!("apps: {} leftovers found for {}", out.len(), p.name));
+    Ok(out)
+}
+
+/// What `p` left behind, the `others` still installed. Only looks; removes nothing.
+fn scan_for(p: &Program, others: &[Program]) -> Vec<Leftover> {
     let other_names: std::collections::HashSet<String> = others.iter().map(|o| norm(&o.name)).collect();
     let other_dirs: Vec<String> = others.iter().filter_map(|o| o.location.clone()).collect();
 
     // the names that count as this program's
     let mut keys: Vec<String> = vec![norm(&p.name)];
-    if let Some(l) = &p.location {
-        if let Some(n) = Path::new(l).file_name() {
-            keys.push(norm(&n.to_string_lossy()));
-        }
+    // its install folder's name counts only when it is a form of its own name ("Tool5" for
+    // Tool); an add-on installed into another program's folder (a game's level editor in the
+    // game's folder) must not take that program's name
+    let loc_name = p.location.as_deref().and_then(|l| Path::new(l.trim_end_matches(['\\', '/'])).file_name()).map(|n| norm(&n.to_string_lossy())).unwrap_or_default();
+    let own = norm(&p.name);
+    // compared without digits ("Game 2 - Remastered" vs "Game 2: Remastered"); the folder may add to
+    // the name ("Tool5") but not be a shorter one ("Some Game" for "Some Game: Level Editor")
+    let letters = |s: &str| s.chars().filter(|c| !c.is_ascii_digit()).collect::<String>();
+    let (ll, lo) = (letters(&loc_name), letters(&own));
+    // ...or its name without the publisher's in front ("Acrobat DC" for "Adobe Acrobat DC")
+    let bare = [norm(&p.publisher), company(&p.publisher)].iter().filter(|x| x.len() >= 3).find_map(|x| lo.strip_prefix(x.as_str())).map(str::to_string);
+    let loc_is_named_after_it = ll.len() >= 4 && lo.len() >= 4 && (ll.contains(&lo) || bare.is_some_and(|b| b.len() >= 4 && ll == b));
+    if loc_is_named_after_it {
+        keys.push(loc_name.clone());
     }
-    keys.retain(|k| k.chars().count() >= 4 && !SHARED.contains(&k.as_str()) && !other_names.contains(k));
+    // its uninstaller lives in the folder: the strongest sign the folder is its own
+    let uninstaller_inside = p.location.as_deref().is_some_and(|l| exe_of(&p.uninstall).is_some_and(|e| under(&e.display().to_string(), l.trim_end_matches(['\\', '/']))));
+    let publisher = norm(&p.publisher);
+    // a publisher's name is never one program's ("C:\Program Files\Autodesk" recorded as the
+    // install folder of one Autodesk app holds the others too)
+    let publishers: std::collections::HashSet<String> = others.iter().map(|o| o.publisher.as_str()).chain([p.publisher.as_str()]).flat_map(|s| [norm(s), company(s)]).filter(|n| !n.is_empty()).collect();
+    let vendor_word = |k: &str| publishers.contains(k);
+    keys.retain(|k| k.chars().count() >= 4 && !SHARED.contains(&k.as_str()) && !other_names.contains(k) && !vendor_word(k));
     keys.sort();
     keys.dedup();
-    let publisher = norm(&p.publisher);
-    let publisher_ok = publisher.chars().count() >= 3 && !SHARED.contains(&publisher.as_str());
+    let short = company(&p.publisher);
+    let publisher_ok = publisher.chars().count() >= 3 && !SHARED.contains(&publisher.as_str()) && !SHARED.contains(&short.as_str());
+    let is_publisher = |n: &str| n == publisher || n == short;
     let matches = |name: &str| keys.contains(&norm(name));
 
     let mut out: Vec<Leftover> = Vec::new();
@@ -721,8 +921,15 @@ pub fn scan(app: &crate::app::App) -> Result<Vec<Leftover>, String> {
     // its install folder, if the uninstaller left it
     if let Some(l) = &p.location {
         let l = PathBuf::from(l);
-        let sure = !on_drive_root(&l);
-        add_dir(&mut out, l, "Its install folder".into(), sure);
+        let name = l.file_name().map(|n| norm(&n.to_string_lossy())).unwrap_or_default();
+        if vendor_word(&name) {
+            // only the parts of the publisher's folder named after it (found below) are its own
+        } else if loc_is_named_after_it || uninstaller_inside {
+            let sure = !on_drive_root(&l);
+            add_dir(&mut out, l, "Its install folder".into(), sure);
+        } else {
+            add_dir(&mut out, l, "Recorded as its install folder, but not named after it and its uninstaller isn't in it: it may belong to something else (left unticked)".into(), false);
+        }
     }
     // folders named after it in the usual places, also inside its publisher's folder
     let docs = crate::util::home().join("Documents");
@@ -746,13 +953,14 @@ pub fn scan(app: &crate::app::App) -> Result<Vec<Leftover>, String> {
             if matches(&name) {
                 // a folder in Documents is often the user's own work (a notes vault, saves): unticked
                 add_dir(&mut out, e.path(), format!("Named after it, in {}", root.display()), *root != docs);
-            } else if publisher_ok && norm(&name) == publisher {
+            } else if publisher_ok && is_publisher(&norm(&name)) {
                 // the publisher's folder: only the part named after this program
                 let Ok(inner) = std::fs::read_dir(e.path()) else { continue };
                 let kids: Vec<_> = inner.flatten().collect();
                 for k in &kids {
                     if k.file_type().map(|t| t.is_dir()).unwrap_or(false) && matches(&k.file_name().to_string_lossy()) {
-                        add_dir(&mut out, k.path(), format!("Named after it, in {}'s folder", p.publisher), true);
+                        // in Documents it's often the user's own files (saves, settings): unticked
+                        add_dir(&mut out, k.path(), format!("Named after it, in {}'s folder", p.publisher), *root != docs);
                     }
                 }
                 // nothing else in it: the publisher's folder itself, unticked
@@ -800,7 +1008,7 @@ pub fn scan(app: &crate::app::App) -> Result<Vec<Leftover>, String> {
             if matches(&name) {
                 let sub = format!(r"Software\{name}");
                 out.push(Leftover { id: 0, kind: "key", path: reg_name(view, &sub), size: None, why: "Its settings".into(), sure: true, view: Some(view), sub });
-            } else if publisher_ok && n == publisher {
+            } else if publisher_ok && is_publisher(&n) {
                 let inner = subkeys(view, &format!(r"Software\{name}"));
                 let mine: Vec<&String> = inner.iter().filter(|k| matches(k)).collect();
                 for k in &mine {
@@ -833,9 +1041,7 @@ pub fn scan(app: &crate::app::App) -> Result<Vec<Leftover>, String> {
     for (i, l) in out.iter_mut().enumerate() {
         l.id = i;
     }
-    *FOUND.lock() = out.clone();
-    crate::log::info(format!("apps: {} leftovers found for {}", out.len(), p.name));
-    Ok(out)
+    out
 }
 
 /// Removes the leftovers with these ids from the last search: files and folders to the Recycle
@@ -968,7 +1174,7 @@ mod tests {
         assert_eq!(norm("Notepad++ v8.6"), "notepad");
         assert_eq!(norm("VLC media player"), "vlcmediaplayer");
         assert_eq!(norm("WinRAR 7.01 (64-bit)"), "winrar");
-        assert_eq!(norm("Mozilla Firefox (x64 en-US)"), "mozillafirefoxenus");
+        assert_eq!(norm("Mozilla Firefox (x64 en-US)"), "mozillafirefox");
     }
 
     /// What this PC's Windows Installer has that Windows' list lacks (prints them).
@@ -1015,6 +1221,58 @@ mod tests {
         assert_eq!(msi_uninstall("MsiExec.exe /I{1234}"), "MsiExec.exe /X{1234}");
         assert_eq!(msi_uninstall("MsiExec.exe /X{1234}"), "MsiExec.exe /X{1234}");
         assert_eq!(msi_uninstall(r#""C:\x\unins000.exe""#), r#""C:\x\unins000.exe""#);
+    }
+
+    #[test]
+    fn installer_codes_and_errors_are_read() {
+        assert_eq!(msi_code("MsiExec.exe /X{A3985C05-7386-411F-A4BF-32A73F37EB44}").as_deref(), Some("{A3985C05-7386-411F-A4BF-32A73F37EB44}"));
+        assert_eq!(msi_code("MsiExec.exe /X {A3985C05-7386-411F-A4BF-32A73F37EB44} /qn").as_deref(), Some("{A3985C05-7386-411F-A4BF-32A73F37EB44}"));
+        assert_eq!(msi_code("C:\\x\\unins000.exe /X{bad}"), None);
+        let log = "Action ended 3:40:55: InstallFinalize. Return value 3.\r\nMSI (s) (E8:98) [03:40:55:871]: Product: Apple Software Update -- Error 1721. There is a problem with this Windows Installer package. A program required for this install to complete could not be run. Contact your support personnel or package vendor. Action: SoftwareUpdate_UnregServer, location: C:\\Program Files (x86)\\Apple Software Update\\SoftwareUpdate.exe, command: /UnregServer \r\n";
+        let (msg, exe) = msi_failure(log).unwrap();
+        assert!(msg.starts_with("Error 1721."));
+        assert_eq!(exe, Some(PathBuf::from(r"C:\Program Files (x86)\Apple Software Update\SoftwareUpdate.exe")));
+        assert!(msi_failure("Return value 1.").is_none());
+        assert!(explain("X", Some(1618), "", Path::new("l.log")).contains("one at a time"));
+    }
+
+    /// Dry run on this PC: what the leftover search would offer for every installed program as if
+    /// it had just been uninstalled. Looks only. `cargo test -- --ignored --nocapture dry_run`
+    #[test]
+    #[ignore = "reads this PC's disk and registry"]
+    fn dry_run_leftovers_here() {
+        let mut all = Vec::new();
+        let mut listed = std::collections::HashSet::new();
+        for view in [View::M64, View::M32, View::User] {
+            for key in subkeys(view, UNINSTALL) {
+                listed.insert(key.to_uppercase());
+                all.extend(desktop(view, &key));
+            }
+        }
+        all.extend(installer_only(&listed));
+        for p in &all {
+            let others: Vec<Program> = all.iter().filter(|x| x.id != p.id).cloned().collect();
+            for l in scan_for(p, &others) {
+                println!("{}\t{}\t{}\t{}\t{}\t{}", p.name, p.publisher, if l.sure { "TICKED" } else { "offered" }, l.kind, l.path, l.why);
+            }
+        }
+    }
+
+    #[test]
+    fn publishers_are_named_without_the_company_form() {
+        assert_eq!(company("Autodesk, Inc."), "autodesk");
+        assert_eq!(company("Apple Inc."), "apple");
+        assert_eq!(company("Notepad++ Team"), "notepadteam");
+        assert_eq!(company("Mozilla Corporation"), "mozilla");
+    }
+
+    #[test]
+    fn a_stand_in_is_removed_with_the_folders_it_made() {
+        let base = std::env::temp_dir().join(format!("deck-standin-{}", std::process::id()));
+        let exe = base.join("gone").join("deeper").join("Thing.exe");
+        let seen = stand_in(&exe, || Ok((exe.exists(), stand_in_marker(&exe).exists()))).unwrap();
+        assert_eq!(seen, (true, true));
+        assert!(!exe.exists() && !base.exists());
     }
 
     #[test]

@@ -29,8 +29,12 @@ pub async fn programs_do(app: A<'_>, what: String, id: Option<String>, ids: Opti
     blocking(move || -> R<Value> {
         let id = id.unwrap_or_default();
         let out = match what.as_str() {
-            "uninstall" => programs::uninstall(&app, &id, false).map(|gone| json!({ "gone": gone })),
-            "uninstall_advanced" => programs::uninstall(&app, &id, true).map(|gone| json!({ "gone": gone })),
+            "uninstall" | "uninstall_advanced" => {
+                let r = programs::uninstall(&app, &id, what == "uninstall_advanced").map(|o| json!({ "gone": o.gone, "detail": o.detail }));
+                // the uninstaller's window took the focus and Deck hid: come back with the result
+                app.show_page("programs");
+                r
+            }
             "drop_unfinished" => {
                 programs::drop_unfinished();
                 Ok(json!({}))
