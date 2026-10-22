@@ -44,6 +44,19 @@ const PROTECTED: &[&str] = &[
     "shellexperiencehost.exe", "textinputhost.exe", "searchhost.exe", "explorer.exe", "deck.exe",
 ];
 
+/// The file that holds the code of one of the kernel's own processes (System, Registry, Memory
+/// Compression and the idle process run inside ntoskrnl.exe; Secure System is securekernel.exe),
+/// when it is there. These processes have no program file of their own.
+fn kernel_file(name: &str) -> Option<String> {
+    let file = match name.to_ascii_lowercase().as_str() {
+        "system" | "registry" | "memory compression" | "system idle process" | "[system process]" => "ntoskrnl.exe",
+        "secure system" => "securekernel.exe",
+        _ => return None,
+    };
+    let p = crate::util::windows_dir().join("System32").join(file);
+    p.is_file().then(|| p.display().to_string())
+}
+
 pub fn is_protected(name: &str) -> bool {
     PROTECTED.contains(&name.to_ascii_lowercase().as_str())
 }
@@ -195,6 +208,8 @@ impl Sys {
             mem: u64,
             title: Option<String>,
             hung: bool,
+            /// a kernel process: `exe` is the kernel file its code lives in
+            kernel: bool,
             /// each process of the program: (pid, cpu %, memory, its window's title)
             kids: Vec<(u32, f32, u64, Option<String>)>,
         }
@@ -219,8 +234,7 @@ impl Sys {
                     // some protected processes give an empty path rather than none
                     .filter(|x| !x.is_empty())
                     .or_else(|| crate::util::process_path(pid.as_u32()))
-                    .or_else(|| crate::util::process_path_by_id(pid.as_u32()))
-                    .or_else(|| (pid.as_u32() == 4).then(|| crate::util::windows_dir().join(r"System32\ntoskrnl.exe").display().to_string()).filter(|p| std::path::Path::new(p).is_file()));
+                    .or_else(|| crate::util::process_path_by_id(pid.as_u32()));
             }
             e.pids.push(pid.as_u32());
             e.cpu += p.cpu_usage() / cores;
@@ -234,6 +248,14 @@ impl Sys {
             }
         }
         let mut out: Vec<Group> = groups.into_values().collect();
+        // the kernel's own processes have no file of theirs; their code is in a kernel file, which is
+        // what gets scanned for them (only where no path was found)
+        for g in out.iter_mut().filter(|g| g.exe.is_none()) {
+            if let Some(f) = kernel_file(&g.name) {
+                g.exe = Some(f);
+                g.kernel = true;
+            }
+        }
         // programs with no file to scan, said in the log when the set changes (so "why can't it
         // check these" can be answered from what the PC really said)
         static NO_FILE: Mutex<Vec<String>> = parking_lot::const_mutex(Vec::new());
@@ -261,6 +283,7 @@ impl Sys {
                     "title": g.title,
                     "app": g.title.is_some(),
                     "hung": g.hung,
+                    "kernel": g.kernel,
                     "protected": is_protected(&g.name) || g.pids.iter().any(|p| is_critical(*p) == Some(true)),
                 })
             })
@@ -364,8 +387,11 @@ mod tests {
         let list = Sys::new().processes(&HashMap::new());
         let none: Vec<&str> = list.iter().filter(|p| p["exe"].as_str().is_none_or(str::is_empty)).map(|p| p["name"].as_str().unwrap_or("?")).collect();
         println!("{} programs, {} without a file: {none:?}", list.len(), none.len());
-        // the kernel's own "System" process is the one most often missed; it has a file
-        assert!(!none.contains(&"System"), "System should map to ntoskrnl.exe (elevated)");
+        // the kernel's own processes are scanned through the kernel file they run from
+        assert!(none.is_empty(), "everything should have a file: {none:?}");
+        let kernel: Vec<_> = list.iter().filter(|p| p["kernel"] == true).map(|p| (p["name"].as_str().unwrap_or("?"), p["exe"].as_str().unwrap_or(""))).collect();
+        println!("kernel: {kernel:?}");
+        assert!(kernel.iter().all(|(_, f)| f.to_lowercase().ends_with("ntoskrnl.exe") || f.to_lowercase().ends_with("securekernel.exe")));
     }
 
     #[test]

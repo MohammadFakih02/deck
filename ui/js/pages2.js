@@ -929,7 +929,8 @@ function safetyCell(p) {
   if (!p.exe) return h("span", { class: "faint small", title: "No program file to scan: the System Idle Process is only a counter, and a Deck that isn't running as administrator can't read the files of some protected services." }, "—");
   if (!r) return h("span", { class: "faint small" }, "not checked");
   const out = chipsOf(r);
-  return out.length ? h("div", { class: "safety" }, out) : h("span", { class: "faint small" }, "not checked");
+  const kernelTip = p.kernel ? "This is part of the Windows kernel and has no program file. The results are for the kernel file it runs from (" + p.exe + "): they show whether that file is genuine and unchanged, but a file check can't see malware that lives only in the kernel's memory." : "";
+  return out.length ? h("div", { class: "safety", title: kernelTip }, out) : h("span", { class: "faint small" }, "not checked");
 }
 
 // a file's results as small chips (the table and the one-time check show the same ones)
@@ -981,7 +982,7 @@ export function procView() {
         appIcon("file", p.exe, p.name, ""),
         h("div", { style: { minWidth: 0, overflow: "hidden" } },
           h("div", { class: "ell", style: { fontWeight: 600 }, title: p.title || p.name }, p.title || p.name, p.count > 1 ? h("span", { class: "faint", style: { fontWeight: 400 } }, ` (${p.count})`) : null),
-          h("div", { class: "faint", style: { fontSize: "11.5px" } }, [p.name, p.count > 1 ? `${p.count} processes` : null, p.hung ? "NOT RESPONDING" : null].filter(Boolean).join(" · "))))),
+          h("div", { class: "faint", style: { fontSize: "11.5px" } }, [p.name, p.count > 1 ? `${p.count} processes` : null, p.kernel ? `part of Windows' kernel: checks ${p.exe.split("\\").pop()}` : null, p.hung ? "NOT RESPONDING" : null].filter(Boolean).join(" · "))))),
       h("td", null, safetyCell(p)),
       h("td", { class: "r" }, use(p.cpu.toFixed(1) + "%", p.cpu / topCpu, "cpu")),
       h("td", { class: "r" }, use(fmtBytes(p.mem), p.mem / ramTotal, "mem")),
