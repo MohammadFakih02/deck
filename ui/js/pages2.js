@@ -889,11 +889,12 @@ function checksBar() {
   const running = job?.running;
   const n = procPaths().length;
   // programs whose file Windows doesn't show to Deck: in the table, not in the count to check
-  const noPath = (S.cache.procs || []).filter((p) => !p.exe).length;
+  const noFile = (S.cache.procs || []).filter((p) => !p.exe);
+  const noPath = noFile.length;
   return h("div", { class: "col", style: { gap: "8px", marginBottom: "12px" } },
     h("div", { class: "row", style: { gap: "8px", flexWrap: "wrap" } },
       h("span", { class: "dim" }, "Check all " + n + " programs:"),
-      noPath ? h("span", { class: "faint small", title: "These have no program file Deck can read, so there is nothing to scan: the System Idle Process is only a counter and has no file, and Windows keeps the files of some protected services from a Deck that isn't running as administrator. They show \"—\" in the Safety column." }, `(${noPath} can't be checked: no file to scan)`) : null,
+      noPath ? h("span", { class: "faint small", title: "No program file Deck can read, so there is nothing to scan: " + noFile.map((p) => p.name).join(", ") + ". Registry, Memory Compression, Secure System and the System Idle Process are part of Windows' kernel and have no file; Windows also keeps the files of some protected services from a Deck that isn't running as administrator. They show \"—\" in the Safety column." }, `(${noPath} can't be checked: no file to scan)`) : null,
       CHECKS.map(([k, label, tip]) => h("button", {
         class: "btn sm ghost", title: tip, disabled: running || (k === "vt" && !fc.vt_key),
         onclick: () => startCheck(k),

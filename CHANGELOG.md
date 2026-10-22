@@ -11,7 +11,7 @@ All notable changes to Deck. Setups for each version are on the [Releases](https
 ### Changed
 - **Leftover search is more careful.** A folder found only by its name is offered but not ticked when it holds 3000 or more files (browser profiles, caches, game data), or, in data folders like AppData and ProgramData, 5 or more programs. A name that sits inside another installed program's longer name ("Foo" for "Foo Pro") is not ticked either, and the row says which program.
 - The Processes table keeps the program name readable in a narrow window.
-- **More programs can be checked.** Protected services (csrss, lsass, MsMpEng, the "System" process and others) used to show "—" in the Safety column because Deck couldn't read their file; Deck now asks Windows the way Task Manager does, so with Deck running as administrator only the System Idle Process (which has no file) is left out. The checks bar says how many programs can't be checked and why.
+- **More programs can be checked.** Protected services (csrss, lsass, MsMpEng, the "System" process and others) used to show "—" in the Safety column because Deck couldn't read their file; Deck now asks Windows the way Task Manager does, so with Deck running as administrator only the four kernel entries with no file (Memory Compression, Registry, Secure System, System Idle Process) are left out. The checks bar says how many programs can't be checked, and hovering it names them.
 
 ### Fixed
 - A cancelled or refused uninstall no longer leaves the "Deck was closed during the advanced uninstall" warning on the Apps page.

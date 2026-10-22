@@ -216,6 +216,8 @@ impl Sys {
                 e.exe = p
                     .exe()
                     .map(|x| x.to_string_lossy().to_string())
+                    // some protected processes give an empty path rather than none
+                    .filter(|x| !x.is_empty())
                     .or_else(|| crate::util::process_path(pid.as_u32()))
                     .or_else(|| (pid.as_u32() == 4).then(|| crate::util::windows_dir().join(r"System32\ntoskrnl.exe").display().to_string()).filter(|p| std::path::Path::new(p).is_file()));
             }
@@ -339,10 +341,10 @@ mod tests {
     #[ignore = "reads this PC's processes"]
     fn programs_without_a_file_here() {
         let list = Sys::new().processes(&HashMap::new());
-        let none: Vec<&str> = list.iter().filter(|p| p["exe"].is_null()).map(|p| p["name"].as_str().unwrap_or("?")).collect();
+        let none: Vec<&str> = list.iter().filter(|p| p["exe"].as_str().is_none_or(str::is_empty)).map(|p| p["name"].as_str().unwrap_or("?")).collect();
         println!("{} programs, {} without a file: {none:?}", list.len(), none.len());
         // the kernel's own "System" process is the one most often missed; it has a file
-        assert!(!none.contains(&"System"), "System should map to ntoskrnl.exe");
+        assert!(!none.contains(&"System"), "System should map to ntoskrnl.exe (elevated)");
     }
 
     #[test]
