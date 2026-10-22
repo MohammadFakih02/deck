@@ -6,6 +6,13 @@ The dated history of the work. Last updated: 2026-10-22.
 
 > **RULE: before every commit, update the docs.** Add today's dated entry here, add user-visible changes to `CHANGELOG.md`, update `DECK.md` / `README.md` when facts change, and stage them in the same commit. The pre-commit hook enforces it; never bypass it. No personal data in these files (that goes in the git-ignored `PRIVATE_NOTES.md`).
 
+## 2026-10-23: Death counter: false bosses and missed deaths (unreleased)
+
+From a Dark Souls II session (history in `%APPDATA%\Deck\deaths\exe-darksoulsii.jsonl`, log lines "boss bar in ...").
+- **False bosses** (`deaths/screen/boss.rs`): a bar-like strip in menus opened fights named after whatever text was in the name area ("g Inventory", "e Rest at bonfire", "ick an item", "Shop", "Falconer Armor" then "Human Effigy", an overlay's "10ms"). `clean_name` now rejects names `not_a_name` finds: a lone first letter (a button glyph), three or more lone letters (spaced garbage), a lowercase first word in a phrase of 3+, overlay readings (`10ms`, `144fps`…), and `MENU_WORDS`. `BossWatch.pending`: a name not known from an earlier fight must be read twice running (`same_boss`/`like_boss`) before `engage`; `give_up_naming` is the old nameless path. A try that started on an item banner also swallowed the real boss as "phase 4": the two-read rule prevents that. Old false fights stay in the history (delete the lines or mark "Not a boss").
+- **Missed deaths** (`deaths/screen/detect.rs` `Gate`): OCR only ran on a settled picture, and Dark Souls II's banner fades in over a moving darkening scene. `Gate` tracks the whole picture's brightness; a drop to 70% within 1.5 s from at least 24 starts a 6 s burst reading every 700 ms whether settled or not (`BURST_*`, `DIM_*`). Tests use made-up frames (`with_banner`).
+- Ideas not done: a memory-reading ground truth for Souls games (SBDeaths/DSDeaths read the death count from the game's memory per game, with signature scanning), skipping our own overlay's area when reading names, a per-game list of menu words.
+
 ## 2026-10-22: v2.8.2 — Processes grouping, one-time file check, protected programs and kernel parts checked, leftover scan safeguards
 
 Released at the user's request as **2.8.2** (tag `v2.8.2`, built and published by `release.yml`).

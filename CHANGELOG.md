@@ -2,6 +2,12 @@
 
 All notable changes to Deck. Setups for each version are on the [Releases](https://github.com/MohammadFakih02/deck/releases) page.
 
+## Unreleased
+
+### Fixed
+- **Death counter: menus, prompts and item banners are no longer taken for bosses** (seen in Dark Souls II: "Inventory", "Rest at bonfire", "Pick an item", "Shop", item pick-up banners, an overlay's "10ms"). Text beside a bar that starts with a button's picture read as a letter, a clipped prompt, letters read one by one, an overlay reading (ms, fps, MB…) or a menu word is not a name, and a name Deck hasn't seen before must be read twice in a row before a fight opens on it, so a banner that changes or goes away opens nothing.
+- **Death counter: deaths whose banner fades in over a moving scene are read.** Deck only read the screen once the picture had settled, which a slow death fade over a still-moving, darkening scene never does, so some deaths were never counted. A sudden dimming now makes Deck read the screen about every 0.7 s for the next 6 seconds, settled or not.
+
 ## 2.8.2 — 2026-10-22
 
 ### New

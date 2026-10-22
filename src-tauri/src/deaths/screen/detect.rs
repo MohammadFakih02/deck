@@ -25,6 +25,15 @@ const NEW_SCENE: u32 = 10;
 const DARK: u32 = 6;
 const FLAT: u32 = 3;
 const BLIND_AFTER: Duration = Duration::from_secs(20);
+/// The screen going this much darker within DIM_WINDOW (a death fade, a pause) is worth reading
+/// for BURST_FOR even while the picture is still changing: a death banner fades in over a moving,
+/// darkening scene that never "settles" (Dark Souls II), so waiting for calm would miss it.
+const DIM_WINDOW: Duration = Duration::from_millis(1500);
+const DIM_TO_PERCENT: u32 = 70;
+/// brighter than this before the dimming (a dark scene getting darker isn't a fade)
+const DIM_FROM: u32 = 24;
+const BURST_FOR: Duration = Duration::from_secs(6);
+const BURST_EVERY: Duration = Duration::from_millis(700);
 
 /// The middle of the picture, where death banners are: the middle 3/4 across, middle 2/3 down.
 fn middle(t: &[u8]) -> Vec<u8> {
@@ -57,6 +66,10 @@ pub struct Gate {
     empty_since: Option<Instant>,
     /// the last frame's middle differed from the one before (or it was black)
     moving: bool,
+    /// the whole picture's brightness lately: (when, mean)
+    means: std::collections::VecDeque<(Instant, u32)>,
+    /// until when a dimming makes every 700 ms frame worth reading
+    burst_until: Option<Instant>,
 }
 
 impl Gate {
@@ -73,13 +86,26 @@ impl Gate {
             return false;
         }
         self.empty_since = None;
+        // a sudden dimming (a death fade): read for a few seconds, settled or not
+        let mean = thumb.iter().map(|v| *v as u32).sum::<u32>() / thumb.len() as u32;
+        self.means.push_back((now, mean));
+        while self.means.front().is_some_and(|(t, _)| now.duration_since(*t) > DIM_WINDOW) {
+            self.means.pop_front();
+        }
+        let before = self.means.iter().map(|(_, m)| *m).max().unwrap_or(mean);
+        if before >= DIM_FROM && mean * 100 <= before * DIM_TO_PERCENT {
+            self.burst_until = Some(now + BURST_FOR);
+            self.means.clear();
+        }
+        let bursting = self.burst_until.is_some_and(|u| now < u);
         let mid = middle(thumb);
         let stable = self.prev.as_ref().is_some_and(|p| diff(p, &mid) <= STABLE);
         self.moving = !stable;
         self.prev = Some(mid.clone());
         let go = match &self.read {
-            None => stable,
+            None => stable || bursting,
             Some((at, _)) if confirm => now.duration_since(*at) >= CONFIRM_AFTER,
+            Some((at, _)) if bursting => now.duration_since(*at) >= BURST_EVERY,
             Some((at, scene)) => {
                 let since = now.duration_since(*at);
                 stable && since >= OCR_EVERY && (diff(scene, &mid) >= NEW_SCENE || since >= SAME_SCENE_EVERY)
@@ -257,6 +283,50 @@ mod tests {
         assert!(g.feed(&with_banner(80, 200), ms(1750), false), "a new settled picture");
         assert!(!g.feed(&with_banner(80, 200), ms(2750), false), "the same picture: not again yet");
         assert!(g.feed(&with_banner(80, 200), ms(4800), false), "the same picture after 3 s");
+    }
+
+    /// Dark Souls II, 2026-10-23: the death banner fades in over a darkening scene that keeps moving,
+    /// so the picture never settled and the death was never read.
+    #[test]
+    fn a_sudden_dimming_is_read_even_while_the_picture_keeps_changing() {
+        let t = Instant::now();
+        let ms = |n| t + Duration::from_millis(n);
+        let mut g = Gate::default();
+        // playing: bright and always moving: never read
+        for i in 0..12u64 {
+            assert!(!g.feed(&frame(if i % 2 == 0 { 120 } else { 150 }), ms(250 * i), false), "gameplay isn't read while it moves");
+        }
+        // the fade: darker, and still changing from frame to frame
+        let mut read_at = vec![];
+        for (i, v) in [60u8, 52, 44, 40, 36, 33, 30, 28, 27, 26, 25, 24, 23, 22, 21].iter().enumerate() {
+            let now = ms(3000 + 250 * i as u64);
+            if g.feed(&with_banner(*v, v.saturating_add(70 + (i as u8 % 3) * 9)), now, false) {
+                read_at.push(i);
+            }
+        }
+        assert!(read_at.len() >= 3 && read_at[0] <= 1, "read soon after the dimming, about every 0.7 s: {read_at:?}");
+        // the burst ends: moving again is not read
+        g.feed(&with_banner(18, 150), ms(11_750), false); // the first frame after the gap compares with the fade's last
+        for i in 0..8u64 {
+            assert!(!g.feed(&with_banner(18, if i % 2 == 0 { 90 } else { 150 }), ms(12_000 + 250 * i), false), "after the burst, moving frames wait again (frame {i})");
+        }
+    }
+
+    #[test]
+    fn a_dark_scene_getting_darker_or_a_small_change_is_no_burst() {
+        let t = Instant::now();
+        let ms = |n| t + Duration::from_millis(n);
+        let mut g = Gate::default();
+        for i in 0..6u64 {
+            g.feed(&frame(if i % 2 == 0 { 14 } else { 20 }), ms(250 * i), false);
+        }
+        for i in 0..8u64 {
+            assert!(!g.feed(&frame(if i % 2 == 0 { 12 } else { 20 }), ms(2000 + 250 * i), false), "from a dark scene: no burst (frame {i})");
+        }
+        let mut g = Gate::default();
+        for i in 0..8u64 {
+            assert!(!g.feed(&frame(if i % 2 == 0 { 100 } else { 120 }), ms(250 * i), false), "brightness wobbling a little: no burst");
+        }
     }
 
     #[test]

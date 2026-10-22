@@ -127,11 +127,14 @@ pub struct BossWatch {
     run: Option<Run>,
     w: usize,
     quiet: Option<Quiet>,
+    /// the name the last read of a bar not yet followed gave: a fight opens when the next read
+    /// agrees (a banner or prompt that comes and goes is read once)
+    pending: Option<String>,
 }
 
 impl Default for BossWatch {
     fn default() -> Self {
-        BossWatch { s: S::Idle, run: None, w: 0, quiet: None }
+        BossWatch { s: S::Idle, run: None, w: 0, quiet: None, pending: None }
     }
 }
 
@@ -229,6 +232,10 @@ impl BossWatch {
     /// The frame's look at `now` (ms): what to record, if anything.
     pub fn step(&mut self, l: Look, now: u64) -> Option<Out> {
         let w = self.w.max(1);
+        // a name waiting for its second read goes when the bar does
+        if matches!(self.s, S::Idle) {
+            self.pending = None;
+        }
         if let Some(r) = &mut self.run {
             if l.tracked || l.found.is_some() {
                 r.last_seen = now;
@@ -353,21 +360,38 @@ impl BossWatch {
         match name {
             Some((n, sure)) => {
                 self.quiet = None;
+                // a name not known from an earlier fight is read twice the same before a fight
+                // opens on it: boss bars keep their name, item banners and prompts change or go
+                if !sure && self.run.is_none() {
+                    let agreed = self.pending.as_ref().is_some_and(|p| same_boss(p, &n) || like_boss(p, &n));
+                    if !agreed {
+                        self.pending = Some(n);
+                        if *tries >= MAX_READS {
+                            return self.give_up_naming(now);
+                        }
+                        return None;
+                    }
+                }
+                self.pending = None;
                 self.engage(n, sure, now)
             }
-            None if *tries >= MAX_READS => {
-                if self.run.is_some() {
-                    // the next phase's bar without a readable name: still the same try
-                    return self.engage(String::new(), true, now);
-                }
-                let S::Naming { bar, .. } = self.s else { return None };
-                self.s = S::Nameless { bar, missed: 0 };
-                let gap = self.quiet_now(now).map_or(QUIET_FIRST_MS, |q| (q.gap * 2).min(QUIET_MAX_MS));
-                self.quiet = Some(Quiet { until: now + gap, gap });
-                None
-            }
+            None if *tries >= MAX_READS => self.give_up_naming(now),
             None => None,
         }
+    }
+
+    /// The bar's name couldn't be read (or never held still): no fight on it.
+    fn give_up_naming(&mut self, now: u64) -> Option<Out> {
+        self.pending = None;
+        if self.run.is_some() {
+            // the next phase's bar without a readable name: still the same try
+            return self.engage(String::new(), true, now);
+        }
+        let S::Naming { bar, .. } = self.s else { return None };
+        self.s = S::Nameless { bar, missed: 0 };
+        let gap = self.quiet_now(now).map_or(QUIET_FIRST_MS, |q| (q.gap * 2).min(QUIET_MAX_MS));
+        self.quiet = Some(Quiet { until: now + gap, gap });
+        None
     }
 
     /// The bar has a name (`sure`: a boss already fought): followed from now on.
@@ -449,7 +473,7 @@ pub fn clean_name(text: &str, above: bool) -> Option<String> {
         let s = words.join(" ");
         let s = plain_accent(s.trim_matches(|c: char| !c.is_alphanumeric()).to_string());
         let letters = s.chars().filter(|c| c.is_alphabetic()).count();
-        (letters >= 3 && words.len() <= 7 && s.chars().count() <= 48 && !words.iter().any(|w| garbled(w)) && !hud_text(&s)).then_some(s)
+        (letters >= 3 && words.len() <= 7 && s.chars().count() <= 48 && !words.iter().any(|w| garbled(w)) && !hud_text(&s) && !not_a_name(&words)).then_some(s)
     };
     if above {
         lines.iter().rev().find_map(pick)
@@ -464,6 +488,29 @@ const HUD_WORDS: &[&str] = &["detected", "objective", "objectives", "mission", "
 
 fn hud_text(s: &str) -> bool {
     s.split(|c: char| !c.is_alphabetic()).any(|w| HUD_WORDS.iter().any(|h| w.eq_ignore_ascii_case(h)))
+}
+
+/// Words of a game's menus and prompts (shop, inventory, resting at a bonfire), never in a boss's name.
+const MENU_WORDS: &[&str] = &["inventory", "bonfire", "shop", "equipment", "equip", "status", "menu", "options", "enemies", "friend", "friends", "summon", "cancel", "confirm", "loading"];
+
+/// Text on the bar's line that isn't a boss's name: a button's picture read as a letter in front
+/// of a prompt ("e Rest at bonfire"), a clipped prompt ("ick an item"), letters read one by one
+/// ("D r a g o n"), an overlay's reading ("10ms", "144fps"), and the game's menu words.
+fn not_a_name(words: &[String]) -> bool {
+    let letters = |w: &str| w.chars().filter(|c| c.is_alphabetic()).count();
+    let first = words.first().map(String::as_str).unwrap_or("");
+    let lone = words.iter().filter(|w| letters(w) == 1).count();
+    let reading = |w: &String| {
+        let lw = w.to_ascii_lowercase();
+        let digits = lw.chars().take_while(|c| c.is_ascii_digit()).count();
+        digits > 0 && matches!(&lw[digits..], "ms" | "fps" | "mb" | "gb" | "c" | "w" | "mhz" | "ghz" | "rpm")
+    };
+    // a lone first letter (a button), or three or more lone letters (spaced out)
+    (words.len() > 1 && letters(first) == 1) || lone >= 3
+        // a first word that starts small, in a phrase of three or more (a clipped prompt)
+        || (words.len() >= 3 && first.chars().next().is_some_and(char::is_lowercase))
+        || words.iter().any(reading)
+        || words.iter().any(|w| MENU_WORDS.iter().any(|m| w.trim_matches(|c: char| !c.is_alphabetic()).eq_ignore_ascii_case(m)))
 }
 
 /// A word the reader made up from noise: a dot between letters ("Ei.atL1"), or a capital after
@@ -521,7 +568,8 @@ mod tests {
             assert_eq!(w.step(found(b), *t), None);
             *t += 250;
         }
-        for n in names {
+        // a boss bar keeps its name: every readable name is read twice running, as a fight opens on two agreeing reads
+        for n in names.iter().flat_map(|n| if clean_name(n, true).is_none() { vec![n] } else { vec![n, n] }) {
             assert!(w.wants_name(*t).is_some(), "a name is wanted");
             let out = w.named(clean_name(n, true), *t, &[]);
             assert_eq!(w.step(if out.is_some() { tracked(100) } else { found(b) }, *t), None);
@@ -569,6 +617,34 @@ mod tests {
         assert!(matches!(out, Some(Out::Engage { ref name, .. }) if name == "aldii"));
         let outs = votes(&mut w, &mut t, &["Xaldin", "Xaldin", "Xa1din", "aldii"]);
         assert_eq!(outs, vec![Out::Rename { since: 0, name: "Xaldin".into() }]);
+    }
+
+    /// Dark Souls II, 2026-10-22/23: prompts, menus and item banners opened "fights".
+    #[test]
+    fn prompts_menus_overlays_and_garbage_are_not_boss_names() {
+        for read in ["e Rest at bonfire", "g Inventory", "ick an item", "Shop", "D r a g o nfitdtr", "D r a gyn',ki4erz", "Bonfire 10ms", "144fps Dragonrider", "Summon my friend", "Kill normal enemies"] {
+            assert_eq!(clean_name(read, true), None, "{read:?}");
+        }
+        for read in ["Dragonrider", "Margit, the Fell Omen", "Godrick the Grafted", "Malenia, Blade of Miquella", "Old Iron King", "aldii"] {
+            assert!(clean_name(read, true).is_some(), "{read:?}");
+        }
+    }
+
+    #[test]
+    fn a_banner_that_changes_or_goes_opens_no_fight_but_a_boss_bar_does() {
+        let mut w = BossWatch::default();
+        w.w = 1280;
+        let mut t = 0;
+        for _ in 0..STREAK {
+            w.step(found(B), t);
+            t += 250;
+        }
+        // an item banner: one name, then another a moment later (Falconer Armor, then Human Effigy)
+        assert_eq!(w.named(clean_name("Falconer Armor", true), t, &[]), None);
+        assert_eq!(w.named(clean_name("Human Effigy", true), t + 400, &[]), None, "a different name starts over");
+        // a boss bar: the same name twice
+        assert_eq!(w.named(clean_name("Dragonrider", true), t + 800, &[]), None);
+        assert!(matches!(w.named(clean_name("Dragonrider", true), t + 1200, &[]), Some(Out::Engage { ref name, .. }) if name == "Dragonrider"));
     }
 
     #[test]
