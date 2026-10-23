@@ -1118,6 +1118,21 @@ async fn pad_client(mut socket: WebSocket, app: Arc<App>, reg: Registered) {
     // holding up any press. (since, told the phone)
     let mut player: (Option<std::time::Instant>, bool) = (None, false);
     let mut check = tokio::time::interval(Duration::from_millis(1000));
+    // the keyboard layer: what it holds down, when the phone last said so, and the game in front (keys,
+    // like the Screen view's control, stay quiet while one is, unless the phone allowed it)
+    let mut keys = crate::screencast::HeldKeys::default();
+    let mut keys_at = std::time::Instant::now();
+    let mut games_ok = false;
+    let mut game: Option<String> = None;
+    let mut told_blocked = false;
+    let mut kb_changes = app.changes.subscribe();
+    let first = json!({ "t": "kb", "data": crate::phonekeys::load() });
+    if socket.send(Message::Text(first.to_string().into())).await.is_err() {
+        pad_toast(&app, PADS.fetch_sub(1, Ordering::Relaxed).saturating_sub(1));
+        drop(reg);
+        app.changed("remote");
+        return;
+    }
     loop {
         tokio::select! {
             msg = socket.recv() => {
@@ -1125,6 +1140,53 @@ async fn pad_client(mut socket: WebSocket, app: Arc<App>, reg: Registered) {
                 let Message::Text(t) = msg else { continue };
                 let Ok(v) = serde_json::from_str::<Value>(t.as_str()) else { continue };
                 match v["t"].as_str() {
+                    Some("games") => {
+                        games_ok = v["on"].as_bool().unwrap_or(false);
+                        told_blocked = false;
+                    }
+                    Some("kbsave") => {
+                        let data = v["data"].clone();
+                        let saved = tokio::task::spawn_blocking(move || crate::phonekeys::save(&data)).await.unwrap_or_else(|_| Err("The layouts couldn't be saved".into()));
+                        let reply = match saved {
+                            Ok(doc) => {
+                                app.changed("phone-keys");
+                                json!({ "t": "kb", "data": doc })
+                            }
+                            Err(e) => json!({ "t": "kberr", "text": e }),
+                        };
+                        if socket.send(Message::Text(reply.to_string().into())).await.is_err() { break; }
+                    }
+                    Some("kbget") => {
+                        let doc = tokio::task::spawn_blocking(crate::phonekeys::load).await.unwrap_or_else(|_| crate::phonekeys::empty());
+                        if socket.send(Message::Text(json!({ "t": "kb", "data": doc }).to_string().into())).await.is_err() { break; }
+                    }
+                    // the keyboard layer: what is held now, a mouse move, the wheel, text, a macro
+                    Some(kind @ ("kh" | "rm" | "wh" | "txt" | "seq")) => {
+                        if !(games_ok || game.is_none()) {
+                            keys.release_all();
+                            if !told_blocked {
+                                told_blocked = true;
+                                let text = format!("Keys are paused while {} is in front (anti-cheat). To use them anyway, turn on \"Allow keys in games\" in the keyboard settings.", game.as_deref().unwrap_or("a game"));
+                                if socket.send(Message::Text(json!({ "t": "note", "text": text }).to_string().into())).await.is_err() { break; }
+                            }
+                            continue;
+                        }
+                        told_blocked = false;
+                        match kind {
+                            "kh" => {
+                                let names: Vec<String> = v["k"].as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect()).unwrap_or_default();
+                                keys.set(&names);
+                                keys_at = std::time::Instant::now();
+                            }
+                            "rm" => crate::screencast::pad_mouse_move(v["dx"].as_f64().unwrap_or(0.0).round() as i32, v["dy"].as_f64().unwrap_or(0.0).round() as i32),
+                            "wh" => crate::screencast::pad_wheel(v["dy"].as_f64().unwrap_or(0.0).round() as i32, v["dx"].as_f64().unwrap_or(0.0).round() as i32),
+                            "txt" => crate::screencast::pad_text(v["s"].as_str().unwrap_or("")),
+                            _ => {
+                                let steps = crate::screencast::steps_of(&v["steps"]);
+                                tokio::task::spawn_blocking(move || crate::screencast::run_steps(&steps));
+                            }
+                        }
+                    }
                     Some("gp") if !failed => {
                         if pad.is_none() {
                             match new_pad().await {
@@ -1158,10 +1220,28 @@ async fn pad_client(mut socket: WebSocket, app: Arc<App>, reg: Registered) {
                     _ => {}
                 }
             }
+            ch = kb_changes.recv() => {
+                // another phone, or Deck's own window, saved the layouts
+                if matches!(&ch, Ok(topic) if topic == "phone-keys") {
+                    let doc = tokio::task::spawn_blocking(crate::phonekeys::load).await.unwrap_or_else(|_| crate::phonekeys::empty());
+                    if socket.send(Message::Text(json!({ "t": "kb", "data": doc }).to_string().into())).await.is_err() { break; }
+                }
+            }
             _ = check.tick() => {
                 if app.settings.lock().remote_screen != "control" {
                     let _ = socket.send(Message::Text(json!({ "t": "off", "text": "Control was turned off on the PC, so the controller stopped." }).to_string().into())).await;
                     break;
+                }
+                // the phone repeats what it holds every half second: silence means it is gone, so let go
+                if !keys.is_empty() && keys_at.elapsed() > Duration::from_millis(2500) {
+                    keys.release_all();
+                }
+                // the game in front, told to the phone when it changes (its layouts can be tied to games)
+                let now = crate::boost::game_in_front(&app);
+                if now != game {
+                    game = now;
+                    if game.is_none() || games_ok { told_blocked = false; }
+                    if socket.send(Message::Text(json!({ "t": "game", "name": game }).to_string().into())).await.is_err() { break; }
                 }
                 if let (Some(p), Some(since), false) = (pad.as_mut(), player.0, player.1) {
                     let msg = match p.player() {
@@ -1184,6 +1264,7 @@ async fn pad_client(mut socket: WebSocket, app: Arc<App>, reg: Registered) {
         }
     }
     drop(pad);
+    drop(keys);
     pad_toast(&app, PADS.fetch_sub(1, Ordering::Relaxed).saturating_sub(1));
     drop(reg);
     app.changed("remote");

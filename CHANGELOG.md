@@ -2,6 +2,14 @@
 
 All notable changes to Deck. Setups for each version are on the [Releases](https://github.com/MohammadFakih02/deck/releases) page.
 
+## Unreleased
+
+### New
+- **An on-screen keyboard on the phone's controller page.** Tap the keyboard button in its top bar: full keyboard, a small gaming set (WASD, mouse buttons, a mouse pad, scroll), and buttons of your own: any key or combo (Ctrl+Shift+Esc), mouse buttons, a trackpad area, scrolling, typed text and macros ("ctrl+c, wait 200, ctrl+v"). Each button holds while touched, fires once, or stays on until pressed again. Edit mode: drag to move, drag the corner to resize, remove (one by one or in Remove mode), duplicate, undo, add whole sets. Size and opacity are per layout. Layouts are kept on the PC (Phone page → Keyboard layouts, where they can be renamed, deleted, copied to another PC and imported) and can be tied to a game: when it comes to the front the phone shows its layout. Keys are paused while a game is in front unless "Allow keys in games" is on. The phone sends everything it holds, whole and twice a second; the PC lets go of every key when it stops hearing from the phone.
+
+### Fixed
+- **The Store update check gives the same answer every time.** Microsoft's update service is a pool of servers and many of them have an old catalog, so the same question is answered with the newest version of an app or with the one before it (Raw Image Extension 2.5.42 or 2.5.35, HEVC Video Extensions 2.4.151 or 2.4.110), whatever the host name, connection or cookie. The Store catalog is as old as those servers and has no download links. Deck now asks several times and keeps the newest version listed (8 answers for an app updated in the last 120 days, 4 for the rest when the first answer shows no update), and remembers the newest version it has seen for each app (Deck\store\seen.json, forgotten after a month) so an update seen once stays on offer when a later check only reaches old servers. Installing an update asks again until the version seen before is listed.
+
 ## 2.8.4 — 2026-10-23
 
 ### New

@@ -434,13 +434,22 @@ fn pick_for(all: Vec<PkgFile>, installed: Option<&[u64]>) -> Vec<PkgFile> {
 /// Finds an app's package files (without links yet). Err when the app isn't a package (a desktop
 /// app with its own installer: those install with winget instead).
 pub fn find(id: &str) -> Result<App, String> {
-    let (title, family, all) = listing(id)?;
-    choose(title, family, all, &installed())
+    find_probing(id, 2)
+}
+
+/// `find`, merging at least `probes` answers of the update service (see `listing`).
+fn find_probing(id: &str, probes: u32) -> Result<App, String> {
+    let (title, family, all) = listing(id, probes)?;
+    let app = choose(title, family, all, &installed())?;
+    if let Some(main) = app.files.iter().find(|f| f.main) {
+        seen_note(id, main);
+    }
+    Ok(app)
 }
 
 /// Every package file Microsoft lists for the app: (title, package family, files). Several versions
 /// of the same package can be listed (one for each Windows version it is built for).
-fn listing(id: &str) -> Result<(String, String, Vec<PkgFile>), String> {
+fn listing(id: &str, probes: u32) -> Result<(String, String, Vec<PkgFile>), String> {
     if !valid_id(id) {
         return Err("bad Store id".into());
     }
@@ -456,8 +465,112 @@ fn listing(id: &str) -> Result<(String, String, Vec<PkgFile>), String> {
         return Err("NOT_PACKAGED".into());
     };
     let prefix = family.rsplit_once('_').map(|(a, _)| a).unwrap_or(family).to_lowercase();
-    let xml = sync_updates(&cookie()?, cat).inspect_err(|_| *COOKIE.lock() = None)?;
-    let doc = roxmltree::Document::parse(&xml).map_err(|e| format!("Microsoft's answer couldn't be read: {e}"))?;
+    // The update service (FE3) is a pool of servers, about half of them with a stale catalog: the same
+    // request is answered with the newest version of an app or with the one before it, whatever the
+    // host name, connection or cookie (measured: 9 of 20 answers had Raw Image Extension 2.5.42, the rest
+    // 2.5.35). The Store catalog is as old as the stale servers, and an answer carries nothing that says
+    // which kind it is. But versions only go up, so asking several times and keeping every package seen
+    // finds the newest, and what earlier checks saw (`SEEN`) is the least that must be listed.
+    // an app published or updated lately is the one whose newest version only some servers know yet (2.5.42 of
+    // Raw Image Extension, published 16 days ago, was in 17 of 20 four-answer listings): ask more for those
+    let recent = v["Payload"]["LastUpdateDateUtc"].as_str().is_some_and(|d| d.get(..10).is_some_and(|d| d >= iso(std::time::SystemTime::now() - Duration::from_secs(RECENT_DAYS * 86400)).get(..10).unwrap_or("")));
+    let probes = if recent { probes.max(FE3_PROBES) } else { probes };
+    let want = seen_for(id).map(|s| (s.package.to_lowercase(), version_key(&s.version)));
+    let mut merged: HashMap<String, PkgFile> = HashMap::new();
+    for attempt in 0..probes.max(FE3_TRIES) {
+        if attempt > 0 {
+            *COOKIE.lock() = None;
+            std::thread::sleep(if cfg!(test) { Duration::from_millis(5) } else { Duration::from_millis(500 + 300 * attempt as u64) });
+        }
+        let xml = sync_updates(&cookie()?, cat).inspect_err(|_| *COOKIE.lock() = None)?;
+        for f in parse_listing(&xml, &prefix)? {
+            merged.entry(f.name.clone()).or_insert(f);
+        }
+        if attempt + 1 >= probes && lacks(want.as_ref(), merged.values()).is_none() {
+            break;
+        }
+    }
+    let all: Vec<PkgFile> = merged.into_values().collect();
+    Ok((title, family.to_string(), all))
+}
+
+/// How many times FE3 is asked for one app at most while its answers lack a version seen before.
+const FE3_TRIES: u32 = 4;
+/// How many answers the listing of a recently updated app merges (the stale servers answer without the newest
+/// version about half to three quarters of the time: with this many, a miss is about one in a hundred to ten).
+const FE3_PROBES: u32 = 8;
+/// An app counts as recently updated for this many days after its Store page changed.
+const RECENT_DAYS: u64 = 120;
+
+/// The package and version that `files` lack, from what earlier answers listed.
+fn lacks<'a>(want: Option<&(String, Vec<u64>)>, files: impl Iterator<Item = &'a PkgFile>) -> Option<String> {
+    let (name, ver) = want?;
+    let mut files = files;
+    if files.any(|f| f.package.to_lowercase() == *name && version_key(&f.version) >= *ver) {
+        None
+    } else {
+        Some(format!("{name} {}", ver.iter().map(|n| n.to_string()).collect::<Vec<_>>().join(".")))
+    }
+}
+
+// ---------------------------------------------------------------------------------- what was seen
+
+/// The newest own package of an app that any answer has listed, kept between checks: FE3's answers differ
+/// from one request to the next, and the update count must not drop because a stale server answered.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+struct Seen {
+    package: String,
+    version: String,
+    size: u64,
+    /// when it was seen (unix seconds); forgotten after a month, in case Microsoft pulled it
+    at: u64,
+}
+
+static SEEN: Mutex<Option<HashMap<String, Seen>>> = parking_lot::const_mutex(None);
+
+fn seen_file() -> std::path::PathBuf {
+    store_dir().join("seen.json")
+}
+
+fn with_seen<T>(f: impl FnOnce(&mut HashMap<String, Seen>) -> T) -> T {
+    let mut g = SEEN.lock();
+    let map = g.get_or_insert_with(|| {
+        let now = crate::util::now_s();
+        let mut m: HashMap<String, Seen> = std::fs::read(seen_file()).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+        m.retain(|_, s| now.saturating_sub(s.at) < 30 * 86400);
+        m
+    });
+    f(map)
+}
+
+fn seen_for(id: &str) -> Option<Seen> {
+    if cfg!(test) {
+        return None;
+    }
+    with_seen(|m| m.get(id).cloned())
+}
+
+/// Notes the app's own package as chosen for this PC; kept when it is not older than the one noted.
+fn seen_note(id: &str, main: &PkgFile) {
+    if cfg!(test) {
+        return;
+    }
+    let now = crate::util::now_s();
+    with_seen(|m| {
+        let keep = m.get(id).is_some_and(|o| o.package.eq_ignore_ascii_case(&main.package) && same_scheme(&version_key(&o.version), &version_key(&main.version)) && version_key(&o.version) > version_key(&main.version));
+        if keep {
+            return;
+        }
+        m.insert(id.to_string(), Seen { package: main.package.clone(), version: main.version.clone(), size: main.size, at: now });
+        let path = seen_file();
+        let _ = std::fs::create_dir_all(path.parent().unwrap());
+        let _ = crate::util::write_atomic(&path, &serde_json::to_vec(&*m).unwrap_or_default());
+    });
+}
+
+/// The package files in FE3's answer (with their update ids), `prefix`: the app's package name.
+fn parse_listing(xml: &str, prefix: &str) -> Result<Vec<PkgFile>, String> {
+    let doc = roxmltree::Document::parse(xml).map_err(|e| format!("Microsoft's answer couldn't be read: {e}"))?;
     let id_of = |n: roxmltree::Node| n.descendants().find(|d| d.tag_name().name() == "ID").and_then(|d| d.text()).map(String::from);
     // files by update id
     let mut files: HashMap<String, PkgFile> = HashMap::new();
@@ -480,7 +593,7 @@ fn listing(id: &str) -> Result<(String, String, Vec<PkgFile>), String> {
                 version: parts[1].to_string(),
                 arch: parts[2].to_lowercase(),
                 size: file.attribute("Size").and_then(|s| s.parse().ok()).unwrap_or(0),
-                main: isi.to_lowercase().starts_with(&prefix),
+                main: isi.to_lowercase().starts_with(prefix),
                 sha1: file.attribute("Digest").unwrap_or("").to_string(),
                 sha256,
                 update: (String::new(), String::new()),
@@ -499,8 +612,7 @@ fn listing(id: &str) -> Result<(String, String, Vec<PkgFile>), String> {
             f.update = (u.to_string(), r.to_string());
         }
     }
-    let all: Vec<PkgFile> = files.into_values().filter(|f| !f.update.0.is_empty()).collect();
-    Ok((title, family.to_string(), all))
+    Ok(files.into_values().filter(|f| !f.update.0.is_empty()).collect())
 }
 
 /// The files to use for an app on this PC out of everything listed: the app's own package in the
@@ -1092,7 +1204,7 @@ mod tests {
     #[ignore = "asks Microsoft's servers"]
     fn cookie_effect_here() {
         let newest = |id: &str| -> String {
-            match listing(id) {
+            match listing(id, 1) {
                 Ok((_, _, all)) => {
                     let mut v: Vec<Vec<u64>> = all.iter().filter(|f| f.main).map(|f| version_key(&f.version)).collect();
                     v.sort();
@@ -1114,6 +1226,58 @@ mod tests {
         }
     }
 
+    #[test]
+    fn an_answer_without_the_version_seen_before_is_stale() {
+        let want = ("microsoft.rawimageextension".to_string(), version_key("2.5.42.0"));
+        let stale = [pf("a", "Microsoft.RawImageExtension", "2.5.35.0", "neutral", true)];
+        let fresh = [stale[0].clone(), pf("b", "Microsoft.RawImageExtension", "2.5.42.0", "neutral", true)];
+        assert_eq!(lacks(Some(&want), stale.iter()).as_deref(), Some("microsoft.rawimageextension 2.5.42.0"));
+        assert_eq!(lacks(Some(&want), fresh.iter()), None);
+        // nothing seen before: the first answer stands
+        assert_eq!(lacks(None, stale.iter()), None);
+    }
+
+    #[test]
+    fn an_update_seen_before_stays_on_offer_when_the_answers_are_stale() {
+        let stale = App { title: "Raw Image Extension".into(), family: "F".into(), files: vec![pf("a", "Microsoft.RawImageExtension", "2.5.35.0", "neutral", true)] };
+        let seen = |v: &str| Some(Seen { package: "Microsoft.RawImageExtension".into(), version: v.into(), size: 3_500_000, at: 0 });
+        let of = |installed: &str, seen| update_seen_before("9NCTDW2W1BH8", "F", installed, &stale, seen);
+        // 2.5.42 was seen, this check only got 2.5.35, 2.5.35 is installed: still an update
+        let u = of("2.5.35.0", seen("2.5.42.0")).expect("offered");
+        assert_eq!((u.latest.as_str(), u.size), ("2.5.42.0", 3_500_000));
+        // installed 2.5.42 (updated since): nothing; nothing seen: nothing; another package: nothing
+        assert!(of("2.5.42.0", seen("2.5.42.0")).is_none());
+        assert!(of("2.5.35.0", None).is_none());
+        assert!(of("2.5.35.0", Some(Seen { package: "Other".into(), version: "9.0.0.0".into(), size: 1, at: 0 })).is_none());
+        // a seen version in another numbering is not this app's update
+        assert!(of("2.5.35.0", seen("2021.2.5.42")).is_none());
+    }
+
+    /// The same apps listed ten times, each with a new cookie: does every answer now hold the version the
+    /// Store catalog lists? `cargo test listing_is_steady_here -- --ignored --nocapture`
+    #[test]
+    #[ignore = "asks Microsoft's servers"]
+    fn listing_is_steady_here() {
+        for id in ["9NCTDW2W1BH8", "9NMZLZ57R3T7"] {
+            let mut seen = Vec::new();
+            for _ in 0..20 {
+                forget_cookie();
+                match listing(id, 1) {
+                    Ok((title, _, all)) => {
+                        let top = all.iter().filter(|f| f.main).map(|f| version_key(&f.version)).max().unwrap_or_default();
+                        seen.push(format!("{title}: {}", top.iter().map(|n| n.to_string()).collect::<Vec<_>>().join(".")));
+                    }
+                    Err(e) => seen.push(format!("error: {e}")),
+                }
+            }
+            let mut counts: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+            for s in seen {
+                *counts.entry(s).or_default() += 1;
+            }
+            println!("{id}: {counts:?}");
+        }
+    }
+
     /// For every Store app on this PC: what Microsoft lists, what Deck would choose and decide.
     /// `cargo test version_numbers_here -- --ignored --nocapture`
     #[test]
@@ -1129,7 +1293,7 @@ mod tests {
                     continue;
                 }
             };
-            match listing(&id) {
+            match listing(&id, 1) {
                 Ok((title, fam, all)) => {
                     let mains: Vec<String> = all.iter().filter(|f| f.main).map(|f| format!("{}[{}]", f.version, f.arch)).collect();
                     match choose(title.clone(), fam, all, &have) {
@@ -1752,6 +1916,21 @@ fn update_of(id: &str, family: &str, installed: &str, app: &App) -> Option<Updat
     Some(Update { id: id.into(), title: app.title.clone(), family: family.into(), installed: installed.into(), latest: main.version.clone(), size, odd: verdict == Newer::Unsure })
 }
 
+/// The update that earlier answers showed but this check's answers (all stale) didn't: the newest package
+/// seen for the app (same numbering as `app`'s), when it is newer than the one installed.
+fn update_seen_before(id: &str, family: &str, installed: &str, app: &App, seen: Option<Seen>) -> Option<Update> {
+    let seen = seen?;
+    let main = app.files.iter().find(|f| f.main)?;
+    if !seen.package.eq_ignore_ascii_case(&main.package) || version_key(&seen.version) <= version_key(&main.version) || !same_scheme(&version_key(&seen.version), &version_key(&main.version)) {
+        return None;
+    }
+    let verdict = newer(&seen.version, installed);
+    if !matches!(verdict, Newer::Yes | Newer::Unsure) {
+        return None;
+    }
+    Some(Update { id: id.into(), title: app.title.clone(), family: family.into(), installed: installed.into(), latest: seen.version, size: seen.size, odd: verdict == Newer::Unsure })
+}
+
 /// The app's own package in `app` is not newer than the one installed here (nothing to update to).
 fn not_newer(app: &App, have: &Have) -> bool {
     let Some(main) = app.files.iter().find(|f| f.main) else { return false };
@@ -1800,9 +1979,15 @@ fn check_one(family: &str, installed: &str) -> Result<(), Turned> {
         }
         return Ok(());
     };
-    match find(&id) {
+    // One answer of the update service shows an update only half the time it exists: when it shows none,
+    // the app is asked about a few more times before it is called up to date.
+    let mut found = find_probing(&id, 1);
+    if found.as_ref().is_ok_and(|app| update_of(&id, family, installed, app).is_none()) {
+        found = find_probing(&id, 4);
+    }
+    match found {
         Ok(app) => {
-            if let Some(u) = update_of(&id, family, installed, &app) {
+            if let Some(u) = update_of(&id, family, installed, &app).or_else(|| update_seen_before(&id, family, installed, &app, seen_for(&id))) {
                 if let Some(c) = CHECK.lock().as_mut() {
                     c.updates.push(u);
                 }

@@ -191,6 +191,43 @@
   .sfloat button.on { background: color-mix(in srgb, var(--acc) 60%, #000); }
   .sfloat svg { width: 18px; height: 18px; }
   #skb { position: fixed; left: 0; bottom: 0; width: 1px; height: 1px; opacity: 0; border: 0; padding: 0; font-size: 16px; }
+
+  /* the keyboard on the controller page: buttons placed by the user */
+  #kbd { --ku: 40px; --kbo: .85; position: absolute; inset: 0; z-index: 2; display: none; touch-action: none; user-select: none; -webkit-user-select: none; }
+  #padonly.kbm #kbd { display: block; }
+  #padonly.kbm .pplayer { display: none; }
+  #padonly:not(.kbm) #kbName, #padonly:not(.kbm) #padEdit { display: none; }
+  #kbName { color: #999; font-size: 11px; max-width: 40vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
+  #padonly .pbar button.on { background: #2f6fed; color: #fff; }
+  .kbtn { position: absolute; transform: translate(-50%, -50%); box-sizing: border-box; display: flex; align-items: center; justify-content: center; text-align: center; background: #2a2d38; color: #e8e8ee; border: 1px solid #ffffff30; border-radius: calc(var(--ku) * .18); font: 600 calc(var(--ku) * .34) system-ui; line-height: 1.05; opacity: var(--kbo); overflow: hidden; padding: 0 2px; word-break: break-all; touch-action: none; }
+  .kbtn.on { opacity: 1; filter: brightness(1.7); border-color: #fff9; }
+  .kbtn.lt { outline: 2px solid #3ddc84; }
+  .kbtn.t-pad { background: #ffffff12; border-style: dashed; color: #8a8a96; }
+  #kbd.edit .kbtn { opacity: 1; outline: 1px dashed #ffffff55; }
+  #kbd.edit .kbtn.sel { outline: 2px solid #4aa3ff; }
+  #kbd.del .kbtn { outline-color: #ff5c5c; }
+  .kbtn .kh { position: absolute; right: 0; bottom: 0; width: max(18px, calc(var(--ku) * .4)); height: max(18px, calc(var(--ku) * .4)); background: #4aa3ff; border-radius: 8px 0 8px 0; touch-action: none; }
+  .kins { position: absolute; top: 0; bottom: 0; right: 0; width: min(290px, 46vw); z-index: 7; display: none; overflow: auto; padding: 8px 10px calc(env(safe-area-inset-bottom) + 8px); background: #14141af2; border-left: 1px solid #333; color: #ddd; font-size: 13px; }
+  .kins.on { display: block; }
+  .kins.left { right: auto; left: 0; border-left: 0; border-right: 1px solid #333; }
+  .kins [hidden], #padonly .pset [hidden] { display: none !important; }
+  .kins button, .kins select, .kins input, .kins textarea, .kbset button, .kbset input[type=text], .kbset select { background: #26262c; color: #ddd; border: 1px solid #444; border-radius: 8px; padding: 6px 8px; font-size: 13px; }
+  .kins button:disabled { opacity: .4; }
+  .kins button.on { background: #b3261e; color: #fff; }
+  .kins label, .kins .prow { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 7px 0; }
+  .kins input:not([type=range]):not([type=color]), .kins select, .kins textarea { width: 58%; min-width: 0; }
+  .kins .kinsh { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+  .kins .kgrid { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+  .kins .pdone { padding: 6px 12px; }
+  .kbset { display: grid; gap: 10px; }
+  .kbset .kbchip { padding: 4px 8px; }
+  #padonly .pset { max-height: 88vh; overflow-y: auto; }
+  #padonly.kbm .pmid { top: calc(env(safe-area-inset-top) + 3px); flex-direction: row; gap: 10px; }
+  #padonly.ov { background: transparent !important; pointer-events: none; }
+  #padonly.ov #kbd { pointer-events: none; }
+  #padonly.ov .kbtn, #padonly.ov .kins, #padonly.ov .pset { pointer-events: auto; }
+  #padonly.ov #padKb { display: none; }
+  #padonly.kbm .pmid #padStat.bad { max-width: 30vw; font-size: 10px; }
 </style>
 </head>
 <body>
@@ -216,6 +253,7 @@
       <button id="sKeys" aria-label="Keys and shortcuts" title="Keys and shortcuts">Keys</button>
       <button id="sRight" aria-label="Next tap is a right-click" title="Next tap is a right-click">Right-click</button>
       <button id="sPad" aria-pressed="false" title="An on-screen controller: the PC sees a game controller">Controller</button>
+      <button id="sBtns" aria-pressed="false" title="Your own keyboard buttons over the screen: keys, combos, mouse, macros, one layout per game">My keys</button>
       <button id="sHold" aria-pressed="false" title="Touching holds the left button down until you lift your finger (to walk or drag in games)">Hold click</button>
       <button id="sFit" aria-label="Fit to screen" title="Fit to screen">Fit</button>
       <select id="sMon" aria-label="Monitor"></select>
@@ -254,7 +292,7 @@
         <div class="gb sm" data-gb="64" style="left:calc(env(safe-area-inset-left) + 58px);top:196px">L3</div>
         <div class="gb sm" data-gb="128" style="right:calc(env(safe-area-inset-right) + 222px);bottom:150px">R3</div>
       </div>
-      <div class="sfloat"><button id="fPad" aria-pressed="false" aria-label="Controller">Pad</button><button id="fKb" aria-label="Keyboard"></button><button id="fHold" aria-pressed="false" aria-label="Hold click">Hold</button><button id="fCtl" aria-label="Control on or off"></button><button id="fExit" aria-label="Show the bars"></button></div></div>
+      <div class="sfloat"><button id="fPad" aria-pressed="false" aria-label="Controller">Pad</button><button id="fBtns" aria-pressed="false" aria-label="My keyboard buttons">Keys</button><button id="fKb" aria-label="Keyboard"></button><button id="fHold" aria-pressed="false" aria-label="Hold click">Hold</button><button id="fCtl" aria-label="Control on or off"></button><button id="fExit" aria-label="Show the bars"></button></div></div>
     <div class="skeys" id="skeys"></div>
     <input id="skb" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" aria-label="Type on the PC">
   </div>
@@ -751,6 +789,7 @@ function screenClose(fromBack) {
   $("scr").classList.remove("on");
   document.body.style.overflow = "";
   $("skeys").classList.remove("on"); $("sKeys").classList.remove("on");
+  if (PAD.over) kbOver(false);
   if (SC.ws) { SC.ws.onclose = null; SC.ws.close(); SC.ws = null; }
   videoStop();
   if (!SA.spk) soundStop();
@@ -1255,8 +1294,9 @@ function setMode(m) {
   $("sCtl").textContent = c ? "Control on" : "Control off";
   $("sCtl").classList.toggle("on", c); $("sCtl").setAttribute("aria-pressed", String(c));
   $("fCtl").classList.toggle("on", c);
-  for (const id of ["sKb", "sKeys", "sRight", "sHold", "sPad", "fKb", "fHold", "fPad"]) $(id).style.display = c ? "" : "none";
+  for (const id of ["sKb", "sKeys", "sRight", "sHold", "sPad", "sBtns", "fKb", "fHold", "fPad", "fBtns"]) $(id).style.display = c ? "" : "none";
   if (!c && window.GP && GP.on) setPad(false);
+  if (!c && PAD.over) kbOver(false);
   if (!c) { $("skeys").classList.remove("on"); $("sKeys").classList.remove("on"); if (document.activeElement === skb) skb.blur(); }
 }
 function toggleControl() {
@@ -1857,9 +1897,47 @@ function padView() {
     v = document.createElement("div");
     v.id = "padonly";
     v.innerHTML = `<div class="pmid"><div class="pplayer" id="padPlayer" aria-live="polite"></div>
-      <div class="pbar"><button id="padClose" aria-label="Close the controller">✕</button><button id="padSet" aria-label="Controller settings" aria-expanded="false">⚙</button></div>
-      <span id="padStat" role="status"></span></div>
+      <div class="pbar"><button id="padClose" aria-label="Close the controller">✕</button><button id="padKb" aria-label="Use the keyboard" aria-pressed="false">⌨</button><button id="padEdit" aria-label="Edit the keyboard buttons" aria-pressed="false" hidden>✎</button><button id="padSet" aria-label="Controller settings" aria-expanded="false">⚙</button></div>
+      <span id="kbName"></span><span id="padStat" role="status"></span></div>
+      <div class="kins" id="kbIns" role="region" aria-label="Edit keyboard buttons">
+        <div class="kinsh"><b>Edit buttons</b><span><button id="kbSide" aria-label="Move this panel to the other side">⇄</button> <button id="kbEditDone" class="pdone">Done</button></span></div>
+        <div class="kgrid">
+          <button id="kbAddKey">+ Key</button><button id="kbAddPad">+ Mouse pad</button><button id="kbAddScroll">+ Scroll</button><button id="kbAddText">+ Text</button><button id="kbAddSeq">+ Macro</button>
+          <select id="kbPreset" aria-label="Add a set of buttons"><option value="">Add a set…</option><option value="full">Full keyboard</option><option value="gaming">WASD + mouse</option><option value="fkeys">F1–F12</option><option value="arrows">Arrow keys</option><option value="numpad">Numpad</option><option value="mouse">Mouse buttons</option><option value="trackpad">Mouse pad</option></select>
+          <button id="kbUndo" disabled>Undo</button><button id="kbDel" aria-pressed="false">Remove mode</button><button id="kbClear">Clear all</button>
+        </div>
+        <div class="pnote" id="kbHint">Drag a button to move it and its blue corner to resize it. Tap one to change what it does. In Remove mode a tap removes a button. Everything is saved on the PC.</div>
+        <div id="kbFields" hidden>
+          <label><span>Label</span><input id="kiLabel" maxlength="20" autocomplete="off"></label>
+          <label><span>Kind</span><select id="kiType"><option value="key">Key, combo or mouse button</option><option value="pad">Mouse pad</option><option value="scroll">Scroll</option><option value="text">Type text</option><option value="seq">Macro</option></select></label>
+          <label data-for="key"><span>Keys</span><input id="kiKeys" list="kbNames" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="w, ctrl+shift+esc, mouse1"></label>
+          <div class="pnote" id="kiBad" role="status"></div>
+          <label data-for="key"><span>Acts</span><select id="kiMode"><option value="hold">While held</option><option value="tap">One tap</option><option value="latch">Stays on (toggle)</option></select></label>
+          <label data-for="text"><span>Text</span><textarea id="kiText" rows="2"></textarea></label>
+          <label data-for="seq"><span>Macro</span><input id="kiSeq" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="ctrl+c, wait 200, ctrl+v"></label>
+          <label data-for="scroll"><span>Direction</span><select id="kiDir"><option value="1">Up</option><option value="-1">Down</option></select></label>
+          <label data-for="pad"><span>Speed</span><input type="range" id="kiSens" min="0.5" max="8" step="0.1"></label>
+          <div class="prow"><span>Colour</span><span><input type="color" id="kiColor" value="#2a2d38"> <button id="kiColorOff">Default</button></span></div>
+          <div class="prow"><span>Width</span><span><button id="kiWm" aria-label="Narrower">−</button> <b id="kiW"></b> <button id="kiWp" aria-label="Wider">+</button></span></div>
+          <div class="prow"><span>Height</span><span><button id="kiHm" aria-label="Shorter">−</button> <b id="kiH"></b> <button id="kiHp" aria-label="Taller">+</button></span></div>
+          <div class="kgrid"><button id="kiDup">Duplicate</button><button id="kiRemove">Remove this button</button></div>
+        </div>
+        <datalist id="kbNames"></datalist>
+      </div>
       <div class="pset" id="padSetP" role="dialog" aria-label="Controller settings">
+        <div class="kbset" id="kbSetBox" hidden>
+          <div class="prow"><span>Keyboard layout</span><select id="kbSel" aria-label="Keyboard layout"></select></div>
+          <div class="pbg"><button id="kbNewFull">+ Full</button><button id="kbNewGame">+ Gaming</button><button id="kbNewBlank">+ Blank</button><button id="kbCopy">Copy</button><button id="kbRename">Rename</button><button id="kbDelete">Delete</button></div>
+          <div class="pnote">Games that use this layout (it comes up by itself when one is in front):</div>
+          <div class="pbg" id="kbGames"></div>
+          <div class="pbg"><button id="kbGameNow" hidden></button><input type="text" id="kbGameIn" placeholder="Game name" aria-label="Game name" autocomplete="off"><button id="kbGameAdd">Add</button></div>
+          <label><span>Mouse pad speed</span><input type="range" id="kbSpeed" min="0.5" max="8" step="0.1" aria-label="Mouse pad speed"></label>
+          <label><span>Faster on quick swipes</span><input type="checkbox" id="kbAcc"></label>
+          <label><span>Switch layout by game</span><input type="checkbox" id="kbAuto"></label>
+          <label><span>Allow keys in games</span><input type="checkbox" id="kbIn"></label>
+          <div class="pnote" id="kbSaved" role="status"></div>
+          <button id="kbEditGo" class="pdone">Edit buttons…</button>
+        </div>
         <label><span>Size</span><select id="poS"><option value="0.6">Tiny</option><option value="0.75">Small</option><option value="0.9">Medium</option><option value="1">Normal</option><option value="1.15">Large</option><option value="1.3">Huge</option></select></label>
         <label><span>Opacity</span><input type="range" id="poO" min="0.15" max="1" step="0.05"></label>
         <label><span>Layout</span><select id="poL"><option value="auto">Follow the phone</option><option value="side">Always sideways</option></select></label>
@@ -1868,16 +1946,20 @@ function padView() {
           <label class="pbtn">Color<input type="color" id="poC" value="#202040"></label>
           <label class="pbtn">Photo…<input type="file" id="poF" accept="image/*" hidden></label>
         </div></div>
-        <div class="pnote" id="poN">Saved on this phone only, so each phone keeps its own look.</div>
+        <div class="pnote" id="poN">The look of the controller is saved on this phone only; keyboard layouts are saved on the PC.</div>
         <button id="padSetDone" class="pdone">Done</button>
       </div>`;
     document.body.appendChild(v);
-    $("padClose").onclick = () => padOnly(false);
+    $("padClose").onclick = () => (PAD.over ? kbOver(false) : padOnly(false));
     const panel = (on) => { $("padSetP").classList.toggle("on", on); $("padSet").setAttribute("aria-expanded", String(on)); };
     $("padSet").onclick = () => panel(!$("padSetP").classList.contains("on"));
     $("padSetDone").onclick = () => panel(false);
-    $("poS").onchange = () => { padSave("deckPoS", $("poS").value); padLook(); };
-    $("poO").oninput = () => { padSave("deckPoO", $("poO").value); padLook(); };
+    $("poS").onchange = () => { if (KB.on) { const L = kbCur(); if (L) { L.size = +$("poS").value; kbMark(); kbSize(); } return; } padSave("deckPoS", $("poS").value); padLook(); };
+    $("poO").oninput = () => { if (KB.on) { const L = kbCur(); if (L) { L.op = +$("poO").value; kbMark(); $("kbd").style.setProperty("--kbo", L.op); } return; } padSave("deckPoO", $("poO").value); padLook(); };
+    $("padKb").onclick = () => { kbMode(!KB.on); try { localStorage.setItem("deckPoKb", KB.on ? "1" : "0"); } catch {} };
+    $("padEdit").onclick = () => kbEditing(!KB.edit);
+    $("kbName").onclick = () => $("padSet").click();
+    for (const o of KB_NAMES) { const e = document.createElement("option"); e.value = o; $("kbNames").appendChild(e); }
     $("poL").onchange = () => { padSave("deckPoL", $("poL").value); padLayout(); };
     matchMedia("(orientation: portrait)").addEventListener("change", () => PAD.on && padLayout());
     for (const b of v.querySelectorAll("[data-bg]")) b.onclick = () => { padSave("deckPoBg", b.dataset.bg); padLook(); };
@@ -1896,7 +1978,7 @@ function padLook() {
   const v = $("padonly"); if (!v) return;
   const size = padGet("deckPoS", "1"), op = padGet("deckPoO", "1"), bg = padGet("deckPoBg", "#000");
   $("gpad").style.setProperty("--gps", size); $("gpad").style.setProperty("--gpo", op);
-  $("poS").value = size; $("poO").value = op;
+  if (KB.on) kbSettingsFill(); else { $("poS").value = size; $("poO").value = op; }
   if (bg.startsWith("data:")) v.style.background = `#000 url("${bg}") center / cover no-repeat`;
   else { v.style.background = bg; if (/^#[0-9a-f]{6}$/i.test(bg)) $("poC").value = bg; }
 }
@@ -1948,7 +2030,7 @@ function padConnect(hosts) {
   PAD.ws = w; PAD.rtt = null; PAD.via = /^100\./.test(host) ? "Tailscale" : "Home Wi-Fi";
   padStat();
   if (hosts.length > 1) setTimeout(() => { if (PAD.ws === w && w.readyState === 0) { w.onclose = null; w.close(); padConnect(hosts.slice(1)); } }, 1500);
-  w.onopen = () => { PAD.retry = 0; PAD.msg = ""; GP.last = ""; gpSend(true); padStat(); };
+  w.onopen = () => { PAD.retry = 0; PAD.msg = ""; GP.last = ""; gpSend(true); padStat(); KB.last = "[]"; w.send(JSON.stringify({ t: "games", on: !!gamesOk })); if (KB.dirty) kbSaveNow(); };
   w.onmessage = (e) => {
     let m; try { m = JSON.parse(e.data); } catch { return; }
     if (m.t === "pong") { PAD.rtt = Math.round(performance.now() - m.id); padStat(); }
@@ -1956,6 +2038,9 @@ function padConnect(hosts) {
     else if (m.t === "refused") { PAD.msg = m.text; PAD.on && padStat(); w.onclose = null; }
     else if (m.t === "note") { PAD.msg = m.text; padStat(); }
     else if (m.t === "off") { PAD.msg = m.text; padStat(); }
+    else if (m.t === "kb") kbAdopt(m.data);
+    else if (m.t === "game") kbGame(m.name);
+    else if (m.t === "kberr") { kbSaved(m.text); PAD.msg = m.text; padStat(); setTimeout(() => { if (PAD.msg === m.text) { PAD.msg = ""; padStat(); } }, 6000); }
   };
   w.onclose = (e) => {
     if (PAD.ws !== w || !PAD.on) return;
@@ -1973,9 +2058,10 @@ function padOnly(on) {
   if (on) {
     PAD.on = true; PAD.msg = ""; PAD.retry = 0; PAD.player = 0;
     v.appendChild(pad); v.classList.add("on");
-    padLook();
     setPad(true);
     padLayout();
+    kbMode(padGet("deckPoKb", "0") === "1");
+    padLook();
     if (!reallyFull() && document.documentElement.requestFullscreen) {
       const ask = () => document.documentElement.requestFullscreen({ navigationUI: "hide" }).catch(() => {});
       document.fullscreenElement ? document.exitFullscreen().catch(() => {}).then(ask) : ask();
@@ -1983,6 +2069,7 @@ function padOnly(on) {
     padConnect();
     PAD.ping = setInterval(() => { if (PAD.ws && PAD.ws.readyState === 1) PAD.ws.send(JSON.stringify({ t: "ping", id: performance.now() })); }, 1000);
   } else {
+    kbMode(false);
     setPad(false);
     const w = PAD.ws;
     PAD.on = false; PAD.ws = null; clearInterval(PAD.ping);
@@ -1995,6 +2082,461 @@ function padOnly(on) {
     try { document.fullscreenElement && document.exitFullscreen().catch(() => {}); } catch {}
   }
 }
+
+// The keyboard on the controller page: buttons you place yourself (keys and combos, mouse buttons, a
+// trackpad area, scrolling, text, macros), moved, resized and removed in edit mode. Layouts are saved on
+// the PC (every phone and Deck see them) and can be tied to games: the PC says which game is in front.
+// The held keys go to the PC as one list, whole, at every change and twice a second while something is held,
+// so a lost message can't leave a key down; the PC lets go by itself when the phone goes quiet.
+const KB_NAMES = ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8", "f9", "f10", "f11", "f12", "f13", "f14", "f15", "f16", "f17", "f18", "f19", "f20", "f21", "f22", "f23", "f24", "enter", "backspace", "tab", "esc", "space", "delete", "insert", "home", "end", "pageup", "pagedown", "left", "up", "right", "down", "win", "rwin", "ctrl", "alt", "shift", "lshift", "rshift", "lctrl", "rctrl", "lalt", "ralt", "capslock", "numlock", "scrolllock", "pause", "printscreen", "menu", "volup", "voldown", "mute", "playpause", "nexttrack", "prevtrack", "-", "=", "[", "]", ";", "'", ",", ".", "/", "\\", "`", "num0", "num1", "num2", "num3", "num4", "num5", "num6", "num7", "num8", "num9", "num*", "num+", "num-", "num.", "num/", "numenter", "mouse1", "mouse2", "mouse3", "mouse4", "mouse5"];  // the key names the PC understands (screencast.rs vk); a test keeps them equal
+var KB_PRETTY = { esc: "Esc", backspace: "⌫", enter: "Enter", tab: "Tab", space: "Space", delete: "Del", insert: "Ins", home: "Home", end: "End", pageup: "PgUp", pagedown: "PgDn", left: "◀", right: "▶", up: "▲", down: "▼", win: "Win", rwin: "Win", ctrl: "Ctrl", lctrl: "Ctrl", rctrl: "Ctrl", alt: "Alt", lalt: "Alt", ralt: "Alt", shift: "Shift", lshift: "Shift", rshift: "Shift", capslock: "Caps", numlock: "Num", scrolllock: "ScrLk", pause: "Pause", printscreen: "PrtSc", menu: "Menu", volup: "Vol+", voldown: "Vol−", mute: "Mute", playpause: "⏯", nexttrack: "⏭", prevtrack: "⏮", mouse1: "LMB", mouse2: "RMB", mouse3: "MMB", mouse4: "M4", mouse5: "M5", numenter: "Enter", "num*": "*", "num+": "+", "num-": "−", "num.": ".", "num/": "/" };
+var KB = { doc: null, dirty: false, ver: 0, saveT: 0, edit: false, del: false, sel: null, game: null, override: null, holds: new Map(), last: "[]", ptr: new Map(), undo: [], side: "r", on: false, drag: null, ro: null, said: "" };
+var KB_UW = 21, KB_UH = 10;
+
+function kbId() { return Math.random().toString(36).slice(2, 9); }
+/** "ctrl+shift+esc" → the key names, and the ones that mean nothing. */
+function kbParse(s) {
+  const keys = [], bad = [];
+  for (let t of String(s || "").toLowerCase().match(/num\+|[^+\s][^+]*/g) || []) {
+    t = t.trim();
+    if (!t) continue;
+    (KB_NAMES.includes(t) ? keys : bad).push(t);
+  }
+  return { keys, bad };
+}
+function kbLabel(keys) { return keys.map((k) => KB_PRETTY[k] || (/^num\d$/.test(k) ? k.slice(3) : k.toUpperCase())).join("+"); }
+function kbItem(o) { return Object.assign({ id: kbId(), type: "key", label: "", keys: [], mode: "hold", x: 0.5, y: 0.5, w: 1, h: 1, c: "" }, o); }
+function kbAt(o, ux, uy, w, h) { return Object.assign(o, { x: (ux + w / 2) / KB_UW, y: (uy + h / 2) / KB_UH, w, h }); }
+function kbKey(keys, ux, uy, w = 1, h = 1, extra = {}) { return kbAt(kbItem(Object.assign({ keys: Array.isArray(keys) ? keys : [keys] }, extra)), ux, uy, w, h); }
+/** Ready-made sets of buttons, in units (1 unit ≈ a key); added to a layout from the editor. */
+var KB_PRESETS = {
+  full() {
+    const o = [], row = (names, ux, uy, widths = {}) => { let x = ux; for (const n of names) { const w = widths[n] || 1; o.push(kbKey(n, x, uy, w)); x += w + 0.06; } };
+    row(["esc"], 0.3, 1.3); row(["f1", "f2", "f3", "f4"], 1.9, 1.3); row(["f5", "f6", "f7", "f8"], 6.4, 1.3); row(["f9", "f10", "f11", "f12"], 10.9, 1.3);
+    row(["`", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "-", "=", "backspace"], 0.3, 2.5, { backspace: 2 });
+    row(["tab", "q", "w", "e", "r", "t", "y", "u", "i", "o", "p", "[", "]", "\\"], 0.3, 3.6, { tab: 1.5, "\\": 1.5 });
+    row(["capslock", "a", "s", "d", "f", "g", "h", "j", "k", "l", ";", "'", "enter"], 0.3, 4.7, { capslock: 1.8, enter: 2.2 });
+    row(["shift", "z", "x", "c", "v", "b", "n", "m", ",", ".", "/", "rshift"], 0.3, 5.8, { shift: 2.3, rshift: 2.7 });
+    row(["ctrl", "win", "alt", "space", "ralt", "menu", "rctrl"], 0.3, 6.9, { ctrl: 1.4, win: 1.2, alt: 1.2, space: 6.2, ralt: 1.2, menu: 1.2, rctrl: 1.4 });
+    row(["insert", "home", "pageup"], 16.9, 2.5); row(["delete", "end", "pagedown"], 16.9, 3.6);
+    o.push(kbKey("up", 17.96, 5.8)); row(["left", "down", "right"], 16.9, 6.9);
+    return o;
+  },
+  gaming() {
+    const o = [], k = (n, x, y, w = 1, h = 1, ex) => o.push(kbKey(n, x, y, w, h, ex));
+    k("esc", 0.3, 1.3); for (let i = 1; i <= 5; i++) k(String(i), 1.4 + (i - 1) * 1.06, 1.3);
+    k("tab", 0.3, 3.1, 1.3); k("q", 1.7, 3.1); k("e", 4.0, 3.1); k("r", 5.1, 3.1); k("t", 6.2, 3.1);
+    k("w", 2.85, 4.2, 1.1, 1.1); k("a", 1.7, 5.4, 1.1, 1.1); k("s", 2.85, 5.4, 1.1, 1.1); k("d", 4.0, 5.4, 1.1, 1.1);
+    k("f", 5.3, 4.2); k("g", 6.4, 4.2); k("c", 5.3, 5.4); k("v", 6.4, 5.4); k("x", 5.3, 6.6); k("z", 6.4, 6.6);
+    k("shift", 0.3, 6.6, 1.5, 1.1); k("ctrl", 1.9, 6.6, 1.2, 1.1); k("space", 3.2, 6.6, 2.0, 1.1);
+    k("i", 7.5, 1.3); k("m", 8.6, 1.3); k("enter", 9.7, 1.3, 1.6);
+    o.push(kbAt(kbItem({ type: "pad", label: "Mouse", sens: 1.6 }), 11.4, 3.0, 5.2, 5.4));
+    k("mouse1", 17.1, 6.3, 1.8, 1.8, { label: "LMB" }); k("mouse2", 19.0, 6.3, 1.8, 1.8, { label: "RMB" });
+    k("mouse3", 17.1, 4.5, 1.8, 1.5, { label: "MMB" });
+    o.push(kbAt(kbItem({ type: "scroll", dir: 1, label: "▲" }), 19.0, 3.4, 1.8, 1.1));
+    o.push(kbAt(kbItem({ type: "scroll", dir: -1, label: "▼" }), 19.0, 4.6, 1.8, 1.1));
+    return o;
+  },
+  fkeys() { return ["f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8", "f9", "f10", "f11", "f12"].map((n, i) => kbKey(n, 0.4 + i * 1.06, 1.3)); },
+  arrows() { return [kbKey("up", 3.2, 5.8), kbKey("left", 2.14, 6.9), kbKey("down", 3.2, 6.9), kbKey("right", 4.26, 6.9)]; },
+  numpad() {
+    const o = [], g = [["num7", "num8", "num9", "num-"], ["num4", "num5", "num6", "num+"], ["num1", "num2", "num3", "numenter"], ["num0", "num.", "num/", "num*"]];
+    g.forEach((r, y) => r.forEach((n, x) => o.push(kbKey(n, 15.2 + x * 1.06, 3.2 + y * 1.06))));
+    return o;
+  },
+  mouse() {
+    return [kbKey("mouse1", 15.0, 6.2, 2.2, 2.2, { label: "LMB" }), kbKey("mouse2", 17.3, 6.2, 2.2, 2.2, { label: "RMB" }), kbKey("mouse3", 15.0, 4.8, 2.2, 1.3, { label: "MMB" }),
+      kbAt(kbItem({ type: "scroll", dir: 1, label: "▲" }), 17.3, 3.5, 2.2, 1.1), kbAt(kbItem({ type: "scroll", dir: -1, label: "▼" }), 17.3, 4.7, 2.2, 1.1)];
+  },
+  trackpad() { return [kbAt(kbItem({ type: "pad", label: "Mouse", sens: 1.6 }), 9.0, 2.6, 6.0, 5.6)]; },
+};
+function kbMakeLayout(name, preset) { return { id: kbId(), name, games: [], size: 1, op: 0.85, items: preset ? KB_PRESETS[preset]() : [] }; }
+function kbDefaults() { return [kbMakeLayout("Keyboard", "full"), kbMakeLayout("Gaming", "gaming")]; }
+
+function kbAutoId() {
+  if (!KB.doc || !KB.doc.auto || !KB.game) return null;
+  const g = KB.game.trim().toLowerCase(), l = KB.doc.layouts.find((x) => (x.games || []).includes(g));
+  return l ? l.id : null;
+}
+/** The layout in use: the one picked by hand for now, the one tied to the game in front, or the last used. */
+function kbCur() {
+  if (!KB.doc) return null;
+  const L = KB.doc.layouts, id = KB.override || kbAutoId() || KB.doc.active;
+  return L.find((l) => l.id === id) || L[0] || null;
+}
+function kbSaved(text) { const s = $("kbSaved"); if (s) s.textContent = text; }
+/** The layouts changed here: kept on the PC a moment later (one save for a burst of changes). */
+function kbMark() {
+  KB.dirty = true; KB.ver++;
+  kbSaved("Saving…");
+  clearTimeout(KB.saveT);
+  KB.saveT = setTimeout(kbSaveNow, 700);
+}
+function kbSaveNow() {
+  clearTimeout(KB.saveT);
+  if (!KB.dirty || !KB.doc) return;
+  if (PAD.ws && PAD.ws.readyState === 1) { KB.sent = KB.ver; PAD.ws.send(JSON.stringify({ t: "kbsave", data: KB.doc })); }
+  else { kbSaved("Not saved yet: no connection to the PC"); KB.saveT = setTimeout(kbSaveNow, 2500); }
+}
+/** Layouts from the PC. Kept as they are here while there are unsaved changes (they are sent next). */
+function kbAdopt(doc) {
+  if (!doc) return;
+  if (KB.dirty && KB.sent !== KB.ver) { KB.doc.rev = doc.rev; return; }
+  KB.doc = doc; KB.dirty = false;
+  if (!doc.layouts.length) { doc.layouts = kbDefaults(); doc.active = doc.layouts[0].id; kbMark(); }
+  else kbSaved("Saved on the PC");
+  if (KB.sel && !kbCur().items.some((i) => i.id === KB.sel)) KB.sel = null;
+  if (PAD.on && KB.on) { kbRender(); kbSettingsFill(); }
+}
+function kbGame(name) {
+  KB.game = name || null; KB.override = null;
+  if (PAD.on && KB.on) { kbReleaseAll(); kbRender(); kbSettingsFill(); kbStatus(); }
+}
+function kbStatus() {
+  const L = kbCur(), s = $("kbName");
+  if (s) s.textContent = L ? L.name + (KB.game ? ` · ${KB.game}` : "") : "";
+}
+
+// ---- drawing
+function kbSize() {
+  const c = $("kbd"), L = kbCur(); if (!c) return;
+  const ku = Math.min(c.clientWidth, c.clientHeight) / 10 * ((L && L.size) || 1);
+  c.style.setProperty("--ku", ku.toFixed(2) + "px");
+}
+function kbFill(el, it) {
+  el.className = "kbtn t-" + it.type + (KB.edit && KB.sel === it.id ? " sel" : "") + (KB.holds.has(it.id) && it.mode === "latch" ? " lt on" : "");
+  el.style.left = (it.x * 100) + "%"; el.style.top = (it.y * 100) + "%";
+  el.style.width = `calc(${it.w} * var(--ku))`; el.style.height = `calc(${it.h} * var(--ku))`;
+  el.style.background = it.c || ""; el.style.color = it.c ? kbInk(it.c) : "";
+  const text = it.label || (it.type === "key" ? kbLabel(it.keys) : it.type === "pad" ? "Mouse" : it.type === "scroll" ? (it.dir < 0 ? "▼" : "▲") : it.type === "text" ? "Text" : "Macro");
+  el.textContent = text;
+  el.style.fontSize = `calc(var(--ku) * ${Math.max(0.15, Math.min(0.34, (1.1 * it.w) / Math.max(1, [...text].length))).toFixed(3)})`;
+  if (KB.edit && KB.sel === it.id) { const h = document.createElement("i"); h.className = "kh"; h.setAttribute("aria-hidden", "true"); el.appendChild(h); }
+}
+/** Black or white writing, whichever reads better on the colour. */
+function kbInk(c) {
+  const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(c); if (!m) return "";
+  return (parseInt(m[1], 16) * 299 + parseInt(m[2], 16) * 587 + parseInt(m[3], 16) * 114) / 1000 > 150 ? "#000" : "#fff";
+}
+function kbRender() {
+  const c = $("kbd"); if (!c) return;
+  c.textContent = "";
+  const L = kbCur();
+  c.classList.toggle("edit", KB.edit); c.classList.toggle("del", KB.edit && KB.del);
+  if (!L) return;
+  c.style.setProperty("--kbo", L.op == null ? 0.85 : L.op);
+  kbSize();
+  for (const it of L.items) {
+    const el = document.createElement("div");
+    el.dataset.id = it.id;
+    kbFill(el, it);
+    c.appendChild(el);
+  }
+  kbStatus();
+}
+function kbEl(id) { return $("kbd").querySelector(`[data-id="${id}"]`); }
+function kbItemOf(id) { const L = kbCur(); return L && L.items.find((i) => i.id === id); }
+
+// ---- sending
+function kbHeld() { const out = []; for (const keys of KB.holds.values()) for (const k of keys) if (!out.includes(k)) out.push(k); return out; }
+function kbSend(force) {
+  const s = JSON.stringify(kbHeld());
+  if ((s !== KB.last || force) && PAD.ws && PAD.ws.readyState === 1) { KB.last = s; PAD.ws.send(JSON.stringify({ t: "kh", k: kbHeld() })); }
+}
+setInterval(() => { if (KB.on && PAD.on && KB.holds.size) kbSend(true); }, 500);
+function kbPut(m) { if (PAD.ws && PAD.ws.readyState === 1) PAD.ws.send(JSON.stringify(m)); }
+function kbReleaseAll() {
+  for (const [, st] of KB.ptr) { clearInterval(st.rep); }
+  KB.ptr.clear();
+  KB.holds.clear();
+  document.querySelectorAll("#kbd .kbtn.on").forEach((e) => e.classList.remove("on", "lt"));
+  kbSend();
+}
+document.addEventListener("visibilitychange", () => { if (document.hidden && KB.on) kbReleaseAll(); });
+addEventListener("blur", () => { if (KB.on) kbReleaseAll(); });
+/** "ctrl+c, wait 200, ctrl+v" → the steps the PC plays. */
+function kbSteps(s) {
+  const out = [];
+  for (const part of String(s || "").split(",")) {
+    const t = part.trim().toLowerCase(); if (!t) continue;
+    const w = /^(?:wait|w)\s+(\d+)\s*(?:ms)?$/.exec(t);
+    if (w) { out.push({ w: Math.min(2000, +w[1]) }); continue; }
+    const k = kbParse(t).keys; if (k.length) out.push({ k });
+  }
+  return out.slice(0, 40);
+}
+/** Pixels moved on screen → along the page's own axes (the page can be drawn turned). */
+function kbLocal(dx, dy) { return PAD.rot ? [dy, -dx] : [dx, dy]; }
+
+// ---- pressing (run mode)
+function kbPress(e, el, it) {
+  e.preventDefault(); e.stopPropagation();
+  try { el.setPointerCapture(e.pointerId); } catch {}
+  const st = { it, el, x: e.clientX, y: e.clientY, t0: performance.now(), moved: 0, ax: 0, ay: 0, raf: 0 };
+  KB.ptr.set(e.pointerId, st);
+  if (it.type === "key") {
+    if (!it.keys.length) return;
+    if (it.mode === "latch") {
+      if (KB.holds.has(it.id)) { KB.holds.delete(it.id); el.classList.remove("on", "lt"); } else { KB.holds.set(it.id, it.keys); el.classList.add("on", "lt"); }
+      kbSend();
+    } else if (it.mode === "tap") {
+      KB.holds.set(it.id, it.keys); el.classList.add("on"); kbSend();
+      setTimeout(() => { KB.holds.delete(it.id); el.classList.remove("on"); kbSend(); }, 50);
+    } else { KB.holds.set(it.id, it.keys); el.classList.add("on"); kbSend(); }
+  } else if (it.type === "scroll") {
+    el.classList.add("on");
+    const step = () => kbPut({ t: "wh", dy: (it.dir < 0 ? -1 : 1) * 120, dx: 0 });
+    step(); st.rep = setTimeout(() => { st.rep = setInterval(step, 90); }, 350);
+  } else if (it.type === "text") { el.classList.add("on"); if (it.text) kbPut({ t: "txt", s: it.text }); }
+  else if (it.type === "seq") { el.classList.add("on"); const steps = kbSteps(it.seq); if (steps.length) kbPut({ t: "seq", steps }); }
+  else if (it.type === "pad") el.classList.add("on");
+}
+function kbMove(e) {
+  const st = KB.ptr.get(e.pointerId); if (!st || st.it.type !== "pad") return;
+  const [dx, dy] = kbLocal(e.clientX - st.x, e.clientY - st.y);
+  const dt = Math.max(4, e.timeStamp - (st.lt || e.timeStamp - 16)); st.lt = e.timeStamp;
+  st.x = e.clientX; st.y = e.clientY; st.moved += Math.abs(dx) + Math.abs(dy);
+  const L = kbCur();
+  // pixels per millisecond: a slow drag keeps its precision, a quick swipe covers the screen
+  const boost = L && L.acc === false ? 1 : 1 + Math.min(2.5, Math.hypot(dx, dy) / dt / 1.2);
+  const k = (st.it.sens || 1.6) * ((L && L.pad) || 1) * boost;
+  st.ax += dx * k; st.ay += dy * k;
+  if (!st.raf) st.raf = requestAnimationFrame(() => {
+    st.raf = 0;
+    const mx = Math.trunc(st.ax), my = Math.trunc(st.ay);
+    if (mx || my) { st.ax -= mx; st.ay -= my; kbPut({ t: "rm", dx: mx, dy: my }); }
+  });
+}
+function kbRelease(e) {
+  const st = KB.ptr.get(e.pointerId); if (!st) return;
+  KB.ptr.delete(e.pointerId);
+  const it = st.it;
+  clearTimeout(st.rep); clearInterval(st.rep);
+  if (it.type === "key") {
+    if (it.mode === "hold" || !it.mode) { KB.holds.delete(it.id); st.el.classList.remove("on"); kbSend(); }
+  } else if (it.type === "pad") {
+    st.el.classList.remove("on");
+    // a quick touch without moving is a click
+    if (performance.now() - st.t0 < 250 && st.moved < 8 && e.type === "pointerup") {
+      const key = it.id + ":click";
+      KB.holds.set(key, ["mouse1"]); kbSend();
+      setTimeout(() => { KB.holds.delete(key); kbSend(); }, 45);
+    }
+  } else setTimeout(() => st.el.classList.remove("on"), 120);
+}
+
+// ---- editing
+function kbSnap() { const L = kbCur(); if (L) KB.undo.push(JSON.stringify(L.items)); if (KB.undo.length > 25) KB.undo.shift(); }
+function kbUndo() {
+  const L = kbCur(), s = KB.undo.pop(); if (!L || !s) return;
+  L.items = JSON.parse(s); KB.sel = null; kbMark(); kbRender(); kbInspect();
+}
+function kbSelect(id) { KB.sel = id; kbRender(); kbInspect(); }
+function kbRemove(id) {
+  const L = kbCur(); if (!L) return;
+  kbSnap(); L.items = L.items.filter((i) => i.id !== id);
+  if (KB.sel === id) KB.sel = null;
+  kbMark(); kbRender(); kbInspect();
+}
+function kbAdd(it) {
+  const L = kbCur(); if (!L) return;
+  kbSnap(); L.items.push(it); KB.sel = it.id; kbMark(); kbRender(); kbInspect();
+}
+function kbEditDown(e, el, it, handle) {
+  e.preventDefault(); e.stopPropagation();
+  if (KB.del && !handle) { kbRemove(it.id); return; }
+  if (KB.sel !== it.id) { KB.sel = it.id; kbRender(); kbInspect(); el = kbEl(it.id); }
+  try { el.setPointerCapture(e.pointerId); } catch {}
+  const c = $("kbd"), ku = Math.min(c.clientWidth, c.clientHeight) / 10 * ((kbCur().size) || 1);
+  KB.drag = { id: e.pointerId, it, handle, x: e.clientX, y: e.clientY, sx: it.x, sy: it.y, sw: it.w, sh: it.h, ku, W: c.clientWidth, H: c.clientHeight, moved: false };
+  kbSnap();
+}
+function kbEditMove(e) {
+  const d = KB.drag; if (!d || e.pointerId !== d.id) return;
+  const [dx, dy] = kbLocal(e.clientX - d.x, e.clientY - d.y), it = d.it;
+  if (Math.abs(dx) + Math.abs(dy) > 3) d.moved = true;
+  if (d.handle) {
+    it.w = Math.min(16, Math.max(0.5, Math.round((d.sw + dx / d.ku) * 10) / 10));
+    it.h = Math.min(10, Math.max(0.5, Math.round((d.sh + dy / d.ku) * 10) / 10));
+    it.x = d.sx + (it.w - d.sw) * d.ku / 2 / d.W; it.y = d.sy + (it.h - d.sh) * d.ku / 2 / d.H;
+  } else {
+    it.x = Math.min(0.99, Math.max(0.01, d.sx + dx / d.W)); it.y = Math.min(0.99, Math.max(0.01, d.sy + dy / d.H));
+  }
+  const el = kbEl(it.id);
+  if (el) { el.style.left = it.x * 100 + "%"; el.style.top = it.y * 100 + "%"; el.style.width = `calc(${it.w} * var(--ku))`; el.style.height = `calc(${it.h} * var(--ku))`; }
+}
+function kbEditUp(e) {
+  const d = KB.drag; if (!d || e.pointerId !== d.id) return;
+  KB.drag = null;
+  if (d.moved) { kbMark(); kbInspect(); } else KB.undo.pop();
+}
+/** Edit mode on or off. */
+function kbEditing(on) {
+  if (on === KB.edit) return;
+  kbReleaseAll();
+  KB.edit = on; KB.del = false; KB.sel = on ? KB.sel : null;
+  $("padEdit").setAttribute("aria-pressed", String(on)); $("padEdit").classList.toggle("on", on);
+  $("kbIns").classList.toggle("on", on);
+  if (on) kbInspect();
+  kbRender();
+}
+function kbInspect() {
+  const p = $("kbIns"); if (!p) return;
+  const it = KB.sel && kbItemOf(KB.sel), f = $("kbFields");
+  p.classList.toggle("left", KB.side === "l");
+  $("kbDel").classList.toggle("on", KB.del); $("kbDel").setAttribute("aria-pressed", String(KB.del));
+  $("kbUndo").disabled = !KB.undo.length;
+  f.hidden = !it;
+  $("kbHint").hidden = !!it;
+  if (!it) return;
+  $("kiLabel").value = it.label || "";
+  $("kiType").value = it.type;
+  $("kiKeys").value = it.keys.join("+");
+  $("kiMode").value = it.mode || "hold";
+  $("kiText").value = it.text || "";
+  $("kiSeq").value = it.seq || "";
+  $("kiDir").value = String(it.dir < 0 ? -1 : 1);
+  $("kiSens").value = it.sens || 1.6;
+  $("kiColor").value = /^#[0-9a-f]{6}$/i.test(it.c) ? it.c : "#2a2d38";
+  $("kiW").textContent = it.w.toFixed(1); $("kiH").textContent = it.h.toFixed(1);
+  for (const r of f.querySelectorAll("[data-for]")) r.hidden = !r.dataset.for.split(" ").includes(it.type);
+  $("kiBad").textContent = "";
+}
+function kbEdit(fn) {
+  const it = KB.sel && kbItemOf(KB.sel); if (!it) return;
+  kbSnap(); fn(it); kbMark();
+  const el = kbEl(it.id); if (el) kbFill(el, it);
+}
+function kbSettingsFill() {
+  const box = $("kbSetBox"); if (!box || !KB.doc) return;
+  const L = kbCur();
+  $("kbSel").innerHTML = KB.doc.layouts.map((l) => `<option value="${esc(l.id)}">${esc(l.name)}${(l.games || []).length ? " ·" : ""}</option>`).join("");
+  if (L) $("kbSel").value = L.id;
+  $("kbGames").innerHTML = L ? (L.games || []).map((g) => `<button class="kbchip" data-g="${esc(g)}" aria-label="Remove ${esc(g)} from this layout">${esc(g)} ✕</button>`).join("") : "";
+  $("kbGameNow").hidden = !KB.game; $("kbGameNow").textContent = KB.game ? `Use for ${KB.game}` : "";
+  $("kbAuto").checked = !!KB.doc.auto;
+  $("kbSpeed").value = (L && L.pad) || 1; $("kbAcc").checked = !L || L.acc !== false;
+  $("kbIn").checked = !!gamesOk;
+  $("poS").value = String((L && L.size) || 1); $("poO").value = (L && L.op == null ? 0.85 : L && L.op) || 0.85;
+}
+function kbBuild() {
+  const c = $("kbd");
+  c.addEventListener("pointerdown", (e) => {
+    const el = e.target.closest(".kbtn"); if (!el) { if (KB.edit && KB.sel) { KB.sel = null; kbRender(); kbInspect(); } return; }
+    const it = kbItemOf(el.dataset.id); if (!it) return;
+    if (KB.edit) kbEditDown(e, el, it, e.target.classList.contains("kh")); else kbPress(e, el, it);
+  });
+  c.addEventListener("pointermove", (e) => { if (KB.edit) kbEditMove(e); else kbMove(e); });
+  for (const t of ["pointerup", "pointercancel"]) c.addEventListener(t, (e) => { if (KB.edit) kbEditUp(e); else kbRelease(e); });
+  c.addEventListener("contextmenu", (e) => e.preventDefault());
+  if (window.ResizeObserver) { KB.ro = new ResizeObserver(() => { if (KB.on) kbSize(); }); KB.ro.observe(c); }
+  // the editor
+  const on = (id, ev, fn) => { $(id).addEventListener(ev, fn); };
+  on("kiLabel", "input", () => kbEdit((it) => { it.label = $("kiLabel").value.slice(0, 20); }));
+  on("kiType", "change", () => { kbEdit((it) => { it.type = $("kiType").value; if (it.type === "pad" && !it.sens) it.sens = 1.6; if (it.type === "scroll" && !it.dir) it.dir = 1; }); kbInspect(); });
+  on("kiKeys", "input", () => {
+    const r = kbParse($("kiKeys").value);
+    $("kiBad").textContent = r.bad.length ? `Not a key: ${r.bad.join(", ")}` : "";
+    kbEdit((it) => { it.keys = r.keys; });
+  });
+  on("kiMode", "change", () => kbEdit((it) => { it.mode = $("kiMode").value; }));
+  on("kiText", "input", () => kbEdit((it) => { it.text = $("kiText").value.slice(0, 400); }));
+  on("kiSeq", "input", () => kbEdit((it) => { it.seq = $("kiSeq").value.slice(0, 400); }));
+  on("kiDir", "change", () => kbEdit((it) => { it.dir = +$("kiDir").value; }));
+  on("kiSens", "input", () => kbEdit((it) => { it.sens = +$("kiSens").value; }));
+  on("kiColor", "input", () => kbEdit((it) => { it.c = $("kiColor").value; }));
+  on("kiColorOff", "click", () => kbEdit((it) => { it.c = ""; }));
+  const size = (dw, dh) => kbEdit((it) => { it.w = Math.min(16, Math.max(0.5, Math.round((it.w + dw) * 10) / 10)); it.h = Math.min(10, Math.max(0.5, Math.round((it.h + dh) * 10) / 10)); });
+  on("kiWm", "click", () => { size(-0.2, 0); kbInspect(); }); on("kiWp", "click", () => { size(0.2, 0); kbInspect(); });
+  on("kiHm", "click", () => { size(0, -0.2); kbInspect(); }); on("kiHp", "click", () => { size(0, 0.2); kbInspect(); });
+  on("kiDup", "click", () => { const it = KB.sel && kbItemOf(KB.sel); if (it) kbAdd(Object.assign(JSON.parse(JSON.stringify(it)), { id: kbId(), x: Math.min(0.97, it.x + 0.04), y: Math.min(0.97, it.y + 0.06) })); });
+  on("kiRemove", "click", () => { if (KB.sel) kbRemove(KB.sel); });
+  on("kbAddKey", "click", () => kbAdd(kbItem({ type: "key", keys: [], label: "", x: 0.5, y: 0.5 })));
+  on("kbAddPad", "click", () => kbAdd(kbItem({ type: "pad", label: "Mouse", sens: 1.6, w: 4, h: 4 })));
+  on("kbAddScroll", "click", () => kbAdd(kbItem({ type: "scroll", dir: 1, label: "▲" })));
+  on("kbAddText", "click", () => kbAdd(kbItem({ type: "text", text: "", label: "Text", w: 1.6 })));
+  on("kbAddSeq", "click", () => kbAdd(kbItem({ type: "seq", seq: "", label: "Macro", w: 1.6 })));
+  on("kbPreset", "change", () => {
+    const n = $("kbPreset").value, L = kbCur(); $("kbPreset").value = "";
+    if (!n || !L) return;
+    kbSnap(); L.items.push(...KB_PRESETS[n]()); kbMark(); kbRender(); kbInspect();
+  });
+  on("kbUndo", "click", kbUndo);
+  on("kbDel", "click", () => { KB.del = !KB.del; kbRender(); kbInspect(); });
+  on("kbClear", "click", () => { const L = kbCur(); if (L && L.items.length && confirm(`Remove all ${L.items.length} buttons from "${L.name}"?`)) { kbSnap(); L.items = []; KB.sel = null; kbMark(); kbRender(); kbInspect(); } });
+  on("kbSide", "click", () => { KB.side = KB.side === "r" ? "l" : "r"; kbInspect(); });
+  on("kbEditDone", "click", () => kbEditing(false));
+  // layouts and games (in the settings)
+  on("kbSel", "change", () => { KB.override = $("kbSel").value; if (!KB.game) { KB.doc.active = KB.override; kbMark(); } kbReleaseAll(); KB.sel = null; kbRender(); kbSettingsFill(); });
+  const mk = (preset, base) => {
+    const name = (prompt("Name of the new layout", base || "") || "").trim().slice(0, 40); if (!name) return null;
+    const l = kbMakeLayout(name, preset); KB.doc.layouts.push(l); return l;
+  };
+  const pick = (l) => { if (!l) return; KB.override = l.id; if (!KB.game) KB.doc.active = l.id; kbMark(); kbReleaseAll(); KB.sel = null; kbRender(); kbSettingsFill(); };
+  on("kbNewFull", "click", () => pick(mk("full", "Keyboard")));
+  on("kbNewGame", "click", () => pick(mk("gaming", KB.game || "Gaming")));
+  on("kbNewBlank", "click", () => pick(mk("", KB.game || "My layout")));
+  on("kbCopy", "click", () => { const L = kbCur(); if (!L) return; const l = mk("", L.name + " copy"); if (l) { l.items = JSON.parse(JSON.stringify(L.items)).map((i) => Object.assign(i, { id: kbId() })); l.size = L.size; l.op = L.op; pick(l); } });
+  on("kbRename", "click", () => { const L = kbCur(); if (!L) return; const n = (prompt("New name", L.name) || "").trim().slice(0, 40); if (n) { L.name = n; kbMark(); kbSettingsFill(); kbStatus(); } });
+  on("kbDelete", "click", () => {
+    const L = kbCur(); if (!L) return;
+    if (KB.doc.layouts.length < 2) { alert("This is the only layout: make another one first."); return; }
+    if (!confirm(`Delete the layout "${L.name}" (${L.items.length} buttons)?`)) return;
+    KB.doc.layouts = KB.doc.layouts.filter((l) => l.id !== L.id); KB.override = null; KB.doc.active = KB.doc.layouts[0].id;
+    kbMark(); kbReleaseAll(); KB.sel = null; kbRender(); kbSettingsFill();
+  });
+  const tie = (g) => { const L = kbCur(); g = (g || "").trim().toLowerCase().slice(0, 80); if (!L || !g) return; for (const o of KB.doc.layouts) o.games = (o.games || []).filter((x) => x !== g); L.games.push(g); kbMark(); kbSettingsFill(); };
+  on("kbGameNow", "click", () => tie(KB.game));
+  on("kbGameAdd", "click", () => { tie($("kbGameIn").value); $("kbGameIn").value = ""; });
+  on("kbGames", "click", (e) => { const b = e.target.closest("[data-g]"), L = kbCur(); if (b && L) { L.games = L.games.filter((x) => x !== b.dataset.g); kbMark(); kbSettingsFill(); } });
+  on("kbSpeed", "input", () => { const L = kbCur(); if (L) { L.pad = +$("kbSpeed").value; kbMark(); } });
+  on("kbAcc", "change", () => { const L = kbCur(); if (L) { L.acc = $("kbAcc").checked; kbMark(); } });
+  on("kbAuto", "change", () => { KB.doc.auto = $("kbAuto").checked; KB.override = null; kbMark(); kbRender(); });
+  on("kbIn", "change", () => { gamesOk = $("kbIn").checked; try { localStorage.setItem("deckGames", gamesOk ? "1" : "0"); } catch {} kbPut({ t: "games", on: gamesOk }); });
+  on("kbEditGo", "click", () => { $("padSetP").classList.remove("on"); $("padSet").setAttribute("aria-expanded", "false"); kbEditing(true); });
+}
+/** Keyboard on the controller page, or back to the controller. */
+function kbMode(on) {
+  if (on === KB.on) return;
+  const v = $("padonly"); if (!v) return;
+  if (!$("kbd")) { const c = document.createElement("div"); c.id = "kbd"; c.setAttribute("aria-label", "Keyboard"); v.insertBefore(c, v.firstChild); kbBuild(); }
+  if (!on) { kbEditing(false); kbReleaseAll(); }
+  KB.on = on;
+  v.classList.toggle("kbm", on);
+  $("padKb").setAttribute("aria-pressed", String(on)); $("padKb").classList.toggle("on", on);
+  $("padKb").textContent = on ? "🎮" : "⌨"; $("padKb").setAttribute("aria-label", on ? "Use the controller" : "Use the keyboard");
+  $("padEdit").hidden = !on;
+  $("kbSetBox").hidden = !on;
+  if (on) { if (!PAD.over) GP_pause(true); kbRender(); kbSettingsFill(); } else if (!PAD.over) GP_pause(false);
+  padLook();
+}
+/** The controller's buttons rest while the keyboard is shown (and let go of everything). */
+function GP_pause(on) { $("gpad").style.display = on ? "none" : ""; if (on) gpReset(); }
+
+
+/** The keyboard over the PC's screen (Screen view): the same buttons, on a /pad connection of their own;
+ *  a touch between the buttons still goes to the screen underneath. */
+function kbOver(on) {
+  if (on === !!PAD.over || (on && PAD.on)) return;
+  const v = padView();
+  if (on) {
+    PAD.on = true; PAD.over = true; PAD.msg = ""; PAD.retry = 0; PAD.player = 0;
+    v.classList.add("on", "ov");
+    kbMode(true);
+    padLook();
+    padConnect();
+    PAD.ping = setInterval(() => { if (PAD.ws && PAD.ws.readyState === 1) PAD.ws.send(JSON.stringify({ t: "ping", id: performance.now() })); }, 1000);
+  } else {
+    kbMode(false);
+    const w = PAD.ws;
+    PAD.on = false; PAD.over = false; PAD.ws = null; clearInterval(PAD.ping);
+    if (w) setTimeout(() => { w.onclose = null; w.close(); }, 100);
+    v.classList.remove("on", "ov");
+  }
+  for (const id of ["sBtns", "fBtns"]) { $(id).classList.toggle("on", on); $(id).setAttribute("aria-pressed", String(on)); }
+}
+$("sBtns").onclick = () => kbOver(!PAD.over);
+$("fBtns").onclick = () => kbOver(!PAD.over);
 
 function setHold(on) {
   SC.hold = on;

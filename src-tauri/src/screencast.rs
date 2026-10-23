@@ -1794,6 +1794,39 @@ fn vk(name: &str) -> Option<(u16, bool)> {
         "volup" => (0xAF, true),
         "voldown" => (0xAE, true),
         "mute" => (0xAD, true),
+        "playpause" => (0xB3, true),
+        "nexttrack" => (0xB0, true),
+        "prevtrack" => (0xB1, true),
+        "capslock" => (0x14, false),
+        "numlock" => (0x90, true),
+        "scrolllock" => (0x91, false),
+        "pause" => (0x13, false),
+        "menu" => (0x5D, true),
+        "rwin" => (0x5C, true),
+        "lshift" => (0xA0, false),
+        "rshift" => (0xA1, false),
+        "lctrl" => (0xA2, false),
+        "rctrl" => (0xA3, true),
+        "lalt" => (0xA4, false),
+        "ralt" => (0xA5, true),
+        "-" => (0xBD, false),
+        "=" => (0xBB, false),
+        "[" => (0xDB, false),
+        "]" => (0xDD, false),
+        ";" => (0xBA, false),
+        "'" => (0xDE, false),
+        "," => (0xBC, false),
+        "." => (0xBE, false),
+        "/" => (0xBF, false),
+        "\\" => (0xDC, false),
+        "`" => (0xC0, false),
+        "num*" => (0x6A, false),
+        "num+" => (0x6B, false),
+        "num-" => (0x6D, false),
+        "num." => (0x6E, false),
+        "num/" => (0x6F, true),
+        "numenter" => (0x0D, true),
+        _ if n.len() == 4 && n.starts_with("num") && n.as_bytes()[3].is_ascii_digit() => (0x60 + (n.as_bytes()[3] - b'0') as u16, false),
         _ => {
             let b = n.as_bytes();
             if b.len() == 1 && (b[0].is_ascii_lowercase() || b[0].is_ascii_digit()) {
@@ -1809,6 +1842,36 @@ fn vk(name: &str) -> Option<(u16, bool)> {
 fn key_event(vk_code: u16, ext: bool, up: bool) -> INPUT {
     let scan = unsafe { MapVirtualKeyW(vk_code as u32, MAPVK_VK_TO_VSC) } as u16;
     key_input(vk_code, scan, if ext { KEYEVENTF_EXTENDEDKEY } else { 0 } | if up { KEYEVENTF_KEYUP } else { 0 })
+}
+
+/// Scrolls: 120 per notch, `dy` up/down, `dx` sideways.
+fn wheel(dy: i32, dx: i32) {
+    let mut ev = Vec::new();
+    if dy != 0 {
+        ev.push(mouse_input(MOUSEEVENTF_WHEEL, 0, 0, dy.clamp(-2400, 2400) as u32));
+    }
+    if dx != 0 {
+        ev.push(mouse_input(MOUSEEVENTF_HWHEEL, 0, 0, dx.clamp(-2400, 2400) as u32));
+    }
+    send_inputs(&ev);
+}
+
+/// Types text as Unicode characters (Enter for a new line).
+fn type_text(text: &str) {
+    let mut ev = Vec::new();
+    for ch in text.chars().take(2000) {
+        if ch == '\n' {
+            ev.push(key_event(0x0D, false, false));
+            ev.push(key_event(0x0D, false, true));
+            continue;
+        }
+        let mut buf = [0u16; 2];
+        for u in ch.encode_utf16(&mut buf) {
+            ev.push(key_input(0, *u, KEYEVENTF_UNICODE));
+            ev.push(key_input(0, *u, KEYEVENTF_UNICODE | KEYEVENTF_KEYUP));
+        }
+    }
+    send_inputs(&ev);
 }
 
 /// Applies one input message from the phone on monitor `m`:
@@ -1831,33 +1894,8 @@ pub fn input(m: &Mon, v: &Value) {
             };
             send_inputs(&[mv(), mouse_input(flag, 0, 0, 0)]);
         }
-        "wh" => {
-            let mut ev = Vec::new();
-            let (dy, dx) = (f("dy").round() as i32, f("dx").round() as i32);
-            if dy != 0 {
-                ev.push(mouse_input(MOUSEEVENTF_WHEEL, 0, 0, dy.clamp(-2400, 2400) as u32));
-            }
-            if dx != 0 {
-                ev.push(mouse_input(MOUSEEVENTF_HWHEEL, 0, 0, dx.clamp(-2400, 2400) as u32));
-            }
-            send_inputs(&ev);
-        }
-        "txt" => {
-            let mut ev = Vec::new();
-            for ch in v["s"].as_str().unwrap_or("").chars().take(2000) {
-                if ch == '\n' {
-                    ev.push(key_event(0x0D, false, false));
-                    ev.push(key_event(0x0D, false, true));
-                    continue;
-                }
-                let mut buf = [0u16; 2];
-                for u in ch.encode_utf16(&mut buf) {
-                    ev.push(key_input(0, *u, KEYEVENTF_UNICODE));
-                    ev.push(key_input(0, *u, KEYEVENTF_UNICODE | KEYEVENTF_KEYUP));
-                }
-            }
-            send_inputs(&ev);
-        }
+        "wh" => wheel(f("dy").round() as i32, f("dx").round() as i32),
+        "txt" => type_text(v["s"].as_str().unwrap_or("")),
         "key" => {
             let Some((k, ext)) = v["k"].as_str().and_then(vk) else { return };
             let mods: Vec<(u16, bool)> = v["mods"].as_array().map(|a| a.iter().filter_map(|x| x.as_str().and_then(vk)).collect()).unwrap_or_default();
@@ -1871,9 +1909,215 @@ pub fn input(m: &Mon, v: &Value) {
     }
 }
 
+// ------------------------------------------------------------------ the phone's keyboard layer
+
+/// What a name on a phone's key button does on the PC.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Press {
+    Key(u16, bool),
+    /// 0 left, 1 right, 2 middle, 3 and 4 the side buttons
+    Mouse(u8),
+}
+
+fn press_of(name: &str) -> Option<Press> {
+    let n = name.to_ascii_lowercase();
+    match n.as_str() {
+        "mouse1" => Some(Press::Mouse(0)),
+        "mouse2" => Some(Press::Mouse(1)),
+        "mouse3" => Some(Press::Mouse(2)),
+        "mouse4" => Some(Press::Mouse(3)),
+        "mouse5" => Some(Press::Mouse(4)),
+        _ => vk(&n).map(|(k, e)| Press::Key(k, e)),
+    }
+}
+
+/// A key by its scan code, as a keyboard sends it: games read these, not the virtual key.
+fn scan_event(vk_code: u16, ext: bool, up: bool) -> INPUT {
+    let scan = unsafe { MapVirtualKeyW(vk_code as u32, MAPVK_VK_TO_VSC) } as u16;
+    key_input(0, scan, KEYEVENTF_SCANCODE | if ext { KEYEVENTF_EXTENDEDKEY } else { 0 } | if up { KEYEVENTF_KEYUP } else { 0 })
+}
+
+fn press_event(p: Press, up: bool) -> INPUT {
+    match p {
+        Press::Key(k, e) => scan_event(k, e, up),
+        Press::Mouse(b) => {
+            let (flag, data) = match (b, up) {
+                (0, false) => (MOUSEEVENTF_LEFTDOWN, 0),
+                (0, true) => (MOUSEEVENTF_LEFTUP, 0),
+                (1, false) => (MOUSEEVENTF_RIGHTDOWN, 0),
+                (1, true) => (MOUSEEVENTF_RIGHTUP, 0),
+                (2, false) => (MOUSEEVENTF_MIDDLEDOWN, 0),
+                (2, true) => (MOUSEEVENTF_MIDDLEUP, 0),
+                (3, false) => (MOUSEEVENTF_XDOWN, 1),
+                (3, true) => (MOUSEEVENTF_XUP, 1),
+                (_, false) => (MOUSEEVENTF_XDOWN, 2),
+                (_, true) => (MOUSEEVENTF_XUP, 2),
+            };
+            mouse_input(flag, 0, 0, data)
+        }
+    }
+}
+
+/// The keys and mouse buttons a phone's keyboard layer holds down on the PC. The phone sends the whole
+/// list of what is held (often), so a lost message can't leave a key stuck; whatever isn't on the list
+/// is let go, and everything is let go when this is dropped (the phone left).
+#[derive(Default)]
+pub struct HeldKeys {
+    down: Vec<(String, Press)>,
+}
+
+impl HeldKeys {
+    /// Makes the PC hold exactly `want` (names, in the order they were pressed): presses the new ones in
+    /// that order, releases the others last-pressed first. Names that mean nothing are skipped.
+    pub fn set(&mut self, want: &[String]) {
+        let mut wanted: Vec<(String, Press)> = Vec::new();
+        // (a key is held once: "ctrl" twice in the list is one press)
+        for w in want.iter().take(24) {
+            if let Some(p) = press_of(w) {
+                let name = w.to_ascii_lowercase();
+                if !wanted.iter().any(|(n, _)| *n == name) {
+                    wanted.push((name, p));
+                }
+            }
+        }
+        let mut ev = Vec::new();
+        for (name, p) in self.down.iter().rev() {
+            if !wanted.iter().any(|(n, _)| n == name) {
+                ev.push(press_event(*p, true));
+            }
+        }
+        for (name, p) in &wanted {
+            if !self.down.iter().any(|(n, _)| n == name) {
+                ev.push(press_event(*p, false));
+            }
+        }
+        send_inputs(&ev);
+        self.down = wanted;
+    }
+
+    pub fn release_all(&mut self) {
+        self.set(&[]);
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.down.is_empty()
+    }
+}
+
+impl Drop for HeldKeys {
+    fn drop(&mut self) {
+        self.release_all();
+    }
+}
+
+/// One step of a macro button.
+#[derive(Debug, PartialEq)]
+pub enum Step {
+    /// press these together, then let go
+    Tap(Vec<String>),
+    Wait(u64),
+}
+
+/// The steps of a macro from the phone: `[{"k":["ctrl","c"]},{"w":100}]`. At most 40 steps, each wait 2 s
+/// at most and 8 s in all.
+pub fn steps_of(v: &Value) -> Vec<Step> {
+    let mut out = Vec::new();
+    let mut waited = 0u64;
+    for s in v.as_array().map(|a| a.as_slice()).unwrap_or(&[]).iter().take(40) {
+        if let Some(k) = s["k"].as_array() {
+            let keys: Vec<String> = k.iter().filter_map(|x| x.as_str().map(String::from)).collect();
+            if !keys.is_empty() {
+                out.push(Step::Tap(keys));
+            }
+        } else if let Some(w) = s["w"].as_u64() {
+            let w = w.min(2000).min(8000 - waited.min(8000));
+            waited += w;
+            out.push(Step::Wait(w));
+        }
+    }
+    out
+}
+
+/// Plays a macro (blocks for as long as it waits).
+pub fn run_steps(steps: &[Step]) {
+    for s in steps {
+        match s {
+            Step::Tap(keys) => {
+                let mut h = HeldKeys::default();
+                h.set(keys);
+                std::thread::sleep(Duration::from_millis(30));
+                h.release_all();
+                std::thread::sleep(Duration::from_millis(15));
+            }
+            Step::Wait(ms) => std::thread::sleep(Duration::from_millis(*ms)),
+        }
+    }
+}
+
+/// The mouse moved by a number of pixels (a trackpad area on the phone).
+pub fn pad_mouse_move(dx: i32, dy: i32) {
+    send_inputs(&[mouse_input(MOUSEEVENTF_MOVE, dx.clamp(-2000, 2000), dy.clamp(-2000, 2000), 0)]);
+}
+
+pub fn pad_wheel(dy: i32, dx: i32) {
+    wheel(dy, dx);
+}
+
+pub fn pad_text(s: &str) {
+    type_text(s);
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The key names the phone's keyboard offers (`KB_NAMES` in phone/index.html) are all understood here.
+    #[test]
+    fn every_key_the_phone_offers_means_something_here() {
+        let page = include_str!("../phone/index.html");
+        let at = page.find("const KB_NAMES = [").expect("the phone page lists its key names");
+        let end = page[at..].find("];").unwrap() + at + 1;
+        let list = &page[at + "const KB_NAMES = ".len()..end];
+        let names: Vec<String> = serde_json::from_str(list).expect("the list is JSON");
+        assert!(names.len() > 120, "{}", names.len());
+        let unknown: Vec<&String> = names.iter().filter(|n| press_of(n).is_none()).collect();
+        assert!(unknown.is_empty(), "the PC doesn't know: {unknown:?}");
+        let mut sorted = names.clone();
+        sorted.sort();
+        sorted.dedup();
+        assert_eq!(sorted.len(), names.len(), "a name is listed twice");
+        // and a made-up one is refused
+        assert!(press_of("hyper").is_none() && press_of("").is_none() && press_of("mouse6").is_none());
+    }
+
+    #[test]
+    fn names_become_the_right_presses() {
+        assert_eq!(press_of("mouse1"), Some(Press::Mouse(0)));
+        assert_eq!(press_of("Mouse2"), Some(Press::Mouse(1)));
+        assert_eq!(press_of("W"), Some(Press::Key(0x57, false)));
+        assert_eq!(press_of("ctrl"), Some(Press::Key(0x11, false)));
+        assert_eq!(press_of("rctrl"), Some(Press::Key(0xA3, true)));
+        assert_eq!(press_of("f12"), Some(Press::Key(0x7B, false)));
+        assert_eq!(press_of("num7"), Some(Press::Key(0x67, false)));
+        assert_eq!(press_of("num+"), Some(Press::Key(0x6B, false)));
+        assert_eq!(press_of("\\"), Some(Press::Key(0xDC, false)));
+        assert_eq!(press_of("left"), Some(Press::Key(0x25, true)));
+    }
+
+    #[test]
+    fn a_macro_is_kept_within_its_limits() {
+        let v = json!([{ "k": ["ctrl", "c"] }, { "w": 100 }, { "k": [] }, { "w": 99999 }, { "x": 1 }, { "k": ["ctrl", "v"] }]);
+        let s = steps_of(&v);
+        assert_eq!(s, vec![Step::Tap(vec!["ctrl".into(), "c".into()]), Step::Wait(100), Step::Wait(2000), Step::Tap(vec!["ctrl".into(), "v".into()])]);
+        // 40 steps at most, and 8 s of waiting in all
+        let many: Vec<Value> = (0..100).map(|_| json!({ "w": 2000 })).collect();
+        let s = steps_of(&Value::Array(many));
+        assert!(s.len() <= 40);
+        let total: u64 = s.iter().map(|x| if let Step::Wait(w) = x { *w } else { 0 }).sum();
+        assert!(total <= 8000, "{total}");
+        assert!(steps_of(&json!("nope")).is_empty());
+    }
 
     #[test]
     fn fit_keeps_small_screens_and_shrinks_wide_ones() {

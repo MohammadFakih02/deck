@@ -1,10 +1,16 @@
 # Deck — project state
 
-The dated history of the work. Last updated: 2026-10-22.
+The dated history of the work. Last updated: 2026-10-23.
 
 **Start with `DECK.md`** (full overview: features, hardware, files, build/test, status). This file is the dated history.
 
 > **RULE: before every commit, update the docs.** Add today's dated entry here, add user-visible changes to `CHANGELOG.md`, update `DECK.md` / `README.md` when facts change, and stage them in the same commit. The pre-commit hook enforces it; never bypass it. No personal data in these files (that goes in the git-ignored `PRIVATE_NOTES.md`).
+
+## 2026-10-23 (later): Store update check made steady; on-screen keyboard on the phone
+
+Not released (CHANGELOG "Unreleased").
+- **Store update check** (`tweaks/storedl.rs`): the update service (FE3) is a pool of servers, about half to nine tenths of them stale per app: the answer replaces the newest version pair with the older one, whatever the host (fe3/fe3cr), connection, address or cookie; nothing in the headers or XML marks it; the Store catalog (displaycatalog) is as old and has no links. `listing(id, probes)` merges several answers (8 for apps whose Store page changed in the last 120 days, else 4 after a first answer with no update) and keeps every package seen; `SEEN` (`%LOCALAPPDATA%\Deck\store\seen.json`, 30 days) is the least a later listing must reach, and `update_seen_before` keeps a seen update on offer when a check only reaches stale servers. Live tests: `listing_is_steady_here`, `store_update_check_here` (ignored).
+- **Phone keyboard** (controller page ⌨, and "My keys" over the Screen view): `phone/index.html` keyboard layer (buttons: keys/combos, mouse buttons, mouse pad with per-layout speed and swipe boost, scroll, text, macros; edit mode; layouts per game, size and opacity per layout); `remote.rs` `pad_client` handles `kh` (the whole held list, released after 2.5 s of silence), `rm`, `wh`, `txt`, `seq`, `games`, `kbsave`, `kbget`, and tells the phone the game in front; keys pause while a game is in front unless the phone allowed it. `screencast.rs` `HeldKeys` sends scan codes; `phonekeys.rs` keeps `%APPDATA%\Deck\phone-keys.json` (cleaned, capped); Phone page card "Keyboard layouts" (`pages3.js` `keysCard`, commands `phone_keys_state`/`phone_keys_do`: rename, delete, games, auto, import, export). Tests: `node tools/testing/ui-preview/phone-keys.mjs <outdir>` and Rust `every_key_the_phone_offers_means_something_here`.
 
 ## 2026-10-23: v2.8.4 — Store updates: retries for status 500, tick which apps to update, version numbering
 

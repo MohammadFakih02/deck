@@ -173,6 +173,39 @@ export function screenCard(r) {
     mode !== "off" ? h("div", { class: "faint", style: { fontSize: "12px" } }, "Video: H.264 needs far less data (a 1 Mb/s line can show 30 fps), so it is the default; JPEG is the plain fallback. Picture size: Full keeps small text readable. Auto bitrate measures the connection and follows it (down to slow DSL); a fixed one never goes over. Nothing is sent while the screen doesn't change.") : null);
 }
 
+/** Phone page: the layouts of the phone's on-screen keyboard (made on the phone: controller page → keyboard). */
+export function keysCard() {
+  const d = S.cache.phoneKeys;
+  const layouts = d?.layouts || [];
+  const act = async (what, args, ok) => {
+    try { S.cache.phoneKeys = await run("phone_keys_do", { what, args }, ok); } catch { /* run() showed it */ }
+    render();
+  };
+  const games = (l) => h("div", { class: "row wrap", style: { gap: "6px" } },
+    (l.games || []).map((g) => h("span", { class: "chip" }, g, h("button", { class: "icon-btn sm", title: `Stop using this layout for ${g}`, "aria-label": `Stop using ${l.name} for ${g}`, onclick: () => act("games", { id: l.id, games: l.games.filter((x) => x !== g) }, `${g} no longer has its own layout`) }, I("x", "sm")))),
+    h("button", { class: "btn sm", onclick: async () => { const g = await promptBox("Use this layout for a game", "Game name, as Deck shows it (Dark Souls II)", "", "Add"); if (g) act("games", { id: l.id, games: [...(l.games || []), g] }, `"${l.name}" will come up when ${g} is in front`); } }, I("plus", "sm"), "Game"));
+  const one = (l) => h("div", { class: "rd-row", style: { alignItems: "flex-start", flexWrap: "wrap", gap: "8px" } },
+    h("div", { class: "grow col", style: { gap: "6px", minWidth: "180px" } },
+      h("div", null, h("b", null, l.name), h("span", { class: "faint" }, `  ${l.items.length} button${l.items.length === 1 ? "" : "s"}`)),
+      games(l)),
+    h("div", { class: "row", style: { gap: "4px" } },
+      h("button", { class: "icon-btn sm", title: "Rename", "aria-label": `Rename ${l.name}`, onclick: async () => { const n = await promptBox("Rename the layout", "Name", l.name, "Rename"); if (n) act("rename", { id: l.id, name: n }, "Renamed"); } }, I("edit", "sm")),
+      h("button", { class: "icon-btn sm", title: "Copy this layout to share it", "aria-label": `Copy ${l.name} to share`, onclick: async () => { try { const r = await invoke("phone_keys_do", { what: "export", args: { id: l.id } }); await navigator.clipboard.writeText(JSON.stringify(r)); note(`"${l.name}" copied: paste it in Import on another PC`); } catch (e) { note(String(e), true); } } }, I("copy", "sm")),
+      h("button", { class: "icon-btn sm danger", title: "Delete", "aria-label": `Delete ${l.name}`, onclick: async () => { if (await confirmBox("Delete this layout?", `"${l.name}" and its ${l.items.length} buttons will be removed from this PC and every phone.`, "Delete", true)) act("delete", { id: l.id }, `"${l.name}" deleted`); } }, I("trash", "sm"))));
+  return h("div", { class: "card col" },
+    h("div", { class: "tile-head" }, I("keyboard"), h("span", null, "Keyboard layouts"), h("span", { class: "grow" }),
+      d ? h("span", { class: "chip" }, `${layouts.length} layout${layouts.length === 1 ? "" : "s"}`) : null),
+    h("div", { class: "dim" }, "Buttons for keys, combos, mouse and macros on the phone's controller page (⌨ in its top bar). Make and edit them on the phone: move, resize, remove and add buttons there, one layout per game. They are kept here, so every phone has them."),
+    !d ? h("div", { class: "faint" }, "Loading…")
+      : !layouts.length ? h("div", { class: "faint" }, "No layouts yet: open the controller page on the phone, tap ⌨, and the Keyboard and Gaming layouts appear.")
+      : h("div", { class: "col", style: { gap: "10px" } }, layouts.map(one)),
+    layouts.length ? h("label", { class: "rd-row" }, h("span", { class: "grow" }, h("div", null, "Switch layout by game"), h("div", { class: "faint", style: { fontSize: "12px" } }, "When a game with its own layout comes to the front, the phone shows that layout; when it closes, the one before.")),
+      toggle(d.auto !== false, (v) => act("auto", { on: v }, v ? "Layouts switch by game" : "Layouts stay as picked"))) : null,
+    h("div", { class: "row wrap" },
+      h("button", { class: "btn", onclick: async () => { const t = await promptBox("Import a layout", "Paste the text copied with the copy button", "", "Import"); if (t) act("import", { text: t }, "Layout added"); } }, I("download"), "Import a layout")),
+    h("div", { class: "faint", style: { fontSize: "12px" } }, "Keys are sent to the PC like a keyboard would. While a game is in front, Deck pauses them unless \"Allow keys in games\" is on in the phone's keyboard settings (anti-cheat programs can object to input from other programs); the on-screen controller is not affected."));
+}
+
 /** Phone page: the phone as this PC's speaker and mic (the mic through VB-CABLE). */
 export function spkMicCard(r) {
   const s = S.state.settings;
@@ -291,6 +324,7 @@ export function rdeskCard() {
 Pages.phone = {
   async load() {
     S.cache.remote = await invoke("remote_info");
+    invoke("phone_keys_state").then((k) => { S.cache.phoneKeys = k; if (S.page === "phone") render(); }).catch(() => {});
     // RustDesk's state takes a moment (it asks RustDesk and Tailscale): fill it in when it comes
     invoke("rdesk_status").then((d) => { S.cache.rdesk = d; if (S.page === "phone") render(); });
     if (S.state.settings.remote_mic) invoke("phone_mic_state").then((m) => { S.cache.phoneMic = m; if (S.page === "phone") render(); });
@@ -342,7 +376,7 @@ Pages.phone = {
           h("button", { class: "icon-btn sm danger", title: "Remove from list", onclick: async () => { await invoke("shared_remove", { id: x.id }); S.cache.remote = await invoke("remote_info"); render(); } }, I("x", "sm")))))) : h("div", { class: "faint" }, "Nothing yet. Things you send from the phone are copied to the PC clipboard; files land in Downloads\\From phone."));
     el.append(h("div", { style: { display: "grid", gridTemplateColumns: "300px minmax(0, 1fr)", gap: "14px", alignItems: "start" } },
       h("div", { class: "col", style: { gap: "14px" } }, left, r.enabled ? connLimitsCard(s) : null, install),
-      h("div", { class: "col", style: { gap: "14px" } }, send, screenCard(r), spkMicCard(r), rdeskCard(), inbox)));
+      h("div", { class: "col", style: { gap: "14px" } }, send, screenCard(r), keysCard(), spkMicCard(r), rdeskCard(), inbox)));
     return el;
   },
   live: true,

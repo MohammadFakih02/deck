@@ -70,6 +70,8 @@
   const speed = { phase: "done", down_mbps: 487.3, up_mbps: 42.8, ping_ms: 11.2, jitter_ms: 1.4, progress: 1, error: null, at: Date.now() - 3600 * 5 * 1000 };
   const valve = [["Frankfurt", "Germany", 18, 0], ["Amsterdam", "Netherlands", 24, 0], ["Vienna", "Austria", 27, 0], ["Stockholm", "Sweden", 39, 0], ["Warsaw", "Poland", 41, 0], ["Madrid", "Spain", 46, 0.02], ["London", "United Kingdom", 52, 0], ["Helsinki", "Finland", 58, 0], ["Istanbul", "Turkey", 71, 0], ["Dubai", "UAE", 112, 0], ["Virginia", "United States", 128, 0], ["Singapore", "Singapore", 184, 0.05], ["Tokyo", "Japan", 241, 0], ["Sydney", "Australia", null, 1]];
   const R = {
+    phone_keys_state: () => ({ v: 1, rev: 3, auto: true, active: "a", layouts: [{ id: "a", name: "Keyboard", games: [], items: new Array(83).fill({ type: "key" }) }, { id: "b", name: "Dark Souls II", games: ["dark souls ii"], items: new Array(24).fill({ type: "key" }) }] }),
+    phone_keys_do: () => ({ v: 1, rev: 4, auto: true, active: "a", layouts: [] }),
     // drive health: a healthy NVMe, a worn SATA hard drive with bad sectors, and a USB drive that hides its data
     drive_health: () => [
       { disk: 0, model: "Example NVMe 1TB", serial: "A", bus: "NVMe", ssd: true, size: 1000204886016, status: "good", reasons: [], history: ["The drive got too hot in the past (up to about 68 °C, its limit is about 60 °C)"], health: 97, temp: 45, hours: 3171, cycles: 1153, written: 14134055936000, read: 9e12, unsafe_shutdowns: 61, media_errors: 0, bad_sectors: null, attrs: [] },

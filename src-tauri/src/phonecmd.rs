@@ -120,6 +120,24 @@ pub async fn claude_sync_do(app: A<'_>, what: String, args: Option<Value>) -> R<
     tauri::async_runtime::spawn_blocking(move || ccsync::act(&app, &what, &args.unwrap_or(Value::Null))).await.map_err(|e| e.to_string())?
 }
 
+/// The phone's keyboard layouts (what Deck's Phone page lists).
+#[tauri::command]
+pub async fn phone_keys_state() -> R<Value> {
+    tauri::async_runtime::spawn_blocking(crate::phonekeys::load).await.map_err(|e| e.to_string())
+}
+
+/// An action on the layouts: rename, delete, games, auto, import, export (see `phonekeys::act`). The phones
+/// that are connected get the new list at once.
+#[tauri::command]
+pub async fn phone_keys_do(app: A<'_>, what: String, args: Option<Value>) -> R<Value> {
+    let notify = what != "export";
+    let r = tauri::async_runtime::spawn_blocking(move || crate::phonekeys::act(&what, &args.unwrap_or(Value::Null))).await.map_err(|e| e.to_string())??;
+    if notify {
+        app.changed("phone-keys");
+    }
+    Ok(r)
+}
+
 #[tauri::command]
 pub fn remote_reset_token(app: A, remote: State<Arc<Remote>>) -> Value {
     app.settings.lock().remote_token = util::random_token(22);
