@@ -2,7 +2,7 @@
 
 All notable changes to Deck. Setups for each version are on the [Releases](https://github.com/MohammadFakih02/deck/releases) page.
 
-## Unreleased
+## 2.8.4 — 2026-10-23
 
 ### New
 - **Tick the apps to update** (Maintenance → Apps → Store apps & updates): every update has a checkbox (all ticked to start with), with "N of M ticked", **Tick all** / **Untick all**, and the update button becomes "Update N selected here". The Microsoft Store's own "Update all" can't skip apps, so Deck asks before using it while some are unticked and names them.
