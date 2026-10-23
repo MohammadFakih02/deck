@@ -6,6 +6,10 @@ The dated history of the work. Last updated: 2026-10-22.
 
 > **RULE: before every commit, update the docs.** Add today's dated entry here, add user-visible changes to `CHANGELOG.md`, update `DECK.md` / `README.md` when facts change, and stage them in the same commit. The pre-commit hook enforces it; never bypass it. No personal data in these files (that goes in the git-ignored `PRIVATE_NOTES.md`).
 
+## 2026-10-23: Store updates: say which prerequisite is missing (unreleased)
+
+- `storedl.rs` `install()`: when `Add-AppxPackage` refuses a main package, `missing_prerequisites()` runs a PowerShell script that opens the package (for a bundle, its application package for this PC), reads `AppxManifest.xml` and lists what this PC lacks: `TargetDeviceFamily` MinVersion vs the OS, `PackageDependency` (Get-AppxPackage version), and `DriverConstraint` (uap5:DriverDependency, matched against `pnputil /enum-drivers` Original Name + Driver Version). Found with Realtek Audio Control 2.54.397.0 (RS5 HSA branch, "different version numbering"): failed with 0x80073CFD because `Realtek-RealtekRS5HSA.inf >= 12.0.6000.397` isn't installed (this PC lists no Realtek audio device at all). Tests: `a_package_that_needs_a_missing_driver_or_framework_says_so` (fake package), `prerequisites_of_a_package_here` (DECK_PKG=…, ignored).
+
 ## 2026-10-23: v2.8.4 — Store updates: retries for status 500, tick which apps to update, version numbering
 
 Released at the user's request as **2.8.4** (tag `v2.8.4`, built and published by `release.yml`).

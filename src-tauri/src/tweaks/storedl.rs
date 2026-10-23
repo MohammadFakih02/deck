@@ -825,7 +825,67 @@ fn install(path: &std::path::Path, main: bool) -> Result<(), String> {
     if !main && (e.contains("0x80073D06") || e.contains("higher version")) {
         return Ok(());
     }
-    Err(format!("Windows didn't install {}: {}", path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(), e.lines().find(|l| !l.trim().is_empty()).unwrap_or("").trim()))
+    let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+    let first = e.lines().find(|l| !l.trim().is_empty()).unwrap_or("").trim().to_string();
+    // "a prerequisite could not be satisfied" says nothing: the package's own list of needs says what
+    let why = if main { missing_prerequisites(path) } else { Vec::new() };
+    if why.is_empty() {
+        return Err(format!("Windows didn't install {name}: {first}"));
+    }
+    Err(format!("Windows didn't install {name}: {first} What this package needs that this PC doesn't have: {}. The app on this PC is unchanged.", why.join("; ")))
+}
+
+/// What a package says it needs (Windows version, framework packages, a driver) that this PC lacks.
+/// Reads the package's manifest (for a bundle, the application package inside it).
+fn missing_prerequisites(path: &std::path::Path) -> Vec<String> {
+    const SCRIPT: &str = r#"
+$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+function Text($entry) { $r = New-Object IO.StreamReader($entry.Open()); try { $r.ReadToEnd() } finally { $r.Close() } }
+$out = @()
+$z = [IO.Compression.ZipFile]::OpenRead($P)
+$tmp = $null
+try {
+  $m = $z.Entries | Where-Object FullName -eq 'AppxManifest.xml'
+  if ($m) { $mx = [xml](Text $m) }
+  else {
+    $bm = [xml](Text ($z.Entries | Where-Object FullName -eq 'AppxMetadata/AppxBundleManifest.xml'))
+    $arch = switch ($env:PROCESSOR_ARCHITECTURE) { 'ARM64' { 'arm64' } 'x86' { 'x86' } default { 'x64' } }
+    $pk = $bm.Bundle.Packages.Package | Where-Object { $_.Type -eq 'application' -and ($_.Architecture -eq $arch -or $_.Architecture -eq 'neutral' -or -not $_.Architecture) } | Select-Object -First 1
+    if (-not $pk) { '[]'; return }
+    $tmp = Join-Path $env:TEMP ('deck-pkg-' + [guid]::NewGuid().ToString('N') + '.zip')
+    [IO.Compression.ZipFileExtensions]::ExtractToFile(($z.Entries | Where-Object FullName -eq $pk.FileName), $tmp, $true)
+    $z2 = [IO.Compression.ZipFile]::OpenRead($tmp)
+    try { $mx = [xml](Text ($z2.Entries | Where-Object FullName -eq 'AppxManifest.xml')) } finally { $z2.Dispose() }
+  }
+  $os = [version](Get-CimInstance Win32_OperatingSystem).Version
+  foreach ($t in $mx.Package.Dependencies.TargetDeviceFamily) {
+    if ($t.Name -match 'Desktop|Universal' -and $t.MinVersion -and ([version]$t.MinVersion) -gt $os) { $out += "Windows $($t.MinVersion) or newer (this PC has $os)" }
+  }
+  foreach ($d in $mx.Package.Dependencies.PackageDependency) {
+    $have = Get-AppxPackage -Name $d.Name -ErrorAction SilentlyContinue | Where-Object { [version]$_.Version -ge [version]$d.MinVersion }
+    if (-not $have) { $out += "the package $($d.Name) $($d.MinVersion) or newer" }
+  }
+  $drivers = @($mx.SelectNodes("//*[local-name()='DriverConstraint']"))
+  if ($drivers.Count) {
+    $blocks = (pnputil /enum-drivers) -join "`n" -split "(?m)^\s*$"
+    foreach ($d in $drivers) {
+      $ok = $false
+      foreach ($b in $blocks) {
+        if ($b -match "(?im)Original Name:\s*$([regex]::Escape($d.Name))\s*$") {
+          $v = [regex]::Match($b, '(?im)Driver Version:\s*\S+\s+([0-9.]+)').Groups[1].Value
+          if ($v -and ([version]$v) -ge ([version]$d.MinVersion)) { $ok = $true }
+        }
+      }
+      if (-not $ok) { $out += "the driver $($d.Name) $($d.MinVersion) or newer (this app only works with that driver, and Windows' driver store has none)" }
+    }
+  }
+  ConvertTo-Json -Compress -InputObject @($out)
+} finally { $z.Dispose(); if ($tmp) { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue } }
+"#;
+    let script = format!("$P = {}; {SCRIPT}", crate::rdesk::ps_str(&path.display().to_string()));
+    let Ok(o) = crate::tweaks::run(120, "powershell.exe", &["-NoProfile", "-NonInteractive", "-Command", &script]) else { return Vec::new() };
+    serde_json::from_slice::<Vec<String>>(&o.stdout).unwrap_or_default()
 }
 
 /// The links for copying or FluxDM (each with the file's real name; FE3's links have none).
@@ -855,6 +915,35 @@ pub fn to_fluxdm(id: &str) -> Result<usize, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// What a package file on this PC needs that it lacks. `DECK_PKG=C:\path\x.msixbundle cargo test prerequisites_of_a_package_here -- --ignored --nocapture`
+    #[test]
+    #[ignore = "reads the package named by DECK_PKG"]
+    fn prerequisites_of_a_package_here() {
+        let p = std::env::var("DECK_PKG").expect("DECK_PKG");
+        println!("missing: {:?}", missing_prerequisites(std::path::Path::new(&p)));
+    }
+
+    /// 2026-10-23: Realtek Audio Control 2.54.397.0 failed with "0x80073CFD, A Prerequisite for an install could
+    /// not be satisfied": its manifest needs the driver Realtek-RealtekRS5HSA.inf, which this PC has not.
+    #[test]
+    fn a_package_that_needs_a_missing_driver_or_framework_says_so() {
+        let dir = std::env::temp_dir().join(format!("deck-prereq-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let manifest = r#"<?xml version="1.0"?><Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10" xmlns:uap5="http://schemas.microsoft.com/appx/manifest/uap/windows10/5"><Identity Name="X.Y" Version="1.0.0.0" ProcessorArchitecture="x64" Publisher="CN=X"/><Dependencies><TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.99999.0" MaxVersionTested="10.0.99999.0"/><PackageDependency Name="Deck.NoSuch.Framework" MinVersion="9.9.9.9" Publisher="CN=X"/><uap5:DriverDependency><uap5:DriverConstraint Name="Deck-NoSuchDriver.inf" MinVersion="12.0.6000.397" MinDate="2026-07-07"/></uap5:DriverDependency></Dependencies></Package>"#;
+        std::fs::write(dir.join("AppxManifest.xml"), manifest).unwrap();
+        let pkg = dir.join("test.msix");
+        let o = crate::tweaks::run(60, "powershell.exe", &["-NoProfile", "-NonInteractive", "-Command", &format!("Compress-Archive -LiteralPath '{}' -DestinationPath '{}.zip' -Force; Move-Item '{}.zip' '{}' -Force", dir.join("AppxManifest.xml").display(), pkg.display(), pkg.display(), pkg.display())]).unwrap();
+        assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+        let why = missing_prerequisites(&pkg);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(why.iter().any(|w| w.contains("Windows 10.0.99999.0")), "{why:?}");
+        assert!(why.iter().any(|w| w.contains("Deck.NoSuch.Framework")), "{why:?}");
+        assert!(why.iter().any(|w| w.contains("Deck-NoSuchDriver.inf") && w.contains("12.0.6000.397")), "{why:?}");
+        // a file that isn't a package says nothing instead of failing
+        assert!(missing_prerequisites(std::path::Path::new(r"C:
+o\such.msix")).is_empty());
+    }
 
     /// 2026-10-23: Microsoft lists many apps under a second numbering (Windows Terminal 3001.24.12741.0 for
     /// the 1.24.12741.0 that is installed). Taking the highest number offered "updates" that were the same

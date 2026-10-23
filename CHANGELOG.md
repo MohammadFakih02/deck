@@ -2,6 +2,11 @@
 
 All notable changes to Deck. Setups for each version are on the [Releases](https://github.com/MohammadFakih02/deck/releases) page.
 
+## Unreleased
+
+### Fixed
+- **A Store update that Windows refuses now says why.** "A prerequisite for an install could not be satisfied" (0x80073CFD) told nothing; Deck now reads the package's own list of needs and names what this PC lacks (a driver, a framework package, or a newer Windows), and says the app on this PC is unchanged. Example: Realtek Audio Control 2.54.397 needs the driver Realtek-RealtekRS5HSA.inf, which this PC doesn't have.
+
 ## 2.8.4 — 2026-10-23
 
 ### New
