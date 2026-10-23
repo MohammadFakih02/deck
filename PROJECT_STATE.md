@@ -6,6 +6,11 @@ The dated history of the work. Last updated: 2026-10-22.
 
 > **RULE: before every commit, update the docs.** Add today's dated entry here, add user-visible changes to `CHANGELOG.md`, update `DECK.md` / `README.md` when facts change, and stage them in the same commit. The pre-commit hook enforces it; never bypass it. No personal data in these files (that goes in the git-ignored `PRIVATE_NOTES.md`).
 
+## 2026-10-23: Store updates: retries for status 500, tick which apps to update (unreleased)
+
+- **FE3 500s** (`tweaks/storedl.rs`): a check of 41 apps got "status code 500" for 24 of them (6 parallel `find()` calls, each with its own `cookie()` + SyncUpdates, and no retry); a minute later the same check had 0 failures, so it is Microsoft's server being busy. `retrying()` (4 tries, `backoff` 1.5/4/9 s + jitter, only for 429/500/502/503/504 and no-answer; `describe` words the error) wraps `soap_post` and the catalog GET; `cookie()` is cached 5 min (`COOKIE`, cleared when SyncUpdates fails); `check_updates` runs 4 workers (was 6), collects `Turned` apps (`their_trouble`: the error text contains "didn't answer") and asks them again up to twice, one at a time, with a pause (`UpdateCheck.retrying` for the UI). Live test: `cargo test store_update_check_here -- --ignored --nocapture`; unit test `a_server_error_is_tried_again_and_a_refusal_is_not` uses `ureq::Response::new`.
+- **Tick which apps** (`ui/js/tweaks.js` `updatesBox`): `S.cache.twUnticked` (ids, session only); row checkbox `.tw-pick`; "Update N selected here"; "Tick all / Untick all"; `storeAll` asks (`confirmBox`) when some are unticked because the Store's update-all can't skip apps. The failure note lists up to 8 names, the reason, what Deck tried, and "Try those again".
+
 ## 2026-10-23: v2.8.3 — death counter: false bosses and missed deaths
 
 Released at the user's request as **2.8.3** (tag `v2.8.3`, built and published by `release.yml`).

@@ -1713,3 +1713,4 @@ button.sc:hover { filter: brightness(1.25); }
 .sc.warn { color: var(--warn); border-color: #ffb54750; background: #ffb54714; }
 .sc.bad { color: var(--bad); border-color: #ff5d6c60; background: #ff5d6c18; }
 .sc.signer { flex: 0 1 auto; min-width: 0; max-width: 130px; overflow: hidden; text-overflow: ellipsis; display: inline-block; line-height: 18px; }
+.tw-pick { width: 20px; height: 20px; flex: none; margin: 0 6px 0 2px; accent-color: var(--acc); cursor: pointer; align-self: center; }

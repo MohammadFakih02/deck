@@ -125,8 +125,65 @@ pub struct App {
     pub files: Vec<PkgFile>,
 }
 
+/// A request to Microsoft's servers is tried this many times when they answer with a server error
+/// (500 and the like: overloaded, or turning requests away for a moment) or don't answer.
+const REQUEST_TRIES: u32 = 4;
+
+/// How long to wait before try number `attempt` (1-based): about 1.5 s, 4 s, 9 s, a little different
+/// each time so several requests don't come back at the same moment.
+fn backoff(attempt: u32) -> Duration {
+    let jitter = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.subsec_millis() % 700) as u64;
+    if cfg!(test) {
+        return Duration::from_millis(5);
+    }
+    Duration::from_millis([0, 1500, 4000, 9000][(attempt as usize).min(3)] + jitter)
+}
+
+/// Whether trying again could help: the server's own trouble or no answer, not a refusal of the request.
+fn transient(e: &ureq::Error) -> bool {
+    match e {
+        ureq::Error::Status(c, _) => matches!(c, 429 | 500 | 502 | 503 | 504),
+        ureq::Error::Transport(_) => true,
+    }
+}
+
+/// What went wrong, in words (no URL: it holds the app's id).
+fn describe(e: &ureq::Error) -> String {
+    match e {
+        ureq::Error::Status(429, _) => "status code 429 (too many requests: Microsoft asked Deck to slow down)".into(),
+        ureq::Error::Status(c @ (500 | 502 | 503 | 504), _) => format!("status code {c} (an error on Microsoft's side, usually for a moment)"),
+        ureq::Error::Status(c, _) => format!("status code {c}"),
+        ureq::Error::Transport(t) => match t.kind() {
+            ureq::ErrorKind::Dns => "no internet, or the name can't be looked up".into(),
+            ureq::ErrorKind::ConnectionFailed | ureq::ErrorKind::Io => "the connection broke or timed out".into(),
+            _ => "no answer".into(),
+        },
+    }
+}
+
+/// Runs a request, trying again (with waits) while the answer is a server error or no answer.
+/// `who`: whose answer it is, for the message when every try failed.
+fn retrying<T>(who: &str, mut f: impl FnMut() -> Result<T, Box<ureq::Error>>) -> Result<T, String> {
+    let mut last = String::new();
+    for attempt in 0..REQUEST_TRIES {
+        if attempt > 0 {
+            std::thread::sleep(backoff(attempt));
+        }
+        match f() {
+            Ok(v) => return Ok(v),
+            Err(e) => {
+                last = describe(&e);
+                if !transient(&e) {
+                    return Err(format!("{who} didn't answer: {last}"));
+                }
+            }
+        }
+    }
+    Err(format!("{who} didn't answer: {last}, also after {REQUEST_TRIES} tries"))
+}
+
 fn soap_post(url: &str, body: &str) -> Result<String, String> {
-    let r = agent().post(url).set("Content-Type", "application/soap+xml; charset=utf-8").send_string(body).map_err(|e| format!("Microsoft's update service didn't answer: {e}"))?;
+    let r = retrying("Microsoft's update service", || agent().post(url).set("Content-Type", "application/soap+xml; charset=utf-8").send_string(body).map_err(Box::new))?;
     r.into_string().map_err(|e| e.to_string())
 }
 
@@ -139,7 +196,22 @@ fn tag_text(xml: &str, tag: &str) -> Option<String> {
     doc.descendants().find(|n| n.tag_name().name() == tag).and_then(|n| n.text()).map(String::from)
 }
 
+/// The update service's cookie, kept for a few minutes: one is enough for every app of a check
+/// (asking for one per app doubled the requests and made Microsoft turn some away).
+static COOKIE: Mutex<Option<(Instant, String)>> = parking_lot::const_mutex(None);
+
 fn cookie() -> Result<String, String> {
+    if let Some((at, c)) = COOKIE.lock().as_ref() {
+        if at.elapsed() < Duration::from_secs(300) {
+            return Ok(c.clone());
+        }
+    }
+    let c = fresh_cookie()?;
+    *COOKIE.lock() = Some((Instant::now(), c.clone()));
+    Ok(c)
+}
+
+fn fresh_cookie() -> Result<String, String> {
     let body = format!(
         r#"<Envelope xmlns="http://www.w3.org/2003/05/soap-envelope" xmlns:a="http://www.w3.org/2005/08/addressing" xmlns:u="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd"><Header><a:Action mustUnderstand="1">http://www.microsoft.com/SoftwareDistribution/Server/ClientWebService/GetCookie</a:Action><a:To mustUnderstand="1">{FE3CR}</a:To><Security mustUnderstand="1" xmlns="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd"><WindowsUpdateTicketsToken xmlns="http://schemas.microsoft.com/msus/2014/10/WindowsUpdateAuthorization" u:id="ClientMSA"></WindowsUpdateTicketsToken></Security></Header><Body></Body></Envelope>"#
     );
@@ -263,7 +335,7 @@ pub fn find(id: &str) -> Result<App, String> {
     }
     let (market, loc) = market();
     let url = format!("https://storeedgefd.dsx.mp.microsoft.com/v9.0/products/{id}?market={market}&locale={loc}&deviceFamily=Windows.Desktop");
-    let v: Value = agent().get(&url).call().map_err(|e| format!("The Store catalog didn't answer: {e}"))?.into_json().map_err(|e| e.to_string())?;
+    let v: Value = retrying("The Store catalog", || agent().get(&url).call().map_err(Box::new))?.into_json().map_err(|e| e.to_string())?;
     let title = v["Payload"]["Title"].as_str().unwrap_or(id).to_string();
     let ful: Value = match &v["Payload"]["Skus"][0]["FulfillmentData"] {
         Value::String(s) => serde_json::from_str(s).unwrap_or(Value::Null),
@@ -273,7 +345,7 @@ pub fn find(id: &str) -> Result<App, String> {
         return Err("NOT_PACKAGED".into());
     };
     let prefix = family.rsplit_once('_').map(|(a, _)| a).unwrap_or(family).to_lowercase();
-    let xml = sync_updates(&cookie()?, cat)?;
+    let xml = sync_updates(&cookie()?, cat).inspect_err(|_| *COOKIE.lock() = None)?;
     let doc = roxmltree::Document::parse(&xml).map_err(|e| format!("Microsoft's answer couldn't be read: {e}"))?;
     let id_of = |n: roxmltree::Node| n.descendants().find(|d| d.tag_name().name() == "ID").and_then(|d| d.text()).map(String::from);
     // files by update id
@@ -750,6 +822,61 @@ pub fn to_fluxdm(id: &str) -> Result<usize, String> {
 mod tests {
     use super::*;
 
+    fn status(code: u16) -> Box<ureq::Error> {
+        Box::new(ureq::Error::Status(code, ureq::Response::new(code, "x", "").unwrap()))
+    }
+
+    /// 2026-10-23: 24 apps came back "status code 500" in one check; they were fine a minute later.
+    #[test]
+    fn a_server_error_is_tried_again_and_a_refusal_is_not() {
+        let mut calls = 0;
+        let r = retrying("Microsoft's update service", || {
+            calls += 1;
+            if calls < 3 { Err(status(500)) } else { Ok(calls) }
+        });
+        assert_eq!(r, Ok(3), "two 500s, then it answers");
+
+        let mut calls = 0;
+        let r: Result<(), String> = retrying("Microsoft's update service", || {
+            calls += 1;
+            Err(status(404))
+        });
+        assert_eq!(calls, 1, "a 404 is an answer: no second try");
+        assert!(r.unwrap_err().contains("status code 404"));
+
+        let mut calls = 0;
+        let e: String = retrying("Microsoft's update service", || -> Result<(), Box<ureq::Error>> {
+            calls += 1;
+            Err(status(500))
+        })
+        .unwrap_err();
+        assert_eq!(calls, REQUEST_TRIES);
+        assert!(e.contains("status code 500") && e.contains(&format!("after {REQUEST_TRIES} tries")) && e.contains("Microsoft's side"), "{e}");
+        assert!(their_trouble(&e), "so the app is asked about again later");
+        assert!(!their_trouble("NOT_PACKAGED") && !their_trouble("This app's package is protected (a paid or DRM app)"));
+    }
+
+    /// Runs the real update check of this PC's Store apps and prints what came back (needs the internet).
+    /// `cargo test store_update_check_here -- --ignored --nocapture`
+    #[test]
+    #[ignore = "asks Microsoft's servers about every Store app on this PC"]
+    fn store_update_check_here() {
+        let t = std::time::Instant::now();
+        check_updates().unwrap();
+        std::thread::sleep(Duration::from_millis(500));
+        while update_state().checking {
+            std::thread::sleep(Duration::from_millis(500));
+        }
+        let c = update_state();
+        println!("{} apps in {:.0}s: {} updates, {} store-only, {} not in the Store, {} failed", c.total, t.elapsed().as_secs_f32(), c.updates.len(), c.store_only.len(), c.not_in_store, c.failed.len());
+        for (n, why) in &c.failed {
+            println!("FAILED {n}: {why}");
+        }
+        for u in &c.updates {
+            println!("UPDATE {} {} -> {}", u.title, u.installed, u.latest);
+        }
+    }
+
     #[test]
     fn parts_cover_the_file_end_to_end() {
         for size in [1u64, 100, MIN_PART - 1, MIN_PART, MIN_PART * 3 + 7, 311_000_000, 1 << 40] {
@@ -860,8 +987,10 @@ pub struct UpdateCheck {
     pub updates: Vec<Update>,
     /// apps only the Store can check (paid or protected ones)
     pub store_only: Vec<String>,
-    /// apps Microsoft's servers didn't answer for: (name, why)
+    /// apps Microsoft's servers didn't answer for, also after Deck tried again: (name, why)
     pub failed: Vec<(String, String)>,
+    /// how many apps Microsoft turned away are being asked about again, after the first round
+    pub retrying: usize,
     /// apps that aren't in the Store's catalog (installed some other way)
     pub not_in_store: usize,
     pub at: u64,
@@ -929,19 +1058,45 @@ pub fn check_updates() -> Result<(), String> {
                 c.total = apps.len();
             }
             let next = std::sync::atomic::AtomicUsize::new(0);
+            // the apps Microsoft's servers couldn't answer for (their trouble, not the app's): asked again below
+            let turned_away: Mutex<Vec<Turned>> = Mutex::new(Vec::new());
+            // four at a time: six at once made Microsoft's service answer 500 to some
             std::thread::scope(|s| {
-                for _ in 0..6 {
+                for _ in 0..4 {
                     s.spawn(|| loop {
                         let i = next.fetch_add(1, Ordering::SeqCst);
                         let Some((family, version)) = apps.get(i) else { break };
-                        check_one(family, version);
+                        if let Err(t) = check_one(family, version) {
+                            turned_away.lock().push(t);
+                        }
                         if let Some(c) = CHECK.lock().as_mut() {
                             c.done += 1;
                         }
                     });
                 }
             });
+            // those again, one at a time with a pause (twice at most), so a busy moment has passed
+            let mut again = turned_away.into_inner();
+            for round in 0..2 {
+                if again.is_empty() {
+                    break;
+                }
+                if let Some(c) = CHECK.lock().as_mut() {
+                    c.retrying = again.len();
+                }
+                std::thread::sleep(Duration::from_secs(if cfg!(test) { 0 } else { 4 + 6 * round }));
+                let mut still = Vec::new();
+                for t in again {
+                    if let Err(t) = check_one(&t.family, &t.installed) {
+                        still.push(t);
+                    }
+                    std::thread::sleep(Duration::from_millis(if cfg!(test) { 0 } else { 700 }));
+                }
+                again = still;
+            }
             if let Some(c) = CHECK.lock().as_mut() {
+                c.retrying = 0;
+                c.failed.extend(again.into_iter().map(|t| (t.short, t.why)));
                 c.checking = false;
                 c.at = crate::util::now_s();
                 c.updates.sort_by_key(|u| u.title.to_lowercase());
@@ -955,8 +1110,23 @@ pub fn check_updates() -> Result<(), String> {
     Ok(())
 }
 
-fn check_one(family: &str, installed: &str) {
+/// An app Microsoft's servers couldn't answer for (so it can be asked about again).
+struct Turned {
+    family: String,
+    installed: String,
+    short: String,
+    why: String,
+}
+
+/// An answer that is the servers' own trouble or silence, which a later try may get past.
+fn their_trouble(e: &str) -> bool {
+    e.contains("didn't answer")
+}
+
+/// Checks one app. `Err`: Microsoft's servers didn't answer for it, even after the tries of one request.
+fn check_one(family: &str, installed: &str) -> Result<(), Turned> {
     let short = family.rsplit_once('_').map(|(n, _)| n).unwrap_or(family).to_string();
+    let turned = |why: String| Turned { family: family.into(), installed: installed.into(), short: short.clone(), why };
     let cached = IDS.lock().get(family).cloned();
     let id = match cached {
         Some(id) => id,
@@ -966,11 +1136,12 @@ fn check_one(family: &str, installed: &str) {
                 IDS.lock().insert(family.to_string(), id.clone());
                 id
             }
+            Err(e) if their_trouble(&e) => return Err(turned(e)),
             Err(e) => {
                 if let Some(c) = CHECK.lock().as_mut() {
                     c.failed.push((short, e));
                 }
-                return;
+                return Ok(());
             }
         },
     };
@@ -979,11 +1150,11 @@ fn check_one(family: &str, installed: &str) {
         if let Some(c) = CHECK.lock().as_mut() {
             c.not_in_store += 1;
         }
-        return;
+        return Ok(());
     };
     match find(&id) {
         Ok(app) => {
-            let Some(main) = app.files.iter().find(|f| f.main) else { return };
+            let Some(main) = app.files.iter().find(|f| f.main) else { return Ok(()) };
             if version_key(&main.version) > version_key(installed) {
                 let size = app.files.iter().filter(|f| !f.have).map(|f| f.size).sum();
                 if let Some(c) = CHECK.lock().as_mut() {
@@ -996,12 +1167,14 @@ fn check_one(family: &str, installed: &str) {
                 c.store_only.push(short);
             }
         }
+        Err(e) if their_trouble(&e) => return Err(turned(e)),
         Err(e) => {
             if let Some(c) = CHECK.lock().as_mut() {
                 c.failed.push((short, e));
             }
         }
     }
+    Ok(())
 }
 
 /// The Microsoft Store way: Windows' own "check for updates" (as Store → Downloads → Get updates

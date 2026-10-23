@@ -2,6 +2,14 @@
 
 All notable changes to Deck. Setups for each version are on the [Releases](https://github.com/MohammadFakih02/deck/releases) page.
 
+## Unreleased
+
+### New
+- **Tick the apps to update** (Maintenance → Apps → Store apps & updates): every update has a checkbox (all ticked to start with), with "N of M ticked", **Tick all** / **Untick all**, and the update button becomes "Update N selected here". The Microsoft Store's own "Update all" can't skip apps, so Deck asks before using it while some are unticked and names them.
+
+### Fixed
+- **"N apps couldn't be checked … status code 500".** Microsoft's update service sometimes answers a server error or turns requests away when it is busy; Deck gave up on the first one. Now each request is tried up to 4 times with waits in between, Deck asks four apps at a time instead of six and reuses its session cookie, and the apps still turned away are asked about once more, one at a time, at the end ("Asking again for N apps…"). If some still fail, the note names them, says what the error means and that Deck already tried several times, and has a **Try those again** button.
+
 ## 2.8.3 — 2026-10-23
 
 ### Fixed

@@ -1,7 +1,7 @@
 // Maintenance → Tweaks: Windows settings with their live state and an exact undo, built-in apps,
 // and Store apps without the Microsoft Store. Backend: src-tauri/src/tweaks (design:
 // docs/design/specs/2026-10-20-tweaks-design.md).
-import { I, Pages, S, fmtBytes, h, invoke, modal, note, run, seg, toggle } from "./core.js";
+import { I, Pages, S, confirmBox, fmtBytes, h, invoke, modal, note, run, seg, toggle } from "./core.js";
 import { head } from "./pages1.js";
 import { go, render } from "./app.js";
 
@@ -442,6 +442,9 @@ async function stopUpdate(id) {
 
 async function storeAll(btn) {
   const u = S.cache.twUpd;
+  // the Store updates every app: apps unticked here would be updated too, so ask first
+  const skipped = (u?.updates || []).filter((x) => (S.cache.twUnticked || new Set()).has(x.id));
+  if (skipped.length && !await confirmBox("The Store can't skip apps", `Windows' Store update has no way to leave apps out: it updates every app that has an update, including the ${skipped.length} you unticked (${skipped.map((x) => x.title).join(", ")}). Update them all anyway? To leave those out, use "Update selected here" instead.`, "Update all with the Store")) return;
   if (btn) { btn.disabled = true; btn.textContent = "Asking the Store…"; }
   let r;
   try { r = await invoke("tweaks_store", { what: "store_update_all" }); } catch (e) { r = { error: String(e) }; }
@@ -450,7 +453,7 @@ async function storeAll(btn) {
   const list = (title, names) => names?.length ? [h("b", null, title), h("ul", { style: { margin: "0 0 0 18px", padding: 0 } }, names.map((n) => h("li", { class: "small" }, n.replace(/^Microsoft\./, ""))))] : null;
   const btns = (close) => [
     h("button", { class: "btn", onclick: () => { close(); storePage(); } }, I("external", "sm"), "Open the Store's Downloads"),
-    u?.updates?.length ? h("button", { class: "btn primary", onclick: () => { close(); updateHere(u.updates); } }, I("download", "sm"), "Update all here instead") : null,
+    u?.updates?.length ? h("button", { class: "btn primary", onclick: () => { close(); updateHere(u.updates.filter((x) => !(S.cache.twUnticked || new Set()).has(x.id))); } }, I("download", "sm"), "Update the ticked ones here instead") : null,
     h("button", { class: "btn ghost", onclick: close }, "Close")];
   let title, body;
   if (r.error) {
@@ -510,15 +513,24 @@ function updatesBox() {
   const checked = u && !u.checking && u.at;
   const head = h("div", { class: "row wrap" },
     h("h2", { class: "tw-h2 grow", style: { margin: 0 } }, "Updates for your Store apps"),
-    h("button", { class: "btn sm", disabled: !!u?.checking, onclick: checkUpdates }, I("refresh", "sm"), u?.checking ? `Checking ${u.done} of ${u.total || "…"}` : checked ? "Check again" : "Check for updates"));
+    h("button", { class: "btn sm", disabled: !!u?.checking, onclick: checkUpdates }, I("refresh", "sm"), u?.checking ? (u.retrying ? `Asking again for ${u.retrying} app${u.retrying > 1 ? "s" : ""}…` : `Checking ${u.done} of ${u.total || "…"}`) : checked ? "Check again" : "Check for updates"));
   const busy = (S.cache.twQueue || []).length || u?.updates?.some((x) => running(x.id));
+  // which updates to do: every one is ticked until the user unticks it (the choice is kept while Deck is open)
+  const unticked = (S.cache.twUnticked ||= new Set());
+  const todo = checked ? u.updates.filter((x) => !running(x.id) && jobOf(x.id)?.phase !== "done") : [];
+  const picked = todo.filter((x) => !unticked.has(x.id));
   const all = checked && u.updates.length ? h("div", { class: "row wrap", style: { gap: "8px" } },
+    todo.length > 1 ? h("span", { class: "small dim", role: "status" }, `${picked.length} of ${todo.length} ticked`) : null,
+    todo.length > 1 && picked.length < todo.length ? h("button", { class: "btn sm ghost", onclick: () => { for (const x of todo) unticked.delete(x.id); render(); } }, "Tick all") : null,
+    todo.length > 1 && picked.length > 0 ? h("button", { class: "btn sm ghost", onclick: () => { for (const x of todo) unticked.add(x.id); render(); } }, "Untick all") : null,
     busy ? h("button", { class: "btn sm", onclick: () => stopUpdate() }, I("x", "sm"), "Stop all") : null,
     !busy && u.updates.some((x) => ["interrupted", "cancelled", "failed"].includes(jobOf(x.id)?.phase)) ? h("button", { class: "btn sm primary", onclick: () => updateHere(u.updates.filter((x) => ["interrupted", "cancelled", "failed"].includes(jobOf(x.id)?.phase))) }, I("refresh", "sm"), "Carry on all") : null,
-    h("button", { class: "btn sm primary", onclick: () => updateHere(u.updates.filter((x) => !running(x.id) && jobOf(x.id)?.phase !== "done")) }, I("download", "sm"), "Update all here (without the Store)"),
-    h("button", { class: "btn sm", onclick: (e) => storeAll(e.currentTarget), title: "Windows' own Store update: also updates paid and protected apps" }, "Update all with the Microsoft Store")) : null;
+    h("button", { class: "btn sm primary", disabled: !picked.length, title: picked.length ? null : "Tick at least one app", onclick: () => updateHere(picked) }, I("download", "sm"),
+      picked.length === todo.length ? "Update all here (without the Store)" : `Update ${picked.length} selected here (without the Store)`),
+    h("button", { class: "btn sm", onclick: (e) => storeAll(e.currentTarget), title: "Windows' own Store update: also updates paid and protected apps. It updates every app: it can't skip the unticked ones." }, "Update all with the Microsoft Store")) : null;
   const queued = (id) => (S.cache.twQueue || []).includes(id);
   const rows = checked ? u.updates.map((x) => { const j = jobOf(x.id); const act = running(x.id); return h("div", { class: "card tw-store" }, h("div", { class: "row wrap" },
+    todo.length > 1 && todo.includes(x) ? h("input", { type: "checkbox", class: "tw-pick", checked: !unticked.has(x.id), "aria-label": `Include ${x.title} in the update`, title: "Ticked apps are updated by the update-all button", onchange: (e) => { e.target.checked ? unticked.delete(x.id) : unticked.add(x.id); render(); } }) : null,
     h("div", { class: "grow" }, h("b", null, x.title), h("div", { class: "dim small" }, `${x.installed} → ${x.latest}`, x.size ? ` · ${fmtBytes(x.size)}` : ""),
       updStatus(x, j, queued(x.id))),
     j?.phase === "done" ? h("span", { class: "chip good" }, I("check", "sm"), "Updated")
@@ -540,8 +552,11 @@ function updatesBox() {
         if (u.not_in_store) parts.push(`${u.not_in_store} ${u.not_in_store > 1 ? "aren't" : "isn't"} in the Store's catalog (installed another way, or part of Windows), so ${u.not_in_store > 1 ? "they weren't" : "it wasn't"} checked.`);
         return parts.join(" ");
       })()) : null,
-      checked && u.failed.length ? h("div", { class: "tw-note warn", role: "alert" }, I("alert", "sm"), h("span", { class: "grow" },
-        `${u.failed.length} app${u.failed.length > 1 ? "s" : ""} couldn't be checked (${u.failed.slice(0, 3).map((f) => f[0].replace(/^Microsoft\./, "")).join(", ")}${u.failed.length > 3 ? "…" : ""}) because ${u.failed[0][1]}. They may still have updates: check again later.`)) : null,
+      checked && u.failed.length ? h("div", { class: "tw-note warn", role: "alert" }, I("alert", "sm"), h("span", { class: "grow", style: { userSelect: "text" } },
+        `${u.failed.length} app${u.failed.length > 1 ? "s" : ""} couldn't be checked: ${u.failed.slice(0, 8).map((f) => f[0].replace(/^Microsoft\./, "")).join(", ")}${u.failed.length > 8 ? `, and ${u.failed.length - 8} more` : ""}. `,
+        h("b", null, u.failed[0][1].replace(/^(Microsoft's update service|The Store catalog) didn't answer: /, "$1 answered with an error: ")), ". ",
+        "Deck already tried each one several times, waiting between tries, and went back to them once more at the end. That kind of error is Microsoft's server being busy or turning requests away for a while, not a problem on this PC; the apps may still have updates."),
+        h("button", { class: "btn sm", disabled: !!u.checking, onclick: checkUpdates }, I("refresh", "sm"), "Try those again")) : null,
       all, rows,
       h("div", { class: "row wrap faint small", style: { gap: "10px" } },
         h("span", { class: "grow" }, "Here: Deck downloads from Microsoft and installs it, no Store or sign-in needed. With the Store: the Store does it in the background."),
