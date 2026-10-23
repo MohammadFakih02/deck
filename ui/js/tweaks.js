@@ -503,7 +503,7 @@ function updStatus(x, j, queued) {
     case "done": return h("div", { class: "small", style: { color: "var(--good, #34c759)" } }, `Updated to ${x.latest}.`);
     case "interrupted": return [j.total ? bar : null, h("div", { class: "small", style: { color: "var(--warn, #ff9f0a)" } }, `Deck was closed while this was ${j.done ? `downloading. ${fmtBytes(j.done)} of ${fmtBytes(j.total)} is kept` : "starting"}: Carry on picks up from there.`)];
     case "cancelled": return [j.total ? bar : null, h("div", { class: "small dim" }, `Stopped${j.done ? ` at ${fmtBytes(j.done)} of ${fmtBytes(j.total)}` : ""}. What was downloaded is kept: Carry on picks up from there.`)];
-    case "failed": return [j.total ? bar : null, h("div", { class: "small", style: { color: "var(--warn, #ff9f0a)" } }, `It failed: ${j.error}${j.done ? ` (${fmtBytes(j.done)} downloaded is kept, so Try again continues from there)` : ""}`)];
+    case "failed": return [j.total ? bar : null, h("div", { class: "small", style: { color: "var(--warn, #ff9f0a)" } }, `It failed: ${j.error}${j.done && !/was deleted/.test(j.error || "") ? ` (${fmtBytes(j.done)} downloaded is kept, so Try again continues from there)` : ""}`)];
     default: return null;
   }
 }
@@ -558,7 +558,7 @@ function updatesBox() {
       })()) : null,
       checked && u.failed.length ? h("div", { class: "tw-note warn", role: "alert" }, I("alert", "sm"), h("span", { class: "grow", style: { userSelect: "text" } },
         `${u.failed.length} app${u.failed.length > 1 ? "s" : ""} couldn't be checked: ${u.failed.slice(0, 8).map((f) => f[0].replace(/^Microsoft\./, "")).join(", ")}${u.failed.length > 8 ? `, and ${u.failed.length - 8} more` : ""}. `,
-        h("b", null, u.failed[0][1].replace(/^(Microsoft's update service|The Store catalog) didn't answer: /, "$1 answered with an error: ")), ". ",
+        [...new Set(u.failed.map((f) => f[1].replace(/^(Microsoft's update service|The Store catalog) didn't answer: /, "$1 answered with an error: ")))].slice(0, 2).map((why) => h("b", null, why + ". ")),
         "Deck already tried each one several times, waiting between tries, and went back to them once more at the end. That kind of error is Microsoft's server being busy or turning requests away for a while, not a problem on this PC; the apps may still have updates."),
         h("button", { class: "btn sm", disabled: !!u.checking, onclick: checkUpdates }, I("refresh", "sm"), "Try those again")) : null,
       all, rows,

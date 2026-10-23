@@ -88,8 +88,31 @@ pub struct PkgFile {
 
 /// Packages installed for you: (name, architecture) → versions. Dependencies are shared
 /// (VCLibs, UI.Xaml, the App Runtime), so most PCs already have them.
-fn installed() -> HashMap<(String, String), Vec<Vec<u64>>> {
-    let mut m: HashMap<(String, String), Vec<Vec<u64>>> = HashMap::new();
+type Have = HashMap<(String, String), Vec<Vec<u64>>>;
+
+/// `installed()` for 20 s: a check of many apps asks for it once, not once per app (each ask runs a
+/// PowerShell that lists every package). Forgotten when something is installed.
+static HAVE: Mutex<Option<(Instant, Arc<Have>)>> = parking_lot::const_mutex(None);
+
+fn forget_installed() {
+    *HAVE.lock() = None;
+}
+
+fn installed() -> Arc<Have> {
+    // held while it is worked out, so the workers of a check that all ask at once wait for one answer
+    let mut g = HAVE.lock();
+    if let Some((at, h)) = g.as_ref() {
+        if at.elapsed() < Duration::from_secs(20) {
+            return h.clone();
+        }
+    }
+    let h = Arc::new(read_installed());
+    *g = Some((Instant::now(), h.clone()));
+    h
+}
+
+fn read_installed() -> Have {
+    let mut m: Have = HashMap::new();
     let Ok(o) = crate::tweaks::run(60, 
         "powershell.exe",
         &["-NoProfile", "-NonInteractive", "-Command", "Get-AppxPackage | Select-Object Name,@{n='V';e={$_.Version.ToString()}},@{n='A';e={$_.Architecture.ToString()}} | ConvertTo-Json -Compress"],
@@ -110,9 +133,13 @@ fn installed() -> HashMap<(String, String), Vec<Vec<u64>>> {
     m
 }
 
+/// The newest installed version of the package called `name` (any architecture).
+fn installed_version(have: &Have, name: &str) -> Option<Vec<u64>> {
+    have.iter().filter(|((n, _), _)| n.eq_ignore_ascii_case(name)).flat_map(|(_, v)| v.iter()).max().cloned()
+}
+
 /// Marks the dependencies this PC already has.
-fn mark_installed(files: &mut [PkgFile]) {
-    let have = installed();
+fn mark_installed(files: &mut [PkgFile], have: &Have) {
     for f in files.iter_mut().filter(|f| !f.main) {
         f.have = have.get(&(f.package.to_lowercase(), f.arch.clone())).is_some_and(|vs| vs.iter().any(|v| *v >= version_key(&f.version)));
     }
@@ -182,6 +209,20 @@ fn retrying<T>(who: &str, mut f: impl FnMut() -> Result<T, Box<ureq::Error>>) ->
     Err(format!("{who} didn't answer: {last}, also after {REQUEST_TRIES} tries"))
 }
 
+/// GET `url` (the Store catalog) as JSON with the same tries as every request to Microsoft: a 404 is
+/// `Ok(None)` ("no such product"), a server error or no answer is tried again. `who`: whose answer it is.
+pub(super) fn catalog_get(who: &str, url: &str, agent: &ureq::Agent) -> Result<Option<Value>, String> {
+    let r = retrying(who, || match agent.get(url).timeout(Duration::from_secs(20)).call() {
+        Ok(r) => Ok(Some(r)),
+        Err(ureq::Error::Status(404, _)) => Ok(None),
+        Err(e) => Err(Box::new(e)),
+    })?;
+    match r {
+        Some(r) => r.into_json().map(Some).map_err(|e| format!("{who}'s answer couldn't be read: {e}")),
+        None => Ok(None),
+    }
+}
+
 fn soap_post(url: &str, body: &str) -> Result<String, String> {
     let r = retrying("Microsoft's update service", || agent().post(url).set("Content-Type", "application/soap+xml; charset=utf-8").send_string(body).map_err(Box::new))?;
     r.into_string().map_err(|e| e.to_string())
@@ -199,6 +240,11 @@ fn tag_text(xml: &str, tag: &str) -> Option<String> {
 /// The update service's cookie, kept for a few minutes: one is enough for every app of a check
 /// (asking for one per app doubled the requests and made Microsoft turn some away).
 static COOKIE: Mutex<Option<(Instant, String)>> = parking_lot::const_mutex(None);
+
+#[cfg(test)]
+fn forget_cookie() {
+    *COOKIE.lock() = None;
+}
 
 fn cookie() -> Result<String, String> {
     if let Some((at, c)) = COOKIE.lock().as_ref() {
@@ -286,8 +332,25 @@ fn this_arch() -> &'static str {
     }
 }
 
+/// A version as numbers, always four parts (a package version is `a.b.c.d`, each 0–65535, the
+/// last reserved for the Store): "1.0" and "1.0.0.0" are the same version.
 fn version_key(v: &str) -> Vec<u64> {
-    v.split('.').map(|p| p.parse().unwrap_or(0)).collect()
+    let mut k: Vec<u64> = v.trim().split('.').map(|p| p.trim().parse().unwrap_or(0)).collect();
+    while k.len() < 4 {
+        k.push(0);
+    }
+    k
+}
+
+/// Two versions are numbered the same way: the same first number, or both first numbers are build
+/// counters (2609 and 2610, 22608 and 22609) within a couple of hundred of each other. One Store
+/// listing holds packages for several Windows versions under different numbering (Calculator 11.x for
+/// Windows 11, 2021.x for Windows 10), and a package of the other numbering is another app build.
+fn same_scheme(a: &[u64], b: &[u64]) -> bool {
+    match (a.first(), b.first()) {
+        (Some(x), Some(y)) => x == y || (*x >= 1000 && *y >= 1000 && x.abs_diff(*y) <= 200),
+        _ => true,
+    }
 }
 
 /// What Microsoft's version is to the installed one.
@@ -310,11 +373,7 @@ fn newer(latest: &str, installed: &str) -> Newer {
     if l <= i {
         return Newer::No;
     }
-    if l.first() == i.first() {
-        return Newer::Yes;
-    }
-    // both first numbers are build counters (Xbox 2609 → 2610, Store 22608 → 22609): a plain update
-    if i.first().is_some_and(|f| *f >= 1000) && l.first().is_some_and(|f| *f >= 1000) {
+    if same_scheme(&l, &i) {
         return Newer::Yes;
     }
     if l.get(1..).unwrap_or(&[]) > i.get(1..).unwrap_or(&[]) {
@@ -326,7 +385,15 @@ fn newer(latest: &str, installed: &str) -> Newer {
 
 /// The app's files for this PC: the newest of each package that runs here (a bundle for the app
 /// when there is one), encrypted (paid/DRM) packages left out.
+#[cfg(test)]
 fn pick(all: Vec<PkgFile>) -> Vec<PkgFile> {
+    pick_for(all, None)
+}
+
+/// `pick`, for an app that is installed here as `installed`: of the app's own packages, one numbered the
+/// same way as the installed one wins over a higher number of another kind (a Windows 10 build of an app
+/// that is installed here as its Windows 11 build).
+fn pick_for(all: Vec<PkgFile>, installed: Option<&[u64]>) -> Vec<PkgFile> {
     let arch = this_arch();
     let rank = |a: &str| -> Option<u8> {
         if a == arch {
@@ -349,7 +416,10 @@ fn pick(all: Vec<PkgFile>) -> Vec<PkgFile> {
             continue;
         }
         // the app: a bundle (all its parts) over a single package; then the newest; then this PC's own architecture
-        let score = |x: &PkgFile| (x.main && x.name.to_lowercase().ends_with("bundle"), version_key(&x.version), rank(&x.arch).unwrap_or(0));
+        let score = |x: &PkgFile| {
+            let ours = !x.main || installed.is_none_or(|i| same_scheme(&version_key(&x.version), i));
+            (x.main && x.name.to_lowercase().ends_with("bundle"), ours, version_key(&x.version), rank(&x.arch).unwrap_or(0))
+        };
         let key = f.package.to_lowercase();
         if best.get(&key).is_none_or(|b| score(&f) > score(b)) {
             best.insert(key, f);
@@ -364,6 +434,13 @@ fn pick(all: Vec<PkgFile>) -> Vec<PkgFile> {
 /// Finds an app's package files (without links yet). Err when the app isn't a package (a desktop
 /// app with its own installer: those install with winget instead).
 pub fn find(id: &str) -> Result<App, String> {
+    let (title, family, all) = listing(id)?;
+    choose(title, family, all, &installed())
+}
+
+/// Every package file Microsoft lists for the app: (title, package family, files). Several versions
+/// of the same package can be listed (one for each Windows version it is built for).
+fn listing(id: &str) -> Result<(String, String, Vec<PkgFile>), String> {
     if !valid_id(id) {
         return Err("bad Store id".into());
     }
@@ -423,15 +500,23 @@ pub fn find(id: &str) -> Result<App, String> {
         }
     }
     let all: Vec<PkgFile> = files.into_values().filter(|f| !f.update.0.is_empty()).collect();
-    if all.iter().any(|f| f.main) && !pick(all.clone()).iter().any(|f| f.main) {
+    Ok((title, family.to_string(), all))
+}
+
+/// The files to use for an app on this PC out of everything listed: the app's own package in the
+/// numbering of the one installed here, and the dependencies this PC lacks. `have`: what is installed.
+fn choose(title: String, family: String, all: Vec<PkgFile>, have: &Have) -> Result<App, String> {
+    if all.iter().any(|f| f.main) && !pick_for(all.clone(), None).iter().any(|f| f.main) {
         return Err("This app's package is protected (a paid or DRM app): only the Store can install it".into());
     }
-    let mut chosen = pick(all);
+    // which numbering the app's own package is in on this PC (the Windows 11 build or the Windows 10 one)
+    let own = all.iter().find(|f| f.main).and_then(|f| installed_version(have, &f.package));
+    let mut chosen = pick_for(all, own.as_deref());
     if !chosen.iter().any(|f| f.main) {
         return Err("Microsoft's update service has no package of this app for this PC".into());
     }
-    mark_installed(&mut chosen);
-    Ok(App { title, family: family.to_string(), files: chosen })
+    mark_installed(&mut chosen, have);
+    Ok(App { title, family, files: chosen })
 }
 
 /// The links of the chosen files (they work for a while; FE3 makes new ones each time).
@@ -524,6 +609,61 @@ pub fn cancel(id: &str) {
 pub fn clear_finished() {
     loaded().retain(|j| !matches!(j.phase.as_str(), "done" | "failed" | "cancelled" | "interrupted"));
     save_jobs(true);
+    sweep_store();
+}
+
+fn store_dir() -> std::path::PathBuf {
+    crate::util::local_appdata().join("Deck").join("store")
+}
+
+/// Removes the downloads nothing needs: a folder `store\<Store id>` is kept while a download job of that
+/// app exists (finished ones until "Clear finished") or it is an update on offer that Deck ticks itself.
+/// Left alone, downloads of updates that were dropped or never installed (more than a gigabyte, once)
+/// stay on the disk for good.
+pub fn sweep_store() {
+    let keep: std::collections::HashSet<String> = jobs().iter().map(|j| j.id.clone()).chain(update_state().updates.iter().filter(|u| !u.odd).map(|u| u.id.clone())).collect();
+    let (n, bytes) = sweep_in(&store_dir(), &keep, Duration::from_secs(3600));
+    if n > 0 {
+        crate::log::info(format!("tweaks: removed {n} leftover Store download folder{} ({} MB) that nothing needed", if n > 1 { "s" } else { "" }, bytes / 1_000_000));
+    }
+}
+
+/// The folders of `root` named like a Store id that aren't in `keep` and haven't been touched for `min_age`
+/// are removed. Returns how many and how many bytes. Files directly in `root` (jobs.json…) stay.
+fn sweep_in(root: &std::path::Path, keep: &std::collections::HashSet<String>, min_age: Duration) -> (usize, u64) {
+    let (mut n, mut bytes) = (0, 0u64);
+    let Ok(rd) = std::fs::read_dir(root) else { return (0, 0) };
+    for e in rd.flatten() {
+        let name = e.file_name().to_string_lossy().to_string();
+        let path = e.path();
+        // a real folder (not a link) with a Store id's name
+        if !e.file_type().is_ok_and(|t| t.is_dir() && !t.is_symlink()) || !valid_id(&name) || keep.contains(&name) {
+            continue;
+        }
+        // newest write inside it, and its size
+        let (mut newest, mut size) = (std::time::SystemTime::UNIX_EPOCH, 0u64);
+        let mut stack = vec![path.clone()];
+        while let Some(d) = stack.pop() {
+            for f in std::fs::read_dir(&d).into_iter().flatten().flatten() {
+                match f.metadata() {
+                    Ok(m) if m.is_dir() => stack.push(f.path()),
+                    Ok(m) => {
+                        size += m.len();
+                        newest = newest.max(m.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH));
+                    }
+                    Err(_) => {}
+                }
+            }
+        }
+        if newest.elapsed().is_ok_and(|a| a < min_age) {
+            continue;
+        }
+        if std::fs::remove_dir_all(&path).is_ok() {
+            n += 1;
+            bytes += size;
+        }
+    }
+    (n, bytes)
 }
 
 /// Starts downloading (and installing) Store app `id` in Deck. mode: "install" or "save".
@@ -575,6 +715,20 @@ fn run(id: &str, mode: &str, stop: &AtomicBool) -> Result<(), String> {
         return Ok(());
     }
     let mut app = find(id).map_err(|e| if e == "NOT_PACKAGED" { "This is a desktop app with its own installer: use Install (winget) instead".to_string() } else { e })?;
+    // Microsoft's servers sometimes answer with an older list than a moment ago (the newest version
+    // missing): a version that isn't newer than the installed one would be downloaded for nothing
+    if mode != "save" {
+        for attempt in 0..3 {
+            if !not_newer(&app, &installed()) {
+                break;
+            }
+            if attempt == 2 {
+                return Err("Microsoft's update service didn't list a newer version this time: its servers sometimes answer with an older list. Nothing was downloaded; try again in a minute.".into());
+            }
+            std::thread::sleep(Duration::from_secs(3));
+            app = find(id)?;
+        }
+    }
     links(&mut app)?;
     // only what this PC is missing (usually just the app itself)
     let needed: Vec<PkgFile> = app.files.iter().filter(|f| !f.have).cloned().collect();
@@ -620,7 +774,19 @@ fn run(id: &str, mode: &str, stop: &AtomicBool) -> Result<(), String> {
         j.eta = None;
     });
     for (main, name) in &paths {
-        install(&d.real().join(name), *main)?;
+        if let Err(e) = install(&d.real().join(name), *main) {
+            // a package this PC lacks something for (a driver, a newer Windows) fails the same way
+            // every time: keeping its download for "Try again" would only waste disk space
+            if e.contains(NEEDS_MARK) {
+                for (_, n) in &paths {
+                    let _ = d.remove(n);
+                }
+                drop(d);
+                let _ = std::fs::remove_dir(&dir);
+                return Err(format!("{e} The downloaded file was deleted: it can't be installed on this PC."));
+            }
+            return Err(e);
+        }
     }
     for (_, name) in &paths {
         let _ = d.remove(name);
@@ -818,6 +984,7 @@ fn install(path: &std::path::Path, main: bool) -> Result<(), String> {
     let p = crate::rdesk::ps_str(&path.display().to_string());
     let o = crate::tweaks::run(900, "powershell.exe", &["-NoProfile", "-NonInteractive", "-Command", &format!("Add-AppxPackage -Path {p} -ForceUpdateFromAnyVersion")]).map_err(|e| e.to_string())?;
     if o.status.success() {
+        forget_installed();
         return Ok(());
     }
     let e = String::from_utf8_lossy(&o.stderr).to_string();
@@ -832,8 +999,11 @@ fn install(path: &std::path::Path, main: bool) -> Result<(), String> {
     if why.is_empty() {
         return Err(format!("Windows didn't install {name}: {first}"));
     }
-    Err(format!("Windows didn't install {name}: {first} What this package needs that this PC doesn't have: {}. The app on this PC is unchanged.", why.join("; ")))
+    Err(format!("Windows didn't install {name}: {first} {NEEDS_MARK}: {}. The app on this PC is unchanged.", why.join("; ")))
 }
+
+/// In the message of an install that failed for want of something this PC lacks.
+const NEEDS_MARK: &str = "What this package needs that this PC doesn't have";
 
 /// What a package says it needs (Windows version, framework packages, a driver) that this PC lacks.
 /// Reads the package's manifest (for a bundle, the application package inside it).
@@ -915,6 +1085,300 @@ pub fn to_fluxdm(id: &str) -> Result<usize, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Does reusing the update service's cookie change what it lists? Asks the same apps with a fresh cookie
+    /// each time and with one cookie kept, and prints their newest versions.
+    #[test]
+    #[ignore = "asks Microsoft's servers"]
+    fn cookie_effect_here() {
+        let newest = |id: &str| -> String {
+            match listing(id) {
+                Ok((_, _, all)) => {
+                    let mut v: Vec<Vec<u64>> = all.iter().filter(|f| f.main).map(|f| version_key(&f.version)).collect();
+                    v.sort();
+                    v.reverse();
+                    v.iter().take(3).map(|k| k.iter().map(|n| n.to_string()).collect::<Vec<_>>().join(".")).collect::<Vec<_>>().join(" ")
+                }
+                Err(e) => format!("error: {e}"),
+            }
+        };
+        for (family, ver) in store_installed().into_iter().filter(|(f, _)| f.contains("RawImage") || f.contains("HEVC") || f.contains("Realtek") || f.contains("DesktopAppInstaller")) {
+            let Ok(Some(id)) = super::super::apps::product_lookup(&family) else { continue };
+            forget_cookie();
+            let fresh = newest(&id);
+            let kept1 = newest(&id);
+            let kept2 = newest(&id);
+            forget_cookie();
+            let fresh2 = newest(&id);
+            println!("{family:<52} installed {ver:<14} fresh: {fresh} | kept: {kept1} | kept again: {kept2} | fresh again: {fresh2}");
+        }
+    }
+
+    /// For every Store app on this PC: what Microsoft lists, what Deck would choose and decide.
+    /// `cargo test version_numbers_here -- --ignored --nocapture`
+    #[test]
+    #[ignore = "asks Microsoft's servers about every Store app on this PC"]
+    fn version_numbers_here() {
+        let have = installed();
+        let (mut yes, mut unsure, mut hidden, mut same, mut errors) = (0, 0, 0, 0, 0);
+        for (family, ver) in store_installed() {
+            let id = match super::super::apps::product_lookup(&family) {
+                Ok(Some(id)) if valid_id(&id) => id,
+                other => {
+                    println!("{family:<56} no Store id: {other:?}");
+                    continue;
+                }
+            };
+            match listing(&id) {
+                Ok((title, fam, all)) => {
+                    let mains: Vec<String> = all.iter().filter(|f| f.main).map(|f| format!("{}[{}]", f.version, f.arch)).collect();
+                    match choose(title.clone(), fam, all, &have) {
+                        Ok(app) => {
+                            let m = app.files.iter().find(|f| f.main).map(|f| f.version.clone()).unwrap_or_default();
+                            let v = newer(&m, &ver);
+                            match v {
+                                Newer::Yes => yes += 1,
+                                Newer::Unsure => unsure += 1,
+                                Newer::SameBuild => hidden += 1,
+                                Newer::No => same += 1,
+                            }
+                            println!("{title:<42} installed {ver:<20} listed {mains:?} chosen {m:<20} => {v:?}");
+                        }
+                        Err(e) => println!("{title:<42} not chosen: {e}"),
+                    }
+                }
+                Err(e) => {
+                    errors += 1;
+                    println!("{family:<56} listing error: {e}");
+                }
+            }
+        }
+        println!("SUMMARY: {yes} updates, {unsure} unticked (other numbering), {hidden} hidden (other numbering, not newer), {same} up to date, {errors} errors");
+    }
+
+    fn pf(name: &str, pkg: &str, ver: &str, arch: &str, main: bool) -> PkgFile {
+        PkgFile { name: name.into(), package: pkg.into(), version: ver.into(), arch: arch.into(), size: 1_000_000, main, sha1: String::new(), sha256: None, update: (String::new(), String::new()), url: None, have: false }
+    }
+
+    /// The app's bundle as Microsoft lists it, in a given version.
+    fn bundle(pkg: &str, ver: &str) -> PkgFile {
+        pf(&format!("{pkg}_{ver}_neutral_~_8wekyb3d8bbwe.msixbundle"), pkg, ver, "neutral", true)
+    }
+
+    fn have_of(items: &[(&str, &str, &str)]) -> Have {
+        let mut h: Have = HashMap::new();
+        for (n, a, v) in items {
+            h.entry((n.to_lowercase(), a.to_lowercase())).or_default().push(version_key(v));
+        }
+        h
+    }
+
+    #[test]
+    fn a_version_is_four_numbers_whatever_it_looks_like() {
+        assert_eq!(version_key("1.0"), vec![1, 0, 0, 0]);
+        assert_eq!(version_key("1.0.0.0"), vec![1, 0, 0, 0]);
+        assert_eq!(version_key("11.2607.0.0"), vec![11, 2607, 0, 0]);
+        assert_eq!(version_key(" 2.5.33.0 "), vec![2, 5, 33, 0]);
+        assert_eq!(version_key("65535.65535.65535.65535"), vec![65535; 4]);
+        // not numbers, or too big for one: a part counts as 0, nothing panics
+        assert_eq!(version_key(""), vec![0, 0, 0, 0]);
+        assert_eq!(version_key("abc"), vec![0, 0, 0, 0]);
+        assert_eq!(version_key("1.2.x.4"), vec![1, 2, 0, 4]);
+        assert_eq!(version_key("99999999999999999999999.1"), vec![0, 1, 0, 0]);
+        // "1.0" and "1.0.0.0" are the same version, so neither is an update of the other
+        assert_eq!(newer("1.0", "1.0.0.0"), Newer::No);
+        assert_eq!(newer("1.0.0.0", "1.0"), Newer::No);
+        assert_eq!(newer("1.0.0.1", "1.0"), Newer::Yes);
+    }
+
+    /// Every version Microsoft listed for this PC's Store apps on 2026-10-23, against what was installed.
+    #[test]
+    fn what_this_pcs_apps_would_be_offered() {
+        let rows = [
+            // (app, installed, listed, what Deck must do)
+            ("Windows Terminal", "1.24.12741.0", "3001.24.12741.0", Newer::SameBuild),
+            ("Calculator", "11.2607.0.0", "2021.2607.0.0", Newer::SameBuild),
+            ("Snipping Tool", "11.2608.41.0", "2022.2608.41.0", Newer::SameBuild),
+            ("To Do", "0.178.8571.0", "2.178.8571.0", Newer::SameBuild),
+            ("Cross Device Experience Host", "0.26082.74.0", "1.26082.74.0", Newer::SameBuild),
+            ("Realtek Audio Control", "1.52.357.0", "2.54.397.0", Newer::Unsure),
+            ("App Installer", "1.29.380.0", "2026.917.151.0", Newer::Unsure),
+            ("Xbox Identity Provider", "12.130.16001.0", "2017.523.613.1000", Newer::Unsure),
+            ("HEVC Video Extensions", "2.5.33.0", "2.5.48.0", Newer::Yes),
+            ("Intel Application Optimization", "9.0.11662.0", "9.1.10188.0", Newer::Yes),
+            ("Microsoft Store", "22608.1401.7.0", "22609.1401.6.0", Newer::Yes),
+            ("Raw Image Extension", "2.5.35.0", "2.5.42.0", Newer::Yes),
+            ("XBOX", "2609.1001.20.0", "2610.1001.20.0", Newer::Yes),
+        ];
+        for (app, installed, listed, want) in rows {
+            assert_eq!(newer(listed, installed), want, "{app}: {installed} -> {listed}");
+        }
+    }
+
+    /// Whatever the two versions are: never an update to the same or an older one, never an update both
+    /// ways, and "numbered the same way" only when the first numbers say so.
+    #[test]
+    fn no_pair_of_versions_is_an_update_the_wrong_way() {
+        let v = [
+            "", "abc", "1.2.x", "0.0.0.0", "1.0", "1.0.0.0", "1.0.0.1", "1.2.3.4", "2.0.0.0", "9.9.9.9", "11.2607.0.0", "11.2608.41.0", "12.130.16001.0", "2021.2607.0.0",
+            "2022.2608.41.0", "2017.523.613.1000", "2609.1001.20.0", "2610.1001.20.0", "2701.1001.20.0", "22608.1401.7.0", "22609.1401.6.0", "3001.24.12741.0", "1.24.12741.0",
+            "65535.65535.65535.65535", "0.178.8571.0", "2.178.8571.0", "1000.0.0.0", "1200.0.0.0", "1201.0.0.0", "999.1.1.1",
+        ];
+        for a in v {
+            assert_eq!(newer(a, a), Newer::No, "{a} is not an update of itself");
+            for b in v {
+                let n = newer(a, b);
+                if n != Newer::No {
+                    assert!(version_key(a) > version_key(b), "{a} offered over {b} but it is not higher");
+                    assert_eq!(newer(b, a), Newer::No, "{a} and {b} are each an update of the other");
+                }
+                if n == Newer::Yes {
+                    assert!(same_scheme(&version_key(a), &version_key(b)), "{a} over {b} is called a plain update but is numbered another way");
+                }
+                if matches!(n, Newer::SameBuild | Newer::Unsure) {
+                    assert!(!same_scheme(&version_key(a), &version_key(b)), "{a} over {b}: another numbering that is also the same");
+                }
+            }
+        }
+        // build counters a few months apart are the same numbering; a year or more apart are not
+        assert!(same_scheme(&version_key("2609.1.1.1"), &version_key("2610.1.1.1")));
+        assert!(same_scheme(&version_key("2512.1.1.1"), &version_key("2601.1.1.1")));
+        assert!(!same_scheme(&version_key("2022.1.1.1"), &version_key("2608.1.1.1")));
+        assert!(!same_scheme(&version_key("11.1.1.1"), &version_key("2021.1.1.1")));
+    }
+
+    /// One Store listing holds a Windows 11 build and a Windows 10 build of an app (Calculator 11.x and
+    /// 2021.x). Each PC must stay on its own, whichever number is higher.
+    #[test]
+    fn each_windows_stays_on_its_own_build_of_an_app() {
+        let calc = "Microsoft.WindowsCalculator";
+        let vclibs = pf("Microsoft.VCLibs.140.00_14.0.33519.0_x64__8we.appx", "Microsoft.VCLibs.140.00", "14.0.33519.0", "x64", false);
+        let listing = |versions: &[&str]| -> Vec<PkgFile> { versions.iter().map(|v| bundle(calc, v)).chain([vclibs.clone()]).collect() };
+        let main_of = |a: &App| a.files.iter().find(|f| f.main).unwrap().version.clone();
+
+        // Windows 11 PC, up to date: the 11.x build is chosen, nothing to update, though 2021.x is higher
+        let win11 = have_of(&[(calc, "x64", "11.2607.0.0"), ("Microsoft.VCLibs.140.00", "x64", "14.0.33519.0")]);
+        let a = choose("Calculator".into(), "F".into(), listing(&["11.2607.0.0", "2021.2607.0.0"]), &win11).unwrap();
+        assert_eq!(main_of(&a), "11.2607.0.0");
+        assert!(a.files.iter().find(|f| !f.main).unwrap().have, "the framework it needs is already here");
+        assert!(update_of("9WZDNCRFHVN5", "F", "11.2607.0.0", &a).is_none());
+        // ...and when the 11.x build has a newer version, that is the update, ticked
+        let a = choose("Calculator".into(), "F".into(), listing(&["11.2607.0.0", "11.2608.0.0", "2021.2608.0.0"]), &win11).unwrap();
+        let u = update_of("9WZDNCRFHVN5", "F", "11.2607.0.0", &a).unwrap();
+        assert_eq!((u.latest.as_str(), u.odd), ("11.2608.0.0", false));
+
+        // Windows 10 PC: installed 2021.x, so the 2021.x build is the one followed
+        let win10 = have_of(&[(calc, "x64", "2021.2607.0.0")]);
+        let a = choose("Calculator".into(), "F".into(), listing(&["11.2607.0.0", "2021.2607.0.0", "2021.2608.0.0"]), &win10).unwrap();
+        assert_eq!(main_of(&a), "2021.2608.0.0");
+        assert!(update_of("9WZDNCRFHVN5", "F", "2021.2607.0.0", &a).is_some());
+
+        // the PC is on 11.2608 and Microsoft lists only 11.2607 and 2022.2608: not an update (the old rule offered 2022.x)
+        let a = choose("Calculator".into(), "F".into(), listing(&["11.2607.0.0", "2022.2608.0.0"]), &have_of(&[(calc, "x64", "11.2608.0.0")])).unwrap();
+        assert_eq!(main_of(&a), "11.2607.0.0");
+        assert!(update_of("X", "F", "11.2608.0.0", &a).is_none());
+
+        // only another numbering listed: the same build is hidden, a clearly newer one is offered unticked
+        let term = "Microsoft.WindowsTerminal";
+        let a = choose("Terminal".into(), "F".into(), vec![bundle(term, "3001.24.12741.0")], &have_of(&[(term, "x64", "1.24.12741.0")])).unwrap();
+        assert!(update_of("X", "F", "1.24.12741.0", &a).is_none(), "the same build under another number");
+        let a = choose("Realtek".into(), "F".into(), vec![bundle("RealtekSemiconductorCorp.RealtekAudioControl", "2.54.397.0")], &have_of(&[("RealtekSemiconductorCorp.RealtekAudioControl", "x64", "1.52.357.0")])).unwrap();
+        let u = update_of("X", "F", "1.52.357.0", &a).unwrap();
+        assert!(u.odd, "offered, but not ticked");
+    }
+
+    #[test]
+    fn the_choice_does_not_depend_on_what_is_installed_for_dependencies_or_architecture() {
+        let have = have_of(&[("App", "x64", "11.0.0.0")]);
+        let list = vec![
+            pf("App_11.0.0.0_x64__p.appx", "App", "11.0.0.0", "x64", true),
+            pf("App_2021.0.0.0_x64__p.appx", "App", "2021.0.0.0", "x64", true),
+            pf("App_11.0.0.0_arm64__p.appx", "App", "11.0.0.0", "arm64", true),
+            pf("Dep_2021.0.0.0_x64__p.appx", "Dep", "2021.0.0.0", "x64", false),
+            pf("Dep_11.0.0.0_x64__p.appx", "Dep", "11.0.0.0", "x64", false),
+        ];
+        let names: Vec<String> = pick_for(list.clone(), Some(&[11, 0, 0, 0])).into_iter().map(|f| f.name).collect();
+        // the newest dependency, whatever its numbering; the app in the installed numbering, for this PC's architecture
+        assert_eq!(names, vec!["Dep_2021.0.0.0_x64__p.appx", "App_11.0.0.0_x64__p.appx"]);
+        let a = choose("App".into(), "F".into(), list, &have).unwrap();
+        assert!(a.files.iter().any(|f| f.main && f.version == "11.0.0.0"));
+        // nothing installed, or nothing to say which numbering: the highest, as before
+        let all: Vec<String> = pick_for(vec![pf("App_11.0.0.0_x64__p.appx", "App", "11.0.0.0", "x64", true), pf("App_2021.0.0.0_x64__p.appx", "App", "2021.0.0.0", "x64", true)], None).into_iter().map(|f| f.version).collect();
+        assert_eq!(all, vec!["2021.0.0.0"]);
+    }
+
+    #[test]
+    fn an_app_installed_twice_is_checked_once_at_its_newest_version() {
+        let l: Vec<Value> = vec![
+            json!({"PackageFamilyName": "A_8we", "V": "1.2.0.0"}),
+            json!({"PackageFamilyName": "A_8we", "V": "1.10.0.0"}),
+            json!({"PackageFamilyName": "B_8we", "V": "5.0.0.0"}),
+            json!({"PackageFamilyName": "A_8we", "V": "1.9.0.0"}),
+            json!({"PackageFamilyName": null, "V": "1.0.0.0"}),
+            json!({"V": "1.0.0.0"}),
+        ];
+        assert_eq!(newest_by_family(&l), vec![("A_8we".to_string(), "1.10.0.0".to_string()), ("B_8we".to_string(), "5.0.0.0".to_string())]);
+        assert!(newest_by_family(&[]).is_empty());
+    }
+
+    #[test]
+    fn a_version_that_is_not_newer_is_not_downloaded() {
+        let have = have_of(&[("App", "x64", "2.5.35.0")]);
+        let app = |v: &str| choose("App".into(), "F".into(), vec![bundle("App", v)], &have).unwrap();
+        assert!(not_newer(&app("2.5.35.0"), &have), "the same version: a list that missed the newest");
+        assert!(not_newer(&app("2.4.43.0"), &have), "an older one");
+        assert!(!not_newer(&app("2.5.42.0"), &have), "a newer one");
+        // not installed here: a new install, nothing to compare with
+        assert!(!not_newer(&app("1.0.0.0"), &have_of(&[])));
+    }
+
+    #[test]
+    fn the_leftover_sweep_removes_only_what_nothing_needs() {
+        let root = std::env::temp_dir().join(format!("deck-sweep-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let put = |dir: &str, file: &str, bytes: usize| {
+            let d = root.join(dir);
+            std::fs::create_dir_all(&d).unwrap();
+            std::fs::write(d.join(file), vec![7u8; bytes]).unwrap();
+        };
+        put("9AAAAAAAAAAA", "kept.msix.part", 100); // an update on offer
+        put("9BBBBBBBBBBB", "a.msixbundle.part", 2000); // nothing needs it
+        put("9CCCCCCCCCCC", "b.appx", 300); // nothing needs it
+        put("notes", "mine.txt", 10); // not a Store id's name
+        put("9DDDDDDDDDDD", "c.appx", 400); // a job of it exists
+        std::fs::write(root.join("jobs.json"), b"[]").unwrap();
+        let keep: std::collections::HashSet<String> = ["9AAAAAAAAAAA", "9DDDDDDDDDDD"].iter().map(|s| s.to_string()).collect();
+        // just written: not touched yet (a download might be starting)
+        assert_eq!(sweep_in(&root, &keep, Duration::from_secs(3600)), (0, 0));
+        assert!(root.join("9BBBBBBBBBBB").exists());
+        // old enough: the two nobody needs go, with their size
+        let (n, bytes) = sweep_in(&root, &keep, Duration::ZERO);
+        assert_eq!((n, bytes), (2, 2300));
+        assert!(!root.join("9BBBBBBBBBBB").exists() && !root.join("9CCCCCCCCCCC").exists());
+        assert!(root.join("9AAAAAAAAAAA").exists() && root.join("9DDDDDDDDDDD").exists() && root.join("notes").exists() && root.join("jobs.json").exists());
+        // again: nothing left to remove; a missing folder is no error
+        assert_eq!(sweep_in(&root, &keep, Duration::ZERO), (0, 0));
+        let _ = std::fs::remove_dir_all(&root);
+        assert_eq!(sweep_in(&root, &keep, Duration::ZERO), (0, 0));
+    }
+
+    /// A check saved by an older Deck has no `odd` flag and no `retrying` count: it must still load.
+    #[test]
+    fn a_saved_check_from_an_older_deck_still_loads() {
+        let old = r#"{"checking":false,"done":41,"total":41,"updates":[{"id":"9NBLGGH4NNS1","title":"App Installer","family":"Microsoft.DesktopAppInstaller_8wekyb3d8bbwe","installed":"1.29.380.0","latest":"2026.917.151.0","size":30000000}],"store_only":[],"failed":[["Xbox.TCUI","why"]],"not_in_store":3,"at":1792700000,"error":null}"#;
+        let c: UpdateCheck = serde_json::from_str(old).unwrap();
+        assert_eq!((c.updates.len(), c.updates[0].odd, c.retrying, c.failed.len(), c.not_in_store), (1, false, 0, 1, 3));
+        // and what is saved now loads again
+        let again: UpdateCheck = serde_json::from_slice(&serde_json::to_vec(&c).unwrap()).unwrap();
+        assert_eq!(again.updates[0].title, "App Installer");
+    }
+
+    #[test]
+    fn what_cannot_install_here_is_marked_so_its_download_is_deleted() {
+        // the mark `run` looks for is the one `install` puts in its message
+        let src = include_str!("storedl.rs");
+        assert!(src.contains("{NEEDS_MARK}: {}") && src.contains("e.contains(NEEDS_MARK)"));
+    }
 
     /// What a package file on this PC needs that it lacks. `DECK_PKG=C:\path\x.msixbundle cargo test prerequisites_of_a_package_here -- --ignored --nocapture`
     #[test]
@@ -1186,7 +1650,22 @@ fn store_installed() -> Vec<(String, String)> {
         o @ Value::Object(_) => vec![o],
         _ => vec![],
     };
-    list.iter().filter_map(|p| Some((p["PackageFamilyName"].as_str()?.to_string(), p["V"].as_str()?.to_string()))).collect()
+    newest_by_family(&list)
+}
+
+/// An app installed for two architectures, or for two users, is listed once, at its newest version.
+fn newest_by_family(list: &[Value]) -> Vec<(String, String)> {
+    let mut newest: HashMap<String, String> = HashMap::new();
+    for p in list {
+        let (Some(f), Some(v)) = (p["PackageFamilyName"].as_str(), p["V"].as_str()) else { continue };
+        let e = newest.entry(f.to_string()).or_insert_with(|| v.to_string());
+        if version_key(v) > version_key(e) {
+            *e = v.to_string();
+        }
+    }
+    let mut out: Vec<(String, String)> = newest.into_iter().collect();
+    out.sort();
+    out
 }
 
 /// Starts checking every Store app of yours against Microsoft's servers (the same service the
@@ -1202,6 +1681,7 @@ pub fn check_updates() -> Result<(), String> {
     std::thread::Builder::new()
         .name("store-updates".into())
         .spawn(|| {
+            forget_installed();
             let apps = if crate::settings::is_test_profile() { Vec::new() } else { store_installed() };
             if let Some(c) = CHECK.lock().as_mut() {
                 c.total = apps.len();
@@ -1254,9 +1734,28 @@ pub fn check_updates() -> Result<(), String> {
                 let _ = crate::util::write_atomic(&path, &serde_json::to_vec(&*c).unwrap_or_default());
                 crate::log::info(format!("tweaks: Store update check: {} of {} apps have updates", c.updates.len(), c.total));
             }
+            sweep_store();
         })
         .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+/// The update `app` (the files chosen for this PC) is for the app installed as `installed`, if it is one:
+/// newer and numbered the same way, or clearly newer but numbered another way (`odd`).
+fn update_of(id: &str, family: &str, installed: &str, app: &App) -> Option<Update> {
+    let main = app.files.iter().find(|f| f.main)?;
+    let verdict = newer(&main.version, installed);
+    if !matches!(verdict, Newer::Yes | Newer::Unsure) {
+        return None;
+    }
+    let size = app.files.iter().filter(|f| !f.have).map(|f| f.size).sum();
+    Some(Update { id: id.into(), title: app.title.clone(), family: family.into(), installed: installed.into(), latest: main.version.clone(), size, odd: verdict == Newer::Unsure })
+}
+
+/// The app's own package in `app` is not newer than the one installed here (nothing to update to).
+fn not_newer(app: &App, have: &Have) -> bool {
+    let Some(main) = app.files.iter().find(|f| f.main) else { return false };
+    installed_version(have, &main.package).is_some_and(|i| version_key(&main.version) <= i)
 }
 
 /// An app Microsoft's servers couldn't answer for (so it can be asked about again).
@@ -1303,13 +1802,16 @@ fn check_one(family: &str, installed: &str) -> Result<(), Turned> {
     };
     match find(&id) {
         Ok(app) => {
-            let Some(main) = app.files.iter().find(|f| f.main) else { return Ok(()) };
-            let verdict = newer(&main.version, installed);
-            if matches!(verdict, Newer::Yes | Newer::Unsure) {
-                let size = app.files.iter().filter(|f| !f.have).map(|f| f.size).sum();
+            if let Some(u) = update_of(&id, family, installed, &app) {
                 if let Some(c) = CHECK.lock().as_mut() {
-                    c.updates.push(Update { id, title: app.title, family: family.into(), installed: installed.into(), latest: main.version.clone(), size, odd: verdict == Newer::Unsure });
+                    c.updates.push(u);
                 }
+            }
+        }
+        // a Store listing with no package of its own (a desktop app the Store only links to): nothing to compare
+        Err(e) if e == "NOT_PACKAGED" => {
+            if let Some(c) = CHECK.lock().as_mut() {
+                c.not_in_store += 1;
             }
         }
         Err(e) if e.contains("protected") => {

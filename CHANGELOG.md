@@ -2,11 +2,6 @@
 
 All notable changes to Deck. Setups for each version are on the [Releases](https://github.com/MohammadFakih02/deck/releases) page.
 
-## Unreleased
-
-### Fixed
-- **A Store update that Windows refuses now says why.** "A prerequisite for an install could not be satisfied" (0x80073CFD) told nothing; Deck now reads the package's own list of needs and names what this PC lacks (a driver, a framework package, or a newer Windows), and says the app on this PC is unchanged. Example: Realtek Audio Control 2.54.397 needs the driver Realtek-RealtekRS5HSA.inf, which this PC doesn't have.
-
 ## 2.8.4 — 2026-10-23
 
 ### New
@@ -14,6 +9,12 @@ All notable changes to Deck. Setups for each version are on the [Releases](https
 
 ### Fixed
 - **Store "updates" that were only another version number are gone.** Microsoft lists many apps a second time under a different kind of number (Windows Terminal 3001.24.12741.0 for the 1.24.12741.0 you have, Calculator 2021.2607 for 11.2607, Snipping Tool 2022.2608.41 for 11.2608.41), and Deck took the highest number. Those are the same build and are no longer offered. One listed under another numbering but with a clearly higher build part (Realtek Audio Control 1.52.357 → 2.54.397) is still shown, flagged "Different version numbering", and not ticked.
+- **A Store update that Windows refuses now says why.** "A prerequisite for an install could not be satisfied" (0x80073CFD) told nothing; Deck now reads the package's own list of needs and names what this PC lacks (a driver, a framework package, or a newer Windows), and says the app on this PC is unchanged. Example: Realtek Audio Control 2.54.397 needs the driver Realtek-RealtekRS5HSA.inf, which this PC doesn't have.
+- **Leftover downloads are removed.** Downloads of updates that were dropped, never installed or can never install stay in Deck's store folder for good (1.1 GB of them on one PC). Deck now removes the folders nothing needs after every check and after "Clear finished", and a package Windows refuses for a missing driver or newer Windows is deleted right away, since "Try again" could never work.
+- **The right build of an app is followed.** One Store listing holds packages for several Windows versions under different numbering (Calculator 11.x for Windows 11, 2021.x for Windows 10; Realtek 1.5x and 2.5x), and Deck took the highest number. It now follows the numbering of the installed app (Realtek's update is 1.54.396, not 2.54.397, which needs a driver this PC lacks), versions are compared as four numbers ("1.0" equals "1.0.0.0"), and an app installed twice is checked once.
+- **No download for a version that isn't newer.** Microsoft's update service sometimes answers with an older list than a moment before (the newest version missing). Before downloading, Deck checks that the version is really newer than the installed one, asks again a few times if not, and otherwise stops with a clear message instead of downloading the same version.
+- **The Store catalog lookup is retried too**, and its errors no longer show the whole web address. A Store listing with no package of its own is counted as not checkable, not as a failure, and the failure note lists each different reason.
+- **Faster checks:** the list of installed packages is read once per check instead of once per app.
 - **"N apps couldn't be checked … status code 500".** Microsoft's update service sometimes answers a server error or turns requests away when it is busy; Deck gave up on the first one. Now each request is tried up to 4 times with waits in between, Deck asks four apps at a time instead of six and reuses its session cookie, and the apps still turned away are asked about once more, one at a time, at the end ("Asking again for N apps…"). If some still fail, the note names them, says what the error means and that Deck already tried several times, and has a **Try those again** button.
 
 ## 2.8.3 — 2026-10-23

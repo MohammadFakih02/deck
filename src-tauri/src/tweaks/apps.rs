@@ -235,11 +235,8 @@ pub(super) fn product_for_family(family: &str) -> Option<String> {
 pub(super) fn product_lookup(family: &str) -> Result<Option<String>, String> {
     let (market, loc) = super::storedl::market();
     let url = format!("https://displaycatalog.mp.microsoft.com/v7.0/products/lookup?alternateId=PackageFamilyName&value={family}&market={market}&languages={loc}&fieldsTemplate=details");
-    let v: Value = match crate::log::http_agent().get(&url).timeout(Duration::from_secs(15)).call() {
-        Ok(r) => r.into_json().map_err(|e| format!("The Store catalog's answer couldn't be read: {e}"))?,
-        Err(ureq::Error::Status(404, _)) => return Ok(None),
-        Err(e) => return Err(format!("the Store catalog didn't answer ({e})")),
-    };
+    // tried again when the catalog errs or is silent (and no URL in the message: it holds the app's name)
+    let Some(v) = super::storedl::catalog_get("The Store catalog", &url, crate::log::http_agent())? else { return Ok(None) };
     Ok(v["BigIds"].as_array().and_then(|a| a.first()).and_then(|x| x.as_str()).map(String::from))
 }
 
