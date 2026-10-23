@@ -440,10 +440,13 @@ async function stopUpdate(id) {
   pollJobs();
 }
 
+/** Whether an update is ticked: what the user chose, else ticked unless its version is numbered another way. */
+const ticked = (x) => (S.cache.twTick ||= new Map()).has(x.id) ? S.cache.twTick.get(x.id) : !x.odd;
+
 async function storeAll(btn) {
   const u = S.cache.twUpd;
   // the Store updates every app: apps unticked here would be updated too, so ask first
-  const skipped = (u?.updates || []).filter((x) => (S.cache.twUnticked || new Set()).has(x.id));
+  const skipped = (u?.updates || []).filter((x) => !ticked(x));
   if (skipped.length && !await confirmBox("The Store can't skip apps", `Windows' Store update has no way to leave apps out: it updates every app that has an update, including the ${skipped.length} you unticked (${skipped.map((x) => x.title).join(", ")}). Update them all anyway? To leave those out, use "Update selected here" instead.`, "Update all with the Store")) return;
   if (btn) { btn.disabled = true; btn.textContent = "Asking the Store…"; }
   let r;
@@ -453,7 +456,7 @@ async function storeAll(btn) {
   const list = (title, names) => names?.length ? [h("b", null, title), h("ul", { style: { margin: "0 0 0 18px", padding: 0 } }, names.map((n) => h("li", { class: "small" }, n.replace(/^Microsoft\./, ""))))] : null;
   const btns = (close) => [
     h("button", { class: "btn", onclick: () => { close(); storePage(); } }, I("external", "sm"), "Open the Store's Downloads"),
-    u?.updates?.length ? h("button", { class: "btn primary", onclick: () => { close(); updateHere(u.updates.filter((x) => !(S.cache.twUnticked || new Set()).has(x.id))); } }, I("download", "sm"), "Update the ticked ones here instead") : null,
+    u?.updates?.length ? h("button", { class: "btn primary", onclick: () => { close(); updateHere(u.updates.filter(ticked)); } }, I("download", "sm"), "Update the ticked ones here instead") : null,
     h("button", { class: "btn ghost", onclick: close }, "Close")];
   let title, body;
   if (r.error) {
@@ -516,13 +519,13 @@ function updatesBox() {
     h("button", { class: "btn sm", disabled: !!u?.checking, onclick: checkUpdates }, I("refresh", "sm"), u?.checking ? (u.retrying ? `Asking again for ${u.retrying} app${u.retrying > 1 ? "s" : ""}…` : `Checking ${u.done} of ${u.total || "…"}`) : checked ? "Check again" : "Check for updates"));
   const busy = (S.cache.twQueue || []).length || u?.updates?.some((x) => running(x.id));
   // which updates to do: every one is ticked until the user unticks it (the choice is kept while Deck is open)
-  const unticked = (S.cache.twUnticked ||= new Set());
+  const tick = S.cache.twTick ||= new Map();
   const todo = checked ? u.updates.filter((x) => !running(x.id) && jobOf(x.id)?.phase !== "done") : [];
-  const picked = todo.filter((x) => !unticked.has(x.id));
+  const picked = todo.filter(ticked);
   const all = checked && u.updates.length ? h("div", { class: "row wrap", style: { gap: "8px" } },
     todo.length > 1 ? h("span", { class: "small dim", role: "status" }, `${picked.length} of ${todo.length} ticked`) : null,
-    todo.length > 1 && picked.length < todo.length ? h("button", { class: "btn sm ghost", onclick: () => { for (const x of todo) unticked.delete(x.id); render(); } }, "Tick all") : null,
-    todo.length > 1 && picked.length > 0 ? h("button", { class: "btn sm ghost", onclick: () => { for (const x of todo) unticked.add(x.id); render(); } }, "Untick all") : null,
+    todo.length > 1 && picked.length < todo.length ? h("button", { class: "btn sm ghost", onclick: () => { for (const x of todo) tick.set(x.id, true); render(); } }, "Tick all") : null,
+    todo.length > 1 && picked.length > 0 ? h("button", { class: "btn sm ghost", onclick: () => { for (const x of todo) tick.set(x.id, false); render(); } }, "Untick all") : null,
     busy ? h("button", { class: "btn sm", onclick: () => stopUpdate() }, I("x", "sm"), "Stop all") : null,
     !busy && u.updates.some((x) => ["interrupted", "cancelled", "failed"].includes(jobOf(x.id)?.phase)) ? h("button", { class: "btn sm primary", onclick: () => updateHere(u.updates.filter((x) => ["interrupted", "cancelled", "failed"].includes(jobOf(x.id)?.phase))) }, I("refresh", "sm"), "Carry on all") : null,
     h("button", { class: "btn sm primary", disabled: !picked.length, title: picked.length ? null : "Tick at least one app", onclick: () => updateHere(picked) }, I("download", "sm"),
@@ -530,8 +533,9 @@ function updatesBox() {
     h("button", { class: "btn sm", onclick: (e) => storeAll(e.currentTarget), title: "Windows' own Store update: also updates paid and protected apps. It updates every app: it can't skip the unticked ones." }, "Update all with the Microsoft Store")) : null;
   const queued = (id) => (S.cache.twQueue || []).includes(id);
   const rows = checked ? u.updates.map((x) => { const j = jobOf(x.id); const act = running(x.id); return h("div", { class: "card tw-store" }, h("div", { class: "row wrap" },
-    todo.length > 1 && todo.includes(x) ? h("input", { type: "checkbox", class: "tw-pick", checked: !unticked.has(x.id), "aria-label": `Include ${x.title} in the update`, title: "Ticked apps are updated by the update-all button", onchange: (e) => { e.target.checked ? unticked.delete(x.id) : unticked.add(x.id); render(); } }) : null,
-    h("div", { class: "grow" }, h("b", null, x.title), h("div", { class: "dim small" }, `${x.installed} → ${x.latest}`, x.size ? ` · ${fmtBytes(x.size)}` : ""),
+    todo.length > 1 && todo.includes(x) ? h("input", { type: "checkbox", class: "tw-pick", checked: ticked(x), "aria-label": `Include ${x.title} in the update`, title: "Ticked apps are updated by the update-all button", onchange: (e) => { tick.set(x.id, e.target.checked); render(); } }) : null,
+    h("div", { class: "grow" }, h("b", null, x.title), h("div", { class: "dim small" }, `${x.installed} → ${x.latest}`, x.size ? ` · ${fmtBytes(x.size)}` : "",
+        x.odd ? h("span", { class: "chip warn", style: { marginLeft: "8px" }, title: `Microsoft lists this one with a different kind of version number than the one you have (${x.installed} vs ${x.latest}). It may be newer, the same build or a different branch of the app, so Deck doesn't tick it for you. Tick it if you want it.` }, I("alert", "sm"), "Different version numbering: not ticked") : null),
       updStatus(x, j, queued(x.id))),
     j?.phase === "done" ? h("span", { class: "chip good" }, I("check", "sm"), "Updated")
       : act || queued(x.id) ? h("button", { class: "btn sm", onclick: () => stopUpdate(x.id), title: act ? "Stops it. What's downloaded is kept, so Carry on picks up from there." : "Takes it out of the line" }, I("x", "sm"), act ? "Stop" : "Don't update")

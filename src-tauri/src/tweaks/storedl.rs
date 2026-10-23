@@ -290,6 +290,40 @@ fn version_key(v: &str) -> Vec<u64> {
     v.split('.').map(|p| p.parse().unwrap_or(0)).collect()
 }
 
+/// What Microsoft's version is to the installed one.
+#[derive(Debug, PartialEq)]
+enum Newer {
+    /// not newer (or the same)
+    No,
+    /// newer, numbered the same way
+    Yes,
+    /// a higher first number but the rest the same or lower: the same build (or an older one) listed under
+    /// another numbering (Snipping Tool 11.2608.41.0 here, 2022.2608.41.0 there): no update
+    SameBuild,
+    /// another first number and a higher rest (Realtek 1.52.357.0 → 2.54.397.0): maybe newer, maybe a
+    /// different branch of the app, so only offered, unticked
+    Unsure,
+}
+
+fn newer(latest: &str, installed: &str) -> Newer {
+    let (l, i) = (version_key(latest), version_key(installed));
+    if l <= i {
+        return Newer::No;
+    }
+    if l.first() == i.first() {
+        return Newer::Yes;
+    }
+    // both first numbers are build counters (Xbox 2609 → 2610, Store 22608 → 22609): a plain update
+    if i.first().is_some_and(|f| *f >= 1000) && l.first().is_some_and(|f| *f >= 1000) {
+        return Newer::Yes;
+    }
+    if l.get(1..).unwrap_or(&[]) > i.get(1..).unwrap_or(&[]) {
+        Newer::Unsure
+    } else {
+        Newer::SameBuild
+    }
+}
+
 /// The app's files for this PC: the newest of each package that runs here (a bundle for the app
 /// when there is one), encrypted (paid/DRM) packages left out.
 fn pick(all: Vec<PkgFile>) -> Vec<PkgFile> {
@@ -822,6 +856,28 @@ pub fn to_fluxdm(id: &str) -> Result<usize, String> {
 mod tests {
     use super::*;
 
+    /// 2026-10-23: Microsoft lists many apps under a second numbering (Windows Terminal 3001.24.12741.0 for
+    /// the 1.24.12741.0 that is installed). Taking the highest number offered "updates" that were the same
+    /// build, and one (Xbox Identity Provider 2017.523.613.1000) that is far older.
+    #[test]
+    fn another_numbering_is_not_an_update_unless_it_is_clearly_newer() {
+        // the same build under another first number: nothing to update
+        assert_eq!(newer("3001.24.12741.0", "1.24.12741.0"), Newer::SameBuild, "Windows Terminal");
+        assert_eq!(newer("2021.2607.0.0", "11.2607.0.0"), Newer::SameBuild, "Calculator");
+        assert_eq!(newer("2022.2608.41.0", "11.2608.41.0"), Newer::SameBuild, "Snipping Tool");
+        assert_eq!(newer("2.178.8571.0", "0.178.8571.0"), Newer::SameBuild, "To Do");
+        // another numbering with a higher rest: offered, not ticked
+        assert_eq!(newer("2.54.397.0", "1.52.357.0"), Newer::Unsure, "Realtek Audio Control");
+        // numbered the same way: a normal update
+        assert_eq!(newer("2.5.48.0", "2.5.33.0"), Newer::Yes, "HEVC Video Extensions");
+        assert_eq!(newer("2610.1001.20.0", "2609.1001.20.0"), Newer::Yes, "Xbox");
+        assert_eq!(newer("22609.1401.6.0", "22608.1401.7.0"), Newer::Yes, "Microsoft Store");
+        // the same or older
+        assert_eq!(newer("1.24.12741.0", "1.24.12741.0"), Newer::No);
+        assert_eq!(newer("1.2.0.0", "1.3.0.0"), Newer::No);
+        assert_eq!(newer("1.0", "1.0.0.0"), Newer::No);
+    }
+
     fn status(code: u16) -> Box<ureq::Error> {
         Box::new(ureq::Error::Status(code, ureq::Response::new(code, "x", "").unwrap()))
     }
@@ -976,6 +1032,10 @@ pub struct Update {
     pub latest: String,
     /// what the update downloads (the app, and dependencies this PC lacks)
     pub size: u64,
+    /// its version is numbered another way than the installed one (11.x here, 2022.x there): it
+    /// may be newer, the same build or older, so it is not ticked to start with
+    #[serde(default)]
+    pub odd: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Default)]
@@ -1155,10 +1215,11 @@ fn check_one(family: &str, installed: &str) -> Result<(), Turned> {
     match find(&id) {
         Ok(app) => {
             let Some(main) = app.files.iter().find(|f| f.main) else { return Ok(()) };
-            if version_key(&main.version) > version_key(installed) {
+            let verdict = newer(&main.version, installed);
+            if matches!(verdict, Newer::Yes | Newer::Unsure) {
                 let size = app.files.iter().filter(|f| !f.have).map(|f| f.size).sum();
                 if let Some(c) = CHECK.lock().as_mut() {
-                    c.updates.push(Update { id, title: app.title, family: family.into(), installed: installed.into(), latest: main.version.clone(), size });
+                    c.updates.push(Update { id, title: app.title, family: family.into(), installed: installed.into(), latest: main.version.clone(), size, odd: verdict == Newer::Unsure });
                 }
             }
         }
