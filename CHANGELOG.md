@@ -2,7 +2,7 @@
 
 All notable changes to Deck. Setups for each version are on the [Releases](https://github.com/MohammadFakih02/deck/releases) page.
 
-## Unreleased
+## 2.8.3 — 2026-10-23
 
 ### Fixed
 - **Death counter: menus, prompts and item banners are no longer taken for bosses** (seen in Dark Souls II: "Inventory", "Rest at bonfire", "Pick an item", "Shop", item pick-up banners, an overlay's "10ms"). Text beside a bar that starts with a button's picture read as a letter, a clipped prompt, letters read one by one, an overlay reading (ms, fps, MB…) or a menu word is not a name, and a name Deck hasn't seen before must be read twice in a row before a fight opens on it, so a banner that changes or goes away opens nothing.

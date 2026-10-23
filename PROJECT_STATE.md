@@ -6,7 +6,9 @@ The dated history of the work. Last updated: 2026-10-22.
 
 > **RULE: before every commit, update the docs.** Add today's dated entry here, add user-visible changes to `CHANGELOG.md`, update `DECK.md` / `README.md` when facts change, and stage them in the same commit. The pre-commit hook enforces it; never bypass it. No personal data in these files (that goes in the git-ignored `PRIVATE_NOTES.md`).
 
-## 2026-10-23: Death counter: false bosses and missed deaths (unreleased)
+## 2026-10-23: v2.8.3 — death counter: false bosses and missed deaths
+
+Released at the user's request as **2.8.3** (tag `v2.8.3`, built and published by `release.yml`).
 
 From a Dark Souls II session (history in `%APPDATA%\Deck\deaths\exe-darksoulsii.jsonl`, log lines "boss bar in ...").
 - **False bosses** (`deaths/screen/boss.rs`): a bar-like strip in menus opened fights named after whatever text was in the name area ("g Inventory", "e Rest at bonfire", "ick an item", "Shop", "Falconer Armor" then "Human Effigy", an overlay's "10ms"). `clean_name` now rejects names `not_a_name` finds: a lone first letter (a button glyph), three or more lone letters (spaced garbage), a lowercase first word in a phrase of 3+, overlay readings (`10ms`, `144fps`…), and `MENU_WORDS`. `BossWatch.pending`: a name not known from an earlier fight must be read twice running (`same_boss`/`like_boss`) before `engage`; `give_up_naming` is the old nameless path. A try that started on an item banner also swallowed the real boss as "phase 4": the two-read rule prevents that. Old false fights stay in the history (delete the lines or mark "Not a boss").
